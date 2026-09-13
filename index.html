@@ -526,6 +526,9 @@ function applyPixelatedRendererSize() {
     const at1HitFrameStart = 11;
     const at1HitFrameEnd = 15;
     const at2HitFrame = 10;
+    const ct1AttackForwardOffset = 0.1;
+    const jumpAttackFrame = 22;
+    let jumpAttackHitApplied = false;
     // ★ at1のみ1.5倍速
     const at1PlaybackSpeed = 1.5;
     const clock = new THREE.Clock();
@@ -619,11 +622,16 @@ function applyPixelatedRendererSize() {
                             ? oldMaterial
                             : [oldMaterial];
                     const newMaterials = materials.map((material) => {
+                        if (material.map) {
+                            material.map.encoding = THREE.sRGBEncoding;
+                            material.map.anisotropy = cappedAnisotropy;
+                            material.map.needsUpdate = true;
+                        }
                         return new THREE.MeshBasicMaterial({
-                            color: 0x555555,
+                            color: 0xffffff,
                             wireframe: false,
-                            transparent: true,
-                            opacity: 0.9,
+                            transparent: false,
+                            opacity: 1.0,
                             map: material.map || null,
                             vertexColors: material.vertexColors
                         });
@@ -1012,6 +1020,91 @@ function applyPixelatedRendererSize() {
     const ct1HitFlashDuration = 0.16;
     const ct1HitFlashRadius = 0.55;
     const ct1HitFlashMaxScale = 4.0;
+
+    function spawnCt1HitEffect(position, forward) {
+        spawnFlashParticle(
+            position,
+            {
+                radius: ct1HitFlashRadius,
+                duration: ct1HitFlashDuration,
+                maxScale: ct1HitFlashMaxScale,
+                startOpacity: 1.0,
+                color: ct1HitFlashColor
+            }
+        );
+    }
+
+    // ============================================================
+    // ct1 攻撃ヒット演出（対象モデルなしのため、前方に無条件で発生させる）
+    // ============================================================
+    function updateCt1At1Hit() {
+        if (!targetModel) return;
+        if (!isAttacking1) return;
+        if (at1HitApplied) return;
+        const hitFrameActive =
+            at1FrameCount >= at1HitFrameStart &&
+            at1FrameCount <= at1HitFrameEnd;
+        if (!hitFrameActive) return;
+
+        const forward = new THREE.Vector3(0, 0, 1);
+        forward.applyQuaternion(targetModel.quaternion);
+        forward.y = 0;
+        if (forward.lengthSq() > 0) forward.normalize();
+
+        const attackPosition = targetModel.position.clone();
+        attackPosition.y += targetHeightOffset * 0.5;
+        attackPosition.addScaledVector(forward, ct1AttackForwardOffset);
+
+        at1HitApplied = true;
+        at1HitWorldPosition.copy(attackPosition);
+        at1HasHitPositionThisCombo = true;
+        spawnCt1HitEffect(attackPosition, forward);
+        triggerCameraShake();
+    }
+
+    function updateCt1At2Hit() {
+        if (!targetModel) return;
+        if (!isAttacking2) return;
+        if (at2HitApplied) return;
+        if (at2FrameCount !== at2HitFrame) return;
+
+        const forward = new THREE.Vector3(0, 0, 1);
+        forward.applyQuaternion(targetModel.quaternion);
+        forward.y = 0;
+        if (forward.lengthSq() > 0) forward.normalize();
+
+        const attackPosition = targetModel.position.clone();
+        attackPosition.y += targetHeightOffset * 0.5;
+        attackPosition.addScaledVector(forward, ct1AttackForwardOffset);
+
+        at2HitApplied = true;
+        const particleSpawnPosition =
+            at1HasHitPositionThisCombo
+                ? at1HitWorldPosition
+                : attackPosition;
+        spawnCt1HitEffect(particleSpawnPosition, forward);
+        triggerCameraShake();
+    }
+
+    function updateCt1JumpAttackHit() {
+        if (!targetModel) return;
+        if (!isJumping) return;
+        if (jumpAttackHitApplied) return;
+        if (jumpFrameCount !== jumpAttackFrame) return;
+
+        const forward = new THREE.Vector3(0, 0, 1);
+        forward.applyQuaternion(targetModel.quaternion);
+        forward.y = 0;
+        if (forward.lengthSq() > 0) forward.normalize();
+
+        const attackPosition = targetModel.position.clone();
+        attackPosition.y += jumpHeightOffset;
+        attackPosition.addScaledVector(forward, ct1AttackForwardOffset);
+
+        jumpAttackHitApplied = true;
+        spawnCt1HitEffect(attackPosition, forward);
+        triggerCameraShake();
+    }
 
     // ============================================================
     // ct1 AT攻撃ヒット判定
@@ -2096,6 +2189,7 @@ function applyPixelatedRendererSize() {
             cancelAtForwardSteps();
         }
         isJumping = true;
+        jumpAttackHitApplied = false;
         jumpFrameCount = 0;
         jumpShockwaveSpawned = false;
         jumpAttackHitApplied = false;
@@ -2848,6 +2942,7 @@ function applyPixelatedRendererSize() {
                     triggerCameraShake();
                     jumpShockwaveSpawned = true;
                 }
+                updateCt1JumpAttackHit();
                 if (
                     jumpFrameCount >=
                     jumpTransitionFrame &&
@@ -2880,6 +2975,7 @@ function applyPixelatedRendererSize() {
                     );
                     at1ForwardStepApplied = true;
                 }
+                updateCt1At1Hit();
 
             }
 
@@ -2904,6 +3000,7 @@ function applyPixelatedRendererSize() {
                     );
                     at2ForwardStepApplied = true;
                 }
+                updateCt1At2Hit();
 
             }
         }
