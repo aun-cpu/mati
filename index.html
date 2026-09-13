@@ -339,23 +339,76 @@ function applyPixelatedRendererSize() {
     // ============================================================
     // 地面当たり判定（Raycaster）
     // ============================================================
+    // ============================================================
+    // 地面当たり判定（Raycaster）
+    // ============================================================
     const groundRaycaster = new THREE.Raycaster();
     const groundRayDirection = new THREE.Vector3(0, -1, 0);
     const groundRayOrigin = new THREE.Vector3();
-    const groundRayHeight = 2.0;
     const groundOffset = 0.0;
+    // レイの開始高さは、壁など背の高い障害物より確実に上から
+    // 判定できるよう、現在位置から十分に高い位置に設定する。
+    const terrainProbeHeight = 20.0;
+    // これを超える高低差がある場所には進めない（段差・崖・壁）
+    const maxStepHeight = 0.5;
+    // これを超える傾斜角は「地面」ではなく「壁」として扱う
+    const maxWalkableSlopeAngle = THREE.MathUtils.degToRad(50);
+    const upVector = new THREE.Vector3(0, 1, 0);
+
+    // 指定したXZ座標の直下にある地形（bgModel）との交点を返す。
+    // 交点がなければnull。
+    function probeGroundHeight(x, z, referenceY) {
+        if (!bgModel) return null;
+        groundRayOrigin.set(
+            x,
+            referenceY + terrainProbeHeight,
+            z
+        );
+        groundRaycaster.set(
+            groundRayOrigin,
+            groundRayDirection
+        );
+        const hits =
+            groundRaycaster.intersectObject(
+                bgModel,
+                true
+            );
+        return hits.length > 0 ? hits[0] : null;
+    }
+
+    // ヒットしたポリゴンの法線から傾斜角を求める。
+    // 急すぎる場合は「壁」とみなしtrueを返す。
+    function isTooSteep(hit) {
+        if (!hit || !hit.face) return false;
+        const worldNormal =
+            hit.face.normal
+                .clone()
+                .transformDirection(
+                    hit.object.matrixWorld
+                );
+        const slopeAngle =
+            worldNormal.angleTo(upVector);
+        return (
+            slopeAngle >
+            maxWalkableSlopeAngle
+        );
+    }
 
     function updateGroundCollision() {
         if (!targetModel || !bgModel) return;
 
-        groundRayOrigin.copy(targetModel.position);
-        groundRayOrigin.y += groundRayHeight;
-        groundRaycaster.set(groundRayOrigin, groundRayDirection);
-
-        const hits = groundRaycaster.intersectObject(bgModel, true);
-        if (hits.length > 0) {
-            targetModel.position.y = hits[0].point.y + groundOffset;
+        const hit = probeGroundHeight(
+            targetModel.position.x,
+            targetModel.position.z,
+            targetModel.position.y
+        );
+        if (!hit) return;
+        if (isTooSteep(hit)) {
+            // 急斜面・壁面は地面として扱わず、高さを合わせない
+            return;
         }
+        targetModel.position.y =
+            hit.point.y + groundOffset;
     }
     // ============================================================
     // ズーム無効化（ダブルタップ／ピンチ）
@@ -507,7 +560,7 @@ function applyPixelatedRendererSize() {
     let at2SourceBone = null; // 左親指1（AT2エフェクト起点ボーン）
     const at1SourceWorldPosition = new THREE.Vector3();
     const at2SourceWorldPosition = new THREE.Vector3();
-    let rootBoneRestY = 0;
+    let rootBoneRestLocalOffset = 0;
     let jumpHeightOffset = 0;
     const rootBoneWorldPosition = new THREE.Vector3();
     let isJumping = false;
@@ -879,8 +932,8 @@ function applyPixelatedRendererSize() {
                 rootBone.getWorldPosition(
                     rootBoneWorldPosition
                 );
-                rootBoneRestY =
-                    rootBoneWorldPosition.y;
+                rootBoneRestLocalOffset =
+                    rootBoneWorldPosition.y - targetModel.position.y;
             }
             updateCameraPosition();
             markAssetLoaded();
@@ -2874,11 +2927,59 @@ function applyPixelatedRendererSize() {
             ) {
                 moveDirection.normalize();
             }
-            targetModel.position
-                .addScaledVector(
-                    moveDirection,
-                    currentSpeed * delta
-                );
+
+            const moveDistance =
+                currentSpeed * delta;
+            if (
+                moveDirection.lengthSq() > 0 &&
+                moveDistance > 0
+            ) {
+                const proposedX =
+                    targetModel.position.x +
+                    moveDirection.x *
+                        moveDistance;
+                const proposedZ =
+                    targetModel.position.z +
+                    moveDirection.z *
+                        moveDistance;
+                let canMove = true;
+
+                // 段差・急斜面チェック：移動先の地面が現在より
+                // 大きく高い/低い、または急な傾斜なら進めない
+                const groundHit =
+                    probeGroundHeight(
+                        proposedX,
+                        proposedZ,
+                        targetModel.position.y
+                    );
+                if (groundHit) {
+                    const heightDiff =
+                        groundHit.point.y -
+                        targetModel.position.y;
+                    if (
+                        Math.abs(heightDiff) >
+                        maxStepHeight
+                    ) {
+                        canMove = false;
+                    }
+                    if (isTooSteep(groundHit)) {
+                        canMove = false;
+                    }
+                } else {
+                    // 地面自体が見つからない（地形の外＝奈落）場合も進めない
+                    canMove = false;
+                }
+
+                if (canMove) {
+                    targetModel.position.x =
+                        proposedX;
+                    targetModel.position.z =
+                        proposedZ;
+                }
+            }
+
+            // 向きの回転は、移動が塞き止められた場合でも
+            // 入力方向へ向けておく（壁に押し当たる自然な見た目にする）
             const targetAngle =
                 Math.atan2(
                     moveDirection.x,
@@ -3037,8 +3138,8 @@ function applyPixelatedRendererSize() {
                 rootBoneWorldPosition
             );
             jumpHeightOffset =
-                rootBoneWorldPosition.y -
-                rootBoneRestY;
+                (rootBoneWorldPosition.y - targetModel.position.y) -
+                rootBoneRestLocalOffset;
         }
         updateGroundCollision();
         // カメラ
