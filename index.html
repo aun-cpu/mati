@@ -825,6 +825,191 @@ function applyPixelatedRendererSize() {
 
     startBgLoading();
     // ============================================================
+    // ct1.glb（背景の読み込み完了後に開始する）
+    // ============================================================
+    function loadCt1Model() {
+        loader.load(
+            './ct1.glb',
+            function (gltf) {
+                targetModel = gltf.scene;
+                targetModel.rotation.y = Math.PI;
+                targetModel.traverse((child) => {
+                    if (!child.isMesh) return;
+                    const materials =
+                        Array.isArray(child.material)
+                            ? child.material
+                            : [child.material];
+                    materials.forEach((material) => {
+                        if (!material) return;
+                        if (material.color) {
+                            material.color.multiplyScalar(0.4);
+                        }
+                        material.metalness = 0.0;
+                        material.roughness = 0.95;
+                        material.envMapIntensity = 0.08;
+                        if (material.map) {
+                            material.map.encoding =
+                                THREE.sRGBEncoding;
+                            material.map.anisotropy =
+                                cappedAnisotropy;
+                            material.map.needsUpdate = true;
+                        }
+                        material.needsUpdate = true;
+                    });
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                });
+                scene.add(targetModel);
+
+                // ====================================================
+                // ct1アニメーション
+                // ====================================================
+                if (gltf.animations && gltf.animations.length > 0) {
+                    mixer = new THREE.AnimationMixer(targetModel);
+                    gltf.animations.forEach((clip) => {
+                        const action = mixer.clipAction(clip);
+                        const animationName =
+                            clip.name.trim().toLowerCase();
+                        if (animationName === 'jump') {
+                            actions.jump = action;
+                            action.setLoop(THREE.LoopOnce, 1);
+                            action.clampWhenFinished = true;
+                        } else if (animationName === 'at1') {
+                            actions.at1 = action;
+                            action.setLoop(THREE.LoopOnce, 1);
+                            action.clampWhenFinished = true;
+                            action.setEffectiveTimeScale(
+                                at1PlaybackSpeed
+                            );
+                        } else if (animationName === 'at2') {
+                            actions.at2 = action;
+                            action.setLoop(THREE.LoopOnce, 1);
+                            action.clampWhenFinished = true;
+                        } else if (animationName === 'hit') {
+                            actions.hit = action;
+                            action.setLoop(THREE.LoopOnce, 1);
+                            action.clampWhenFinished = true;
+                        } else {
+                            action.setLoop(THREE.LoopRepeat, Infinity);
+                            action.clampWhenFinished = false;
+                            if (animationName === 'idle') {
+                                actions.idle = action;
+                            }
+                            if (animationName === 'dash') {
+                                actions.dash = action;
+                            }
+                        }
+                    });
+                    if (!actions.at2) {
+                        console.warn(
+                            '[ct1] at2アニメーションが見つかりません。'
+                        );
+                    }
+                    mixer.addEventListener(
+                        'finished',
+                        function (event) {
+                            if (
+                                event.action === actions.jump &&
+                                isJumping
+                            ) {
+                                isJumping = false;
+                                updateMovementAnimation();
+                            }
+                            if (
+                                event.action === actions.at1 &&
+                                isAttacking1
+                            ) {
+                                isAttacking1 = false;
+                                updateMovementAnimation();
+                            }
+                            if (
+                                event.action === actions.at2 &&
+                                isAttacking2
+                            ) {
+                                isAttacking2 = false;
+                                updateMovementAnimation();
+                            }
+                        }
+                    );
+                    setAction('idle');
+                }
+
+                // ====================================================
+                // ボーン検出
+                // ====================================================
+                targetModel.traverse((child) => {
+                    if (child.isBone && !rootBone) {
+                        rootBone = child;
+                    }
+                    if (
+                        !slashSourceNode &&
+                        child.isBone &&
+                        rightWristBoneNamePattern.test(child.name)
+                    ) {
+                        slashSourceNode = child;
+                        console.info(
+                            '[斬撃エフェクト] 右手首らしき名前のボーンを検出:',
+                            child.name
+                        );
+                    }
+                    if (
+                        !at1SourceBone &&
+                        child.isBone &&
+                        child.name === '右親指1'
+                    ) {
+                        at1SourceBone = child;
+                        console.info(
+                            '[AT1エフェクト] 右親指1ボーンを検出:',
+                            child.name
+                        );
+                    }
+                    if (
+                        !at2SourceBone &&
+                        child.isBone &&
+                        child.name === '左親指1'
+                    ) {
+                        at2SourceBone = child;
+                        console.info(
+                            '[AT2エフェクト] 左親指1ボーンを検出:',
+                            child.name
+                        );
+                    }
+                });
+                if (!slashSourceNode) {
+                    slashSourceNode = rootBone;
+                    console.warn(
+                        '[斬撃エフェクト] 右手首らしき名前のボーンが見つからなかったため、rootBoneにフォールバックしました。'
+                    );
+                }
+                if (!at1SourceBone) {
+                    console.warn(
+                        '[AT1エフェクト] 右親指1ボーンが見つからなかったため、従来の位置計算にフォールバックします。'
+                    );
+                }
+                if (!at2SourceBone) {
+                    console.warn(
+                        '[AT2エフェクト] 左親指1ボーンが見つからなかったため、従来の位置計算にフォールバックします。'
+                    );
+                }
+                if (rootBone) {
+                    targetModel.updateMatrixWorld(true);
+                    rootBone.getWorldPosition(rootBoneWorldPosition);
+                    rootBoneRestLocalOffset =
+                        rootBoneWorldPosition.y -
+                        targetModel.position.y;
+                }
+                updateCameraPosition();
+                markAssetLoaded();
+            },
+            undefined,
+            function (error) {
+                console.error('ct1.glb の読み込みエラー:', error);
+                markAssetLoaded();
+            }
+        );
+    }
+
+    // ============================================================
     // ct1 アニメーション切り替え
     // ============================================================
     function setAction(name) {
