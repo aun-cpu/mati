@@ -335,6 +335,28 @@ function applyPixelatedRendererSize() {
         4,
         renderer.capabilities.getMaxAnisotropy()
     );
+
+    // ============================================================
+    // 地面当たり判定（Raycaster）
+    // ============================================================
+    const groundRaycaster = new THREE.Raycaster();
+    const groundRayDirection = new THREE.Vector3(0, -1, 0);
+    const groundRayOrigin = new THREE.Vector3();
+    const groundRayHeight = 2.0;
+    const groundOffset = 0.0;
+
+    function updateGroundCollision() {
+        if (!targetModel || !bgModel) return;
+
+        groundRayOrigin.copy(targetModel.position);
+        groundRayOrigin.y += groundRayHeight;
+        groundRaycaster.set(groundRayOrigin, groundRayDirection);
+
+        const hits = groundRaycaster.intersectObject(bgModel, true);
+        if (hits.length > 0) {
+            targetModel.position.y = hits[0].point.y + groundOffset;
+        }
+    }
     // ============================================================
     // ズーム無効化（ダブルタップ／ピンチ）
     // ============================================================
@@ -630,8 +652,8 @@ function applyPixelatedRendererSize() {
                         return new THREE.MeshBasicMaterial({
                             color: 0xffffff,
                             wireframe: false,
-                            transparent: true,
-                            opacity: 0.99,
+                            transparent: false,
+                            opacity: 1.0,
                             map: material.map || null,
                             vertexColors: material.vertexColors
                         });
@@ -3018,6 +3040,7 @@ function applyPixelatedRendererSize() {
                 rootBoneWorldPosition.y -
                 rootBoneRestY;
         }
+        updateGroundCollision();
         // カメラ
         updateCameraPosition();
         applyCameraShake(
