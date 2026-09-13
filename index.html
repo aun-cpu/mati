@@ -620,9 +620,10 @@ function applyPixelatedRendererSize() {
                             : [oldMaterial];
                     const newMaterials = materials.map((material) => {
                         return new THREE.MeshBasicMaterial({
+                            color: 0x555555,
                             wireframe: false,
-                            transparent: material.transparent,
-                            opacity: material.opacity,
+                            transparent: true,
+                            opacity: 0.9,
                             map: material.map || null,
                             vertexColors: material.vertexColors
                         });
