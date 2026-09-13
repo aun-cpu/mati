@@ -1,0 +1,2980 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no">
+    <title>3D GLB Viewer - Analog Stick & Camera Control</title>
+<style>
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+    }
+    body {
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+        background-color: #1a1a1a;
+        touch-action: none;
+    }
+    /* ============================================================
+       スマホを縦のまま持った状態で、画面表示だけを横向きにする
+       ============================================================
+       物理的な向きは変えず（回転操作を要求せず）、#app-stage全体を
+       CSSでその場で90度回転させて表示する。縦持ちの実解像度
+       (幅Wp×高さHp)に対して、#app-stageは横向きコンテンツとして
+       幅Hp×高さWpで組み立てておき、それを回転させて画面いっぱいに
+       収める。JS側では isPortraitDevice()/getLogicalWidth() 等を使い、
+       「見た目上の横向き座標系」に合わせてタッチ座標やレンダラー
+       サイズを換算する。
+       ============================================================ */
+    #app-stage {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        transform-origin: left top;
+        z-index: 1;
+    }
+    body.force-rotate #app-stage {
+        top: 0;
+        left: 100%;
+        width: 100vh;
+        height: 100vw;
+        transform: rotate(90deg);
+    }
+    #canvas-container {
+        width: 100%;
+        height: 100%;
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 1;
+    }
+    #loading-screen {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 1000;
+        background-color: #1a1208;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        transition: opacity 0.7s ease;
+        opacity: 1;
+    }
+    #loading-screen.is-hidden {
+        opacity: 0;
+        pointer-events: none;
+    }
+    #loading-screen img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        image-rendering: pixelated;
+        image-rendering: -moz-crisp-edges;
+        image-rendering: crisp-edges;
+        animation: loadingPulse 1.6s ease-in-out infinite;
+    }
+    @keyframes loadingPulse {
+        0%, 100% {
+            filter: brightness(1);
+        }
+        50% {
+            filter: brightness(1.08);
+        }
+    }
+    #canvas-container canvas {
+        image-rendering: pixelated;
+        image-rendering: -moz-crisp-edges;
+        image-rendering: crisp-edges;
+    }
+    #joystick-container {
+        position: absolute;
+        left: 30px;
+        bottom: 30px;
+        width: 150px;
+        height: 150px;
+        z-index: 20;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+    }
+    #joystick-base {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 150px;
+        height: 150px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.15);
+        border: 2px solid rgba(255, 255, 255, 0.35);
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+    }
+    #joystick-stick {
+        position: absolute;
+        left: 52px;
+        top: 52px;
+        width: 46px;
+        height: 46px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.45);
+        border: 2px solid rgba(255, 255, 255, 0.65);
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        pointer-events: none;
+        transform: translate(0px, 0px);
+    }
+    #jump-button {
+        position: absolute;
+        right: 70px;
+        bottom: 81px;
+        width: 56px;
+        height: 56px;
+        z-index: 20;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.18);
+        border: 2px solid rgba(255, 255, 255, 0.4);
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 24px;
+        font-weight: bold;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-tap-highlight-color: transparent;
+    }
+    #jump-button:active {
+        background: rgba(255, 255, 255, 0.35);
+        transform: scale(0.94);
+    }
+    #dash-button {
+        position: absolute;
+        right: 70px;
+        bottom: 15px;
+        width: 56px;
+        height: 56px;
+        z-index: 20;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.18);
+        border: 2px solid rgba(255, 255, 255, 0.4);
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 22px;
+        font-weight: bold;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        line-height: 1;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-tap-highlight-color: transparent;
+    }
+    #dash-button:active {
+        background: rgba(255, 255, 255, 0.35);
+        transform: scale(0.94);
+    }
+    #at-button {
+        position: absolute;
+        right: 141px;
+        bottom: 31px;
+        width: 90px;
+        height: 90px;
+        z-index: 20;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.18);
+        border: 2px solid rgba(255, 255, 255, 0.4);
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 28px;
+        font-weight: bold;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-tap-highlight-color: transparent;
+    }
+    #at-button:active {
+        background: rgba(255, 255, 255, 0.35);
+        transform: scale(0.94);
+    }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+</head>
+<body>
+<div id="app-stage">
+    <div id="loading-screen">
+        <img src="./loading.jpg" alt="Loading...">
+    </div>
+    <div id="canvas-container"></div>
+    <div id="joystick-container">
+        <div id="joystick-base"></div>
+        <div id="joystick-stick"></div>
+    </div>
+    <div id="jump-button">↑</div>
+    <div id="dash-button">⏫</div>
+    <div id="at-button">AT</div>
+</div>
+<script>
+    // ============================================================
+    // 画面の向き制御（スマホは縦持ちのまま、表示だけを横向きにする）
+    // ============================================================
+    // 実機を回転させる代わりに、#app-stage全体をCSSで90度回転させて
+    // 表示する。ここではその判定と、実際の指のタッチ座標
+    // （縦持ちの画面座標）を「見た目上の横向き座標系」に変換する
+    // ヘルパーを用意する。以降のジョイスティック／カメラドラッグ等の
+    // 数値計算は、この「論理（横向き）座標」を使うことで、
+    // 回転の有無にかかわらず同じロジックで動作する。
+    function isPortraitDevice() {
+        return window.innerWidth < window.innerHeight;
+    }
+    function getLogicalWidth() {
+        return isPortraitDevice()
+            ? window.innerHeight
+            : window.innerWidth;
+    }
+    function getLogicalHeight() {
+        return isPortraitDevice()
+            ? window.innerWidth
+            : window.innerHeight;
+    }
+    // 実画面座標(clientX, clientY)を、回転後の見た目座標に変換する。
+    // #app-stageは transform-origin:left top; left:100%; rotate(90deg)
+    // で配置しているため、その幾何から導いた変換式を使う。
+    function getLogicalX(clientX, clientY) {
+        return isPortraitDevice() ? clientY : clientX;
+    }
+    function getLogicalY(clientX, clientY) {
+        return isPortraitDevice()
+            ? window.innerWidth - clientX
+            : clientY;
+    }
+    function updateForceRotateClass() {
+        if (isPortraitDevice()) {
+            document.body.classList.add('force-rotate');
+        } else {
+            document.body.classList.remove('force-rotate');
+        }
+    }
+    updateForceRotateClass();
+    // ============================================================
+    // Three.js 基本設定
+    // ============================================================
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(
+        75,
+        getLogicalWidth() / getLogicalHeight(),
+        0.1,
+        1000
+    );
+    const renderer = new THREE.WebGLRenderer({
+        antialias: false,
+        powerPreference: 'default',
+        failIfMajorPerformanceCaveat: false,
+        preserveDrawingBuffer: false
+    });
+    // ============================================================
+    // ピクセルアート風レンダリング
+    // ============================================================
+    // 実際の描画解像度を落とし、CSSで画面いっぱいに拡大表示することで
+    // ドット絵のような粗いピクセル表現にする。数値が大きいほど粗くなる。
+    const pixelationScale = 1.7;
+    let posterizeCanvas = null;
+let posterizeCtx = null;
+
+function applyPixelatedRendererSize() {
+    const displayWidth = getLogicalWidth();
+    const displayHeight = getLogicalHeight();
+    const lowResWidth = Math.max(1, Math.floor(displayWidth / pixelationScale));
+    const lowResHeight = Math.max(1, Math.floor(displayHeight / pixelationScale));
+
+    renderer.setPixelRatio(1);
+    renderer.setSize(lowResWidth, lowResHeight, false);
+
+    if (!posterizeCanvas) {
+        posterizeCanvas = document.createElement('canvas');
+        posterizeCanvas.style.imageRendering = 'pixelated';
+        posterizeCanvas.style.position = 'absolute';
+        posterizeCanvas.style.top = '0';
+        posterizeCanvas.style.left = '0';
+        posterizeCtx = posterizeCanvas.getContext('2d', { alpha: false });
+        if (!posterizeCtx) {
+            console.warn('2D canvas context could not be created.');
+            return;
+        }
+        posterizeCtx.imageSmoothingEnabled = false;
+        document.getElementById('canvas-container').appendChild(posterizeCanvas);
+    }
+
+    posterizeCanvas.width = lowResWidth;
+    posterizeCanvas.height = lowResHeight;
+    posterizeCanvas.style.width = displayWidth + 'px';
+    posterizeCanvas.style.height = displayHeight + 'px';
+    posterizeCanvas.style.filter = 'contrast(1.15) saturate(1.3)';
+}
+    applyPixelatedRendererSize();
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 0.95;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // 端末の最大値をそのまま使うとテクスチャのGPUメモリ消費が
+    // 跳ね上がりモバイルでクラッシュしやすくなるため、上限を設ける
+    const cappedAnisotropy = Math.min(
+        4,
+        renderer.capabilities.getMaxAnisotropy()
+    );
+    // ============================================================
+    // ズーム無効化（ダブルタップ／ピンチ）
+    // ============================================================
+    // viewportのuser-scalable=noだけでは端末やブラウザによって
+    // ダブルタップズームが働いてしまう場合があるため、JS側でも防止する。
+    let lastTouchEndTime = 0;
+    document.addEventListener(
+        'touchend',
+        function (e) {
+            const now = Date.now();
+            if (now - lastTouchEndTime <= 350) {
+                e.preventDefault();
+            }
+            lastTouchEndTime = now;
+        },
+        { passive: false }
+    );
+    document.addEventListener(
+        'dblclick',
+        function (e) {
+            e.preventDefault();
+        },
+        { passive: false }
+    );
+    // Safari系のピンチズーム（gestureイベント）を無効化
+    document.addEventListener(
+        'gesturestart',
+        function (e) {
+            e.preventDefault();
+        }
+    );
+    document.addEventListener(
+        'gesturechange',
+        function (e) {
+            e.preventDefault();
+        }
+    );
+    document.addEventListener(
+        'gestureend',
+        function (e) {
+            e.preventDefault();
+        }
+    );
+    // 複数指でのピンチズームも念のため防止
+    document.addEventListener(
+        'touchmove',
+        function (e) {
+            if (e.touches.length > 1) {
+                e.preventDefault();
+            }
+        },
+        { passive: false }
+    );
+    // ============================================================
+    // WebGLコンテキストロスト対策
+    // ============================================================
+    // モバイル端末ではメモリ不足やGPUドライバのリセットで
+    // WebGLコンテキストが失われることがあり、対処しないと
+    // 画面が固まったりクラッシュしたように見える。
+    // 描画ループを安全に止め、復帰時に再開できるようにする。
+    let isRendererContextLost = false;
+    renderer.domElement.addEventListener(
+        'webglcontextlost',
+        function (e) {
+            e.preventDefault();
+            isRendererContextLost = true;
+            console.warn(
+                'WebGLコンテキストが失われました。復帰を待機します。'
+            );
+        },
+        false
+    );
+    renderer.domElement.addEventListener(
+        'webglcontextrestored',
+        function () {
+            isRendererContextLost = false;
+            // 停止していた間の経過時間をリセットし、
+            // 復帰直後に大きなdeltaで動きが飛ぶのを防ぐ
+            if (typeof clock !== 'undefined') {
+                clock.getDelta();
+            }
+            console.info(
+                'WebGLコンテキストが復帰しました。'
+            );
+        },
+        false
+    );
+    // ============================================================
+    // ライト
+    // ============================================================
+    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 2.6);
+    dirLight.position.set(5, 10, 7.5);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.width = 1024;
+    dirLight.shadow.mapSize.height = 1024;
+    dirLight.shadow.camera.near = 0.5;
+    dirLight.shadow.camera.far = 50;
+    dirLight.shadow.camera.left = -15;
+    dirLight.shadow.camera.right = 15;
+    dirLight.shadow.camera.top = 15;
+    dirLight.shadow.camera.bottom = -15;
+    dirLight.shadow.bias = -0.0005;
+    scene.add(dirLight);
+    const fillLight = new THREE.DirectionalLight(0xffffff, 1.0);
+    fillLight.position.set(-5, 5, -7);
+    scene.add(fillLight);
+    // ============================================================
+    // 環境マップ
+    // ============================================================
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    const environmentScene = new THREE.Scene();
+    environmentScene.background = new THREE.Color(0x202020);
+    const environmentLight = new THREE.HemisphereLight(
+        0xffffff,
+        0x222222,
+        2
+    );
+    environmentScene.add(environmentLight);
+    const environmentTarget =
+        pmremGenerator.fromScene(environmentScene);
+    scene.environment = environmentTarget.texture;
+    // ============================================================
+    // カメラ設定
+    // ============================================================
+    const targetHeightOffset = 1.5;
+    const cameraDistance = 1.6;
+    let cameraSpherical = new THREE.Spherical(
+        cameraDistance,
+        Math.PI / 2.2,
+        0
+    );
+    const minPolarAngle = 0.1;
+    const maxPolarAngle = Math.PI / 2 - 0.05;
+    // ============================================================
+    // モデル・アニメーション（ct1）
+    // ============================================================
+    let targetModel = null;
+    let bgModel = null;
+    let mixer = null;
+    let actions = {};
+    let currentAction = null;
+    let rootBone = null;
+    let slashSourceNode = null;
+    const rightWristBoneNamePattern =
+        /(right.*hand|right.*wrist|r[_\.]?hand\b|hand[_\.]?r\b|wrist.*r\b|r.*wrist|righthand|rightwrist|右手首|右手首関節|みぎてくび)/i;
+    let at1SourceBone = null; // 右親指1（AT1エフェクト起点ボーン）
+    let at2SourceBone = null; // 左親指1（AT2エフェクト起点ボーン）
+    const at1SourceWorldPosition = new THREE.Vector3();
+    const at2SourceWorldPosition = new THREE.Vector3();
+    let rootBoneRestY = 0;
+    let jumpHeightOffset = 0;
+    const rootBoneWorldPosition = new THREE.Vector3();
+    let isJumping = false;
+    let jumpFrameCount = 0;
+    const jumpTransitionFrame = 25;
+    const animationFPS = 30;
+    const shockwaveFrame = 22;
+    let jumpShockwaveSpawned = false;
+    // ------------------------------------------------------------
+    // ct1のAT（at1）攻撃
+    // ------------------------------------------------------------
+    let isAttacking1 = false;
+    let isAttacking2 = false;
+    let at1FrameCount = 0;
+    let at2FrameCount = 0;
+    let at1HitApplied = false;
+    let at2HitApplied = false;
+    // at1のヒット位置を記録し、コンボでat2がヒットした際に同じ位置へ
+    // パーティクルを重ねて表示できるようにする
+    const at1HitWorldPosition = new THREE.Vector3();
+    let at1HasHitPositionThisCombo = false;
+    // at1/at2の指定フレームで、ct1の現在の向きへ1だけ移動するためのフラグ
+    let at1ForwardStepApplied = false;
+    let at2ForwardStepApplied = false;
+    // at1/at2の前進ステップを瞬間移動ではなく滑らかに行うための状態
+    let at1StepActive = false;
+    let at1StepElapsed = 0;
+    let at1StepMovedDistance = 0;
+    let at1StepTotalDistance = 0;
+    const at1StepDuration = 0.12;
+    const at1StepDirection = new THREE.Vector3();
+    let at2StepActive = false;
+    let at2StepElapsed = 0;
+    let at2StepMovedDistance = 0;
+    let at2StepTotalDistance = 0;
+    const at2StepDuration = 0.12;
+    const at2StepDirection = new THREE.Vector3();
+    const at1HitFrameStart = 11;
+    const at1HitFrameEnd = 15;
+    const at2HitFrame = 10;
+    // ★ at1のみ1.5倍速
+    const at1PlaybackSpeed = 1.5;
+    const clock = new THREE.Clock();
+    // ============================================================
+    // 移動・カメラ設定
+    // ============================================================
+    const maxMoveSpeed = 4.0;
+    const jumpMoveSpeedFactor = 0.3;
+    const atAttackMoveSpeedFactor = jumpMoveSpeedFactor;
+    const atAttackForwardStepDistance = 1.0;
+    const rotationSpeed = 10.0;
+    const cameraTouchSensitivity = 0.005;
+    // ============================================================
+    // GLTF Loader
+    // ============================================================
+    const loader = new THREE.GLTFLoader();
+    // ============================================================
+    // ロード画面（bg1a.glb / ct1.glb の2つが揃ったら非表示にする）
+    // ============================================================
+    const loadingScreenElement =
+        document.getElementById('loading-screen');
+    const totalAssetsToLoad = 2; // bg, ct1
+    let loadedAssetCount = 0;
+    let loadingScreenHidden = false;
+    function markAssetLoaded() {
+        loadedAssetCount++;
+        if (
+            loadedAssetCount >= totalAssetsToLoad &&
+            !loadingScreenHidden
+        ) {
+            loadingScreenHidden = true;
+            if (loadingScreenElement) {
+                loadingScreenElement.classList.add(
+                    'is-hidden'
+                );
+                setTimeout(() => {
+                    if (loadingScreenElement.parentNode) {
+                        loadingScreenElement.parentNode.removeChild(
+                            loadingScreenElement
+                        );
+                    }
+                }, 800);
+            }
+        }
+    }
+    // ============================================================
+    // ロード画面のフォールバック
+    // ============================================================
+    // 何らかの理由でアセット読み込みが完了しなかった場合でも、
+    // 一定時間後にはゲーム画面へ進める。
+    const LOADING_FALLBACK_TIMEOUT_MS = 20000;
+    setTimeout(() => {
+        if (!loadingScreenHidden) {
+            console.warn(
+                'ロードがタイムアウトしました。強制的にローディング画面を閉じます。'
+            );
+            loadingScreenHidden = true;
+
+            if (loadingScreenElement) {
+                loadingScreenElement.classList.add(
+                    'is-hidden'
+                );
+                setTimeout(() => {
+                    if (loadingScreenElement.parentNode) {
+                        loadingScreenElement.parentNode.removeChild(
+                            loadingScreenElement
+                        );
+                    }
+                }, 800);
+            }
+        }
+    }, LOADING_FALLBACK_TIMEOUT_MS);
+    // ============================================================
+    // ============================================================
+    // bg1a.glb
+    // ============================================================
+    // モデルを同時並行でダウンロード・デコードすると、モバイル端末で
+    // メモリ／GPUリソースが逼迫してクラッシュしやすくなるため、
+    // bg1a → ct1 の順に1つずつ読み込む。
+    loader.load(
+        './bg1a.glb',
+        function (gltf) {
+            try {
+                bgModel = gltf.scene;
+                bgModel.scale.set(2, 2, 2);
+                bgModel.traverse((child) => {
+                    if (!child.isMesh) return;
+                    const oldMaterial = child.material;
+                    const materials =
+                        Array.isArray(oldMaterial)
+                            ? oldMaterial
+                            : [oldMaterial];
+                    const newMaterials = materials.map((material) => {
+                        return new THREE.MeshBasicMaterial({
+                            wireframe: true,
+                            transparent: material.transparent,
+                            opacity: material.opacity,
+                            map: material.map || null,
+                            vertexColors: material.vertexColors
+                        });
+                    });
+                    child.material =
+                        Array.isArray(oldMaterial)
+                            ? newMaterials
+                            : newMaterials[0];
+                    child.receiveShadow = true;
+                });
+                scene.add(bgModel);
+            } catch (setupError) {
+                console.error(
+                    'bg1a.glb のセットアップエラー:',
+                    setupError
+                );
+            }
+            markAssetLoaded();
+            loadCt1Model();
+        },
+        undefined,
+        function (error) {
+            console.error(
+                'bg1a.glb の読み込みエラー:',
+                error
+            );
+            markAssetLoaded();
+            loadCt1Model();
+        }
+    );
+    // ============================================================
+    // ct1.glb（bg1a.glbの読み込み完了後に開始する）
+    // ============================================================
+    function loadCt1Model() {
+    loader.load(
+        './ct1.glb',
+        function (gltf) {
+            targetModel = gltf.scene;
+            targetModel.rotation.y = Math.PI;
+            targetModel.traverse((child) => {
+                if (!child.isMesh) return;
+                const materials =
+                    Array.isArray(child.material)
+                        ? child.material
+                        : [child.material];
+                materials.forEach((material) => {
+                    if (!material) return;
+                    if (material.color) {
+                        material.color.multiplyScalar(0.4);
+                    }
+                    material.metalness = 0.0;
+                    material.roughness = 0.95;
+                    material.envMapIntensity = 0.08;
+                    if (material.map) {
+                        material.map.encoding =
+                            THREE.sRGBEncoding;
+                        material.map.anisotropy =
+                            cappedAnisotropy;
+                        material.map.needsUpdate = true;
+                    }
+                    material.needsUpdate = true;
+                });
+                child.castShadow = true;
+                child.receiveShadow = true;
+            });
+            scene.add(targetModel);
+            const ct1InitialPosition =
+                targetModel.position.clone();
+            const ct1InitialQuaternion =
+                targetModel.quaternion.clone();
+            // ====================================================
+            // ct1アニメーション
+            // ====================================================
+            if (
+                gltf.animations &&
+                gltf.animations.length > 0
+            ) {
+                mixer =
+                    new THREE.AnimationMixer(targetModel);
+                gltf.animations.forEach((clip) => {
+                    const action =
+                        mixer.clipAction(clip);
+                    const animationName =
+                        clip.name.trim().toLowerCase();
+                    if (animationName === 'jump') {
+                        actions.jump = action;
+                        action.setLoop(
+                            THREE.LoopOnce,
+                            1
+                        );
+                        action.clampWhenFinished = true;
+                    } else if (animationName === 'at1') {
+                        actions.at1 = action;
+                        action.setLoop(
+                            THREE.LoopOnce,
+                            1
+                        );
+                        action.clampWhenFinished = true;
+                        // ★ at1を1.5倍速に設定
+                        action.setEffectiveTimeScale(
+                            at1PlaybackSpeed
+                        );
+                    } else if (animationName === 'at2') {
+                        actions.at2 = action;
+                        action.setLoop(
+                            THREE.LoopOnce,
+                            1
+                        );
+                        action.clampWhenFinished = true;
+                    } else if (animationName === 'hit') {
+                        actions.hit = action;
+                        action.setLoop(
+                            THREE.LoopOnce,
+                            1
+                        );
+                        action.clampWhenFinished = true;
+                    } else {
+                        action.setLoop(
+                            THREE.LoopRepeat,
+                            Infinity
+                        );
+                        action.clampWhenFinished = false;
+                        if (animationName === 'idle') {
+                            actions.idle = action;
+                        }
+                        if (animationName === 'dash') {
+                            actions.dash = action;
+                        }
+                    }
+                });
+                if (!actions.at2) {
+                    console.warn(
+                        '[ct1] at2アニメーションが見つかりません。'
+                    );
+                }
+                mixer.addEventListener(
+                    'finished',
+                    function (event) {
+                        if (
+                            event.action === actions.jump &&
+                            isJumping
+                        ) {
+                            isJumping = false;
+                            updateMovementAnimation();
+                        }
+                        if (
+                            event.action === actions.at1 &&
+                            isAttacking1
+                        ) {
+                            isAttacking1 = false;
+                            updateMovementAnimation();
+                        }
+                        if (
+                            event.action === actions.at2 &&
+                            isAttacking2
+                        ) {
+                            isAttacking2 = false;
+                            updateMovementAnimation();
+                        }
+                    }
+                );
+                setAction('idle');
+            }
+            // ====================================================
+            // ボーン検出
+            // ====================================================
+            targetModel.traverse((child) => {
+                if (child.isBone && !rootBone) {
+                    rootBone = child;
+                }
+                if (
+                    !slashSourceNode &&
+                    child.isBone &&
+                    rightWristBoneNamePattern.test(child.name)
+                ) {
+                    slashSourceNode = child;
+                    console.info(
+                        '[斬撃エフェクト] 右手首らしき名前のボーンを検出:',
+                        child.name
+                    );
+                }
+                if (
+                    !at1SourceBone &&
+                    child.isBone &&
+                    child.name === '右親指1'
+                ) {
+                    at1SourceBone = child;
+                    console.info(
+                        '[AT1エフェクト] 右親指1ボーンを検出:',
+                        child.name
+                    );
+                }
+                if (
+                    !at2SourceBone &&
+                    child.isBone &&
+                    child.name === '左親指1'
+                ) {
+                    at2SourceBone = child;
+                    console.info(
+                        '[AT2エフェクト] 左親指1ボーンを検出:',
+                        child.name
+                    );
+                }
+            });
+            if (!slashSourceNode) {
+                slashSourceNode = rootBone;
+                console.warn(
+                    '[斬撃エフェクト] 右手首らしき名前のボーンが見つからなかったため、rootBoneにフォールバックしました。'
+                );
+            }
+            if (!at1SourceBone) {
+                console.warn(
+                    '[AT1エフェクト] 右親指1ボーンが見つからなかったため、従来の位置計算にフォールバックします。'
+                );
+            }
+            if (!at2SourceBone) {
+                console.warn(
+                    '[AT2エフェクト] 左親指1ボーンが見つからなかったため、従来の位置計算にフォールバックします。'
+                );
+            }
+            if (rootBone) {
+                targetModel.updateMatrixWorld(true);
+                rootBone.getWorldPosition(
+                    rootBoneWorldPosition
+                );
+                rootBoneRestY =
+                    rootBoneWorldPosition.y;
+            }
+            updateCameraPosition();
+            markAssetLoaded();
+        },
+        undefined,
+        function (error) {
+            console.error(
+                'ct1.glb の読み込みエラー:',
+                error
+            );
+            markAssetLoaded();
+        }
+    );
+    }
+    // ============================================================
+    // ct1 アニメーション切り替え
+    // ============================================================
+    function setAction(name) {
+        if (!mixer || !actions[name]) return;
+        const nextAction = actions[name];
+        if (currentAction !== nextAction) {
+            if (currentAction) {
+                currentAction.fadeOut(0.2);
+            }
+            nextAction.reset().play();
+            // ★ at1は常に1.5倍速を維持
+            if (name === 'at1') {
+                nextAction.setEffectiveTimeScale(
+                    at1PlaybackSpeed
+                );
+            }
+            currentAction = nextAction;
+        }
+    }
+    // ============================================================
+    // mg アニメーション切り替え
+    // ============================================================
+    // ============================================================
+    // mg attack1
+    // ============================================================
+    // ============================================================
+    // mg attack2
+    // ============================================================
+    // ============================================================
+    // mg 移動・攻撃
+    // ============================================================
+
+    // ============================================================
+    // li追従（mgの後方0.5に追従）
+    // ============================================================
+    // ============================================================
+    // ct1距離制限
+    // ============================================================
+    // ============================================================
+    // mg攻撃ヒット判定
+    // ============================================================
+    // ============================================================
+    // ct1ノックバック
+    // ============================================================
+    // ============================================================
+    // ct1ジャンプ攻撃
+    // ============================================================
+    // ============================================================
+    // at1/at2 前進ステップ（滑らかな移動）
+    // ============================================================
+    function startAtForwardStep(kind, distance) {
+        if (!targetModel) return;
+        const direction =
+            kind === 'at1'
+                ? at1StepDirection
+                : at2StepDirection;
+        direction.set(0, 0, 1);
+        direction.applyQuaternion(
+            targetModel.quaternion
+        );
+        direction.y = 0;
+        if (direction.lengthSq() > 0) {
+            direction.normalize();
+        }
+        if (kind === 'at1') {
+            at1StepTotalDistance = distance;
+            at1StepMovedDistance = 0;
+            at1StepElapsed = 0;
+            at1StepActive = true;
+        } else {
+            at2StepTotalDistance = distance;
+            at2StepMovedDistance = 0;
+            at2StepElapsed = 0;
+            at2StepActive = true;
+        }
+    }
+    // イーズアウトで加速の少ない自然な前進にする
+    function easeOutQuad(t) {
+        return 1 - (1 - t) * (1 - t);
+    }
+    function updateAtForwardSteps(delta) {
+        if (!targetModel) return;
+        if (at1StepActive) {
+            at1StepElapsed += delta;
+            const t =
+                Math.min(
+                    at1StepElapsed /
+                        at1StepDuration,
+                    1
+                );
+            const targetDistance =
+                at1StepTotalDistance *
+                easeOutQuad(t);
+            const deltaDistance =
+                targetDistance -
+                at1StepMovedDistance;
+            targetModel.position.addScaledVector(
+                at1StepDirection,
+                deltaDistance
+            );
+            at1StepMovedDistance =
+                targetDistance;
+            if (t >= 1) {
+                at1StepActive = false;
+            }
+        }
+        if (at2StepActive) {
+            at2StepElapsed += delta;
+            const t =
+                Math.min(
+                    at2StepElapsed /
+                        at2StepDuration,
+                    1
+                );
+            const targetDistance =
+                at2StepTotalDistance *
+                easeOutQuad(t);
+            const deltaDistance =
+                targetDistance -
+                at2StepMovedDistance;
+            targetModel.position.addScaledVector(
+                at2StepDirection,
+                deltaDistance
+            );
+            at2StepMovedDistance =
+                targetDistance;
+            if (t >= 1) {
+                at2StepActive = false;
+            }
+        }
+    }
+    function cancelAtForwardSteps() {
+        at1StepActive = false;
+        at2StepActive = false;
+    }
+    // ============================================================
+    // ct1攻撃ヒット時のパーティクル
+    // （ジャンプ着地時の弾けるパーティクルをそのまま使用）
+    // ============================================================
+    // ------------------------------------------------------------
+    // ct1のヒット演出（ジャンプ攻撃・AT攻撃で共通の白い閃光＋赤黒ブロック）
+    // ------------------------------------------------------------
+    const ct1HitFlashColor = 0xffffff;
+    const ct1HitFlashDuration = 0.16;
+    const ct1HitFlashRadius = 0.55;
+    const ct1HitFlashMaxScale = 4.0;
+
+    // ============================================================
+    // ct1 AT攻撃ヒット判定
+    // ============================================================
+    // ============================================================
+    // ct1 AT2攻撃ヒット判定
+    // ============================================================
+    // ============================================================
+    // ジャンプ攻撃ヒット演出
+    // ============================================================
+    // ============================================================
+    // mgワープ
+    // ============================================================
+    // ============================================================
+    // mg距離ワープ
+    // ============================================================
+    // ============================================================
+    // パーティクル
+    // ============================================================
+    const particles = [];
+    // 個別にジオメトリを作らず共有ジオメトリ＋スケールで表現することで、
+    // 頻繁なジオメトリの生成／破棄によるメモリ負荷（クラッシュの一因）を減らす。
+    const sharedFlashGeometry =
+        new THREE.SphereGeometry(1, 12, 12);
+    const sharedCubeGeometry =
+        new THREE.BoxGeometry(1, 1, 1);
+    // パーティクル総数の上限。超えた分は古いものから強制的に消す。
+    const MAX_PARTICLES = 320;
+    function capParticles() {
+        while (particles.length > MAX_PARTICLES) {
+            const oldest = particles.shift();
+            scene.remove(oldest.mesh);
+            oldest.mesh.material.dispose();
+        }
+    }
+    function randomRange(min, max) {
+        return min +
+            Math.random() *
+            (max - min);
+    }
+    function spawnFlashParticle(
+        position,
+        options
+    ) {
+        const material =
+            new THREE.MeshBasicMaterial({
+                color: options.color,
+                transparent: true,
+                opacity:
+                    options.startOpacity,
+                depthWrite: false,
+                blending:
+                    THREE.AdditiveBlending
+            });
+        const mesh =
+            new THREE.Mesh(
+                sharedFlashGeometry,
+                material
+            );
+        mesh.position.copy(position);
+        mesh.scale.setScalar(
+            options.radius
+        );
+        scene.add(mesh);
+        particles.push({
+            kind: 'flash',
+            mesh: mesh,
+            elapsed: 0,
+            duration:
+                options.duration,
+            baseScale:
+                options.radius,
+            maxScale:
+                options.maxScale,
+            startOpacity:
+                options.startOpacity
+        });
+        capParticles();
+    }
+    function spawnCubeBurst(
+        position,
+        params
+    ) {
+        const spawnSpread =
+            params.spawnSpread || 0;
+        for (
+            let i = 0;
+            i < params.count;
+            i++
+        ) {
+            const size =
+                randomRange(
+                    params.minSize,
+                    params.maxSize
+                );
+            const dimensions =
+                new THREE.Vector3(
+                    size,
+                    size,
+                    size *
+                    randomRange(
+                        0.15,
+                        0.35
+                    )
+                );
+            const color =
+                params.colorA.clone()
+                    .lerp(
+                        params.colorB,
+                        Math.random()
+                    );
+            const material =
+                new THREE.MeshBasicMaterial({
+                    color: color,
+                    transparent: true,
+                    opacity: 1.0,
+                    side: THREE.DoubleSide,
+                    depthWrite: false,
+                    blending:
+                        THREE.AdditiveBlending
+                });
+            const mesh =
+                new THREE.Mesh(
+                    sharedCubeGeometry,
+                    material
+                );
+            mesh.scale.copy(
+                dimensions
+            );
+            const spawnPosition =
+                position.clone();
+            if (spawnSpread > 0) {
+                spawnPosition.x +=
+                    randomRange(
+                        -spawnSpread,
+                        spawnSpread
+                    );
+                spawnPosition.y +=
+                    randomRange(
+                        -spawnSpread * 0.4,
+                        spawnSpread
+                    );
+                spawnPosition.z +=
+                    randomRange(
+                        -spawnSpread,
+                        spawnSpread
+                    );
+            }
+            mesh.position.copy(
+                spawnPosition
+            );
+            mesh.rotation.set(
+                Math.random() *
+                    Math.PI * 2,
+                Math.random() *
+                    Math.PI * 2,
+                Math.random() *
+                    Math.PI * 2
+            );
+            const azimuth =
+                Math.random() *
+                Math.PI * 2;
+            const elevation =
+                randomRange(
+                    params.elevationMin,
+                    params.elevationMax
+                );
+            const horizontalRadius =
+                Math.cos(elevation);
+            const direction =
+                new THREE.Vector3(
+                    Math.cos(azimuth) *
+                        horizontalRadius,
+                    Math.sin(elevation),
+                    Math.sin(azimuth) *
+                        horizontalRadius
+                );
+            const speed =
+                randomRange(
+                    params.minSpeed,
+                    params.maxSpeed
+                );
+            const velocity =
+                direction.multiplyScalar(
+                    speed
+                );
+            const angularVelocity =
+                new THREE.Vector3(
+                    randomRange(-10, 10),
+                    randomRange(-10, 10),
+                    randomRange(-10, 10)
+                );
+            scene.add(mesh);
+            particles.push({
+                kind: 'cube',
+                mesh: mesh,
+                elapsed: 0,
+                duration:
+                    randomRange(
+                        params.minDuration,
+                        params.maxDuration
+                    ),
+                velocity:
+                    velocity,
+                angularVelocity:
+                    angularVelocity,
+                gravity:
+                    params.gravity,
+                startOpacity: 1.0,
+                baseScale:
+                    dimensions,
+                startScale: 1.0
+            });
+        }
+        capParticles();
+    }
+    function updateParticles(delta) {
+        for (
+            let i = particles.length - 1;
+            i >= 0;
+            i--
+        ) {
+            const effect =
+                particles[i];
+            effect.elapsed += delta;
+            const t =
+                Math.min(
+                    effect.elapsed /
+                        effect.duration,
+                    1
+                );
+            if (
+                effect.kind === 'flash'
+            ) {
+                const scale =
+                    effect.baseScale *
+                    (
+                        1 +
+                        t *
+                        (
+                            effect.maxScale -
+                            1
+                        )
+                    );
+                effect.mesh.scale.set(
+                    scale,
+                    scale,
+                    scale
+                );
+                effect.mesh.material.opacity =
+                    effect.startOpacity *
+                    (1 - t);
+            } else {
+                effect.velocity.y -=
+                    effect.gravity *
+                    delta;
+                effect.mesh.position
+                    .addScaledVector(
+                        effect.velocity,
+                        delta
+                    );
+                effect.mesh.rotation.x +=
+                    effect.angularVelocity.x *
+                    delta;
+                effect.mesh.rotation.y +=
+                    effect.angularVelocity.y *
+                    delta;
+                effect.mesh.rotation.z +=
+                    effect.angularVelocity.z *
+                    delta;
+                const factor =
+                    effect.startScale *
+                    (1 - t * 0.5);
+                effect.mesh.scale.set(
+                    effect.baseScale.x *
+                        factor,
+                    effect.baseScale.y *
+                        factor,
+                    effect.baseScale.z *
+                        factor
+                );
+                effect.mesh.material.opacity =
+                    effect.startOpacity *
+                    (1 - t);
+            }
+            if (t >= 1) {
+                scene.remove(
+                    effect.mesh
+                );
+                effect.mesh.material.dispose();
+                particles.splice(i, 1);
+            }
+        }
+    }
+    // ============================================================
+    // mg attack1 三日月エフェクト
+    // ============================================================
+    // ============================================================
+    // ジャンプ衝撃波
+    // ============================================================
+    const shockwaveFlashDuration = 0.12;
+    const shockwaveFlashRadius = 0.5;
+    const shockwaveFlashMaxScale = 3.2;
+    const shockwaveFlashMaxOpacity = 1.0;
+    const shockwaveFlashColor = 0xffffff;
+    const shockwaveSparkCount = 80;
+    const shockwaveSparkMinSpeed = 2.5;
+    const shockwaveSparkMaxSpeed = 7.5;
+    const shockwaveSparkMinSize = 0.09;
+    const shockwaveSparkMaxSize = 0.3;
+    const shockwaveSparkMinDuration = 0.4;
+    const shockwaveSparkMaxDuration = 0.9;
+    const shockwaveSparkGravity = 3.5;
+    const shockwaveSparkColorRed =
+        new THREE.Color(0xff2200);
+    const shockwaveSparkColorBlack =
+        new THREE.Color(0x120000);
+    const blackBurstCount = 65;
+    const blackBurstMinSpeed = 3.0;
+    const blackBurstMaxSpeed = 8.0;
+    const blackBurstMinSize = 0.1;
+    const blackBurstMaxSize = 0.3;
+    const blackBurstMinDuration = 0.5;
+    const blackBurstMaxDuration = 1.0;
+    const blackBurstGravity = 2.5;
+    const blackBurstElevationMin = 0.9;
+    const blackBurstElevationMax = 1.4;
+    const blackBurstSpawnSpread = 0.2;
+    const blackBurstColorDark =
+        new THREE.Color(0x1a0000);
+    const blackBurstColorBlack =
+        new THREE.Color(0x000000);
+    const shockwaveForwardOffset = 0.9;
+    const shockwaveGroundOffset = 0.05;
+    function getShockwaveOriginPosition() {
+        const forward =
+            new THREE.Vector3(0, 0, 1);
+        forward.applyQuaternion(
+            targetModel.quaternion
+        );
+        forward.y = 0;
+        forward.normalize();
+        const basePosition =
+            targetModel.position.clone()
+                .addScaledVector(
+                    forward,
+                    shockwaveForwardOffset
+                );
+        basePosition.y +=
+            shockwaveGroundOffset;
+        return basePosition;
+    }
+    function spawnJumpImpactEffects() {
+        if (!targetModel) return;
+        const origin =
+            getShockwaveOriginPosition();
+        spawnFlashParticle(
+            origin,
+            {
+                radius:
+                    shockwaveFlashRadius,
+                duration:
+                    shockwaveFlashDuration,
+                maxScale:
+                    shockwaveFlashMaxScale,
+                startOpacity:
+                    shockwaveFlashMaxOpacity,
+                color:
+                    shockwaveFlashColor
+            }
+        );
+    }
+    // ============================================================
+    // 斬撃エフェクト
+    // ============================================================
+    const slashEffectSpawnCountPerFrame = 3;
+    const slashEffectSpawnSpread = 0.55;
+    const slashEffectMinSize = 0.14;
+    const slashEffectMaxSize = 0.38;
+    const slashEffectMinSpeed = 0.6;
+    const slashEffectMaxSpeed = 2.4;
+    const slashEffectMinDuration = 0.25;
+    const slashEffectMaxDuration = 0.55;
+    const slashEffectGravity = 1.0;
+    const slashEffectElevationMin = -0.3;
+    const slashEffectElevationMax = 0.9;
+    const slashSourceWorldPosition =
+        new THREE.Vector3();
+    function updateSlashEffect(delta) {
+        if (
+            !isJumping ||
+            !slashSourceNode
+        ) {
+            return;
+        }
+        slashSourceNode.getWorldPosition(
+            slashSourceWorldPosition
+        );
+        spawnCubeBurst(
+            slashSourceWorldPosition,
+            {
+                count:
+                    slashEffectSpawnCountPerFrame,
+                minSize:
+                    slashEffectMinSize,
+                maxSize:
+                    slashEffectMaxSize,
+                minSpeed:
+                    slashEffectMinSpeed,
+                maxSpeed:
+                    slashEffectMaxSpeed,
+                minDuration:
+                    slashEffectMinDuration,
+                maxDuration:
+                    slashEffectMaxDuration,
+                gravity:
+                    slashEffectGravity,
+                colorA:
+                    shockwaveSparkColorRed,
+                colorB:
+                    shockwaveSparkColorBlack,
+                elevationMin:
+                    slashEffectElevationMin,
+                elevationMax:
+                    slashEffectElevationMax,
+                spawnSpread:
+                    slashEffectSpawnSpread
+            }
+        );
+    }
+    // ============================================================
+    // AT攻撃エフェクト（at1:右親指1から中央前へ／at2:左親指1から中央前へ）
+    // ============================================================
+    const atSlashSpawnCountPerFrame = 4;
+    const atSlashMinSize = 0.12;
+    const atSlashMaxSize = 0.34;
+    const atSlashMinSpeed = 3.0;
+    const atSlashMaxSpeed = 6.5;
+    const atSlashMinDuration = 0.2;
+    const atSlashMaxDuration = 0.45;
+    const atSlashGravity = 0.6;
+    const atSlashSpreadAngle = 0.35;
+    const atSlashSideOffset = 0.9;
+    const atSlashHeight =
+        targetHeightOffset * 0.6;
+    const atSlashForwardTargetDistance = 1.4;
+    // ------------------------------------------------------------
+    // AT攻撃 半円エフェクト（at1:体の左／at2:体の右に、順番に出現）
+    // ------------------------------------------------------------
+    const atArcRadius = 1.3;
+    const atArcRadiusVariance = 0.15;
+    const atArcHeight = targetHeightOffset * 0.55;
+    const atArcSegmentSize = 0.22;
+    const atArcSegmentSizeVariance = 0.1;
+    const atArcParticlesPerSegment = 5;
+    const atArcParticleMinSpeed = 0.6;
+    const atArcParticleMaxSpeed = 2.0;
+    const atArcParticleMinDuration = 0.35;
+    const atArcParticleMaxDuration = 0.7;
+    const atArcParticleGravity = 0.7;
+    // 半円を描き切るまでにかかるフレーム数（この間に順番にセグメントが現れる）
+    const at1ArcRevealFrames = 12;
+    const at2ArcRevealFrames = 10;
+    // 半円1本あたりの分割数（多いほど滑らかにつながって見える）
+    const atArcSegmentCount = 18;
+    let at1ArcRevealedSegment = -1;
+    let at2ArcRevealedSegment = -1;
+    // AT半円エフェクトは他のct1ヒット演出と同じ赤×黒のブロックカラーで統一する
+    // sideSignが-1なら体の左（後方→前方）、+1なら体の右（後方→前方）を通る半円上の
+    // segmentIndex番目の位置にパーティクルを発生させる
+    function spawnAtArcSegment(segmentIndex, sideSign) {
+        if (!targetModel) return;
+        const forward = new THREE.Vector3(0, 0, 1);
+        forward.applyQuaternion(
+            targetModel.quaternion
+        );
+        forward.y = 0;
+        if (forward.lengthSq() > 0) {
+            forward.normalize();
+        }
+        const right = new THREE.Vector3(1, 0, 0);
+        right.applyQuaternion(
+            targetModel.quaternion
+        );
+        right.y = 0;
+        if (right.lengthSq() > 0) {
+            right.normalize();
+        }
+        const t =
+            atArcSegmentCount <= 1
+                ? 0
+                : segmentIndex /
+                  (atArcSegmentCount - 1);
+        // sideSign < 0（at1・体の左）: 後方(-PI) → 前方(0)
+        // sideSign >= 0（at2・体の右）: 後方(+PI) → 前方(0)
+        // どちらも「後方→前方」の順で半円を描くようにする
+        const angle =
+            sideSign < 0
+                ? -Math.PI + t * Math.PI
+                : Math.PI - t * Math.PI;
+        const radius =
+            atArcRadius +
+            randomRange(
+                -atArcRadiusVariance,
+                atArcRadiusVariance
+            );
+        const center =
+            targetModel.position.clone();
+        center.y += atArcHeight;
+        const position = center
+            .clone()
+            .addScaledVector(
+                forward,
+                Math.cos(angle) * radius
+            )
+            .addScaledVector(
+                right,
+                Math.sin(angle) * radius
+            );
+        const outwardDirection =
+            new THREE.Vector3()
+                .addScaledVector(
+                    forward,
+                    Math.cos(angle)
+                )
+                .addScaledVector(
+                    right,
+                    Math.sin(angle)
+                );
+        if (
+            outwardDirection.lengthSq() > 0
+        ) {
+            outwardDirection.normalize();
+        }
+        // 半円は赤黒ブロックのみで表現し、白い閃光は使わない
+        for (
+            let i = 0;
+            i < atArcParticlesPerSegment;
+            i++
+        ) {
+            const size =
+                atArcSegmentSize +
+                randomRange(
+                    -atArcSegmentSizeVariance,
+                    atArcSegmentSizeVariance
+                );
+            const dimensions =
+                new THREE.Vector3(
+                    Math.max(size, 0.05),
+                    Math.max(
+                        size *
+                            randomRange(0.5, 0.9),
+                        0.05
+                    ),
+                    Math.max(
+                        size *
+                            randomRange(0.2, 0.4),
+                        0.03
+                    )
+                );
+            const color =
+                shockwaveSparkColorRed
+                    .clone()
+                    .lerp(
+                        shockwaveSparkColorBlack,
+                        Math.random()
+                    );
+            const material =
+                new THREE.MeshBasicMaterial({
+                    color: color,
+                    transparent: true,
+                    opacity: 1.0,
+                    side: THREE.DoubleSide,
+                    depthWrite: false,
+                    blending:
+                        THREE.AdditiveBlending
+                });
+            const mesh =
+                new THREE.Mesh(
+                    sharedCubeGeometry,
+                    material
+                );
+            mesh.scale.copy(dimensions);
+            mesh.position.copy(position);
+            mesh.position.y +=
+                randomRange(-0.1, 0.15);
+            mesh.rotation.y = angle;
+            mesh.rotation.x =
+                randomRange(-0.2, 0.2);
+            mesh.rotation.z =
+                randomRange(-0.2, 0.2);
+            scene.add(mesh);
+            const velocity =
+                outwardDirection
+                    .clone()
+                    .multiplyScalar(
+                        randomRange(
+                            atArcParticleMinSpeed,
+                            atArcParticleMaxSpeed
+                        )
+                    );
+            velocity.y +=
+                randomRange(0, 0.9);
+            particles.push({
+                kind: 'cube',
+                mesh: mesh,
+                elapsed: 0,
+                duration:
+                    randomRange(
+                        atArcParticleMinDuration,
+                        atArcParticleMaxDuration
+                    ),
+                velocity: velocity,
+                angularVelocity:
+                    new THREE.Vector3(
+                        randomRange(-5, 5),
+                        randomRange(-5, 5),
+                        randomRange(-5, 5)
+                    ),
+                gravity:
+                    atArcParticleGravity,
+                startOpacity: 1.0,
+                baseScale: dimensions,
+                startScale: 1.0
+            });
+        }
+        capParticles();
+    }
+    // sideSignが+1なら右、-1なら左を起点にする（ボーンが見つからない場合のフォールバック用）
+    function getAtSlashOrigin(sideSign) {
+        const right =
+            new THREE.Vector3(1, 0, 0);
+        right.applyQuaternion(
+            targetModel.quaternion
+        );
+        right.y = 0;
+        if (right.lengthSq() > 0) {
+            right.normalize();
+        }
+        const origin =
+            targetModel.position.clone();
+        origin.y += atSlashHeight;
+        origin.addScaledVector(
+            right,
+            sideSign * atSlashSideOffset
+        );
+        return origin;
+    }
+    // ct1の中央前方（収束先）の位置を取得
+    function getAtSlashTarget() {
+        const forward =
+            new THREE.Vector3(0, 0, 1);
+        forward.applyQuaternion(
+            targetModel.quaternion
+        );
+        forward.y = 0;
+        if (forward.lengthSq() > 0) {
+            forward.normalize();
+        }
+        const target =
+            targetModel.position.clone();
+        target.y += atSlashHeight;
+        target.addScaledVector(
+            forward,
+            atSlashForwardTargetDistance
+        );
+        return target;
+    }
+    // 起点から目標地点へ収束するように飛ぶパーティクル
+    // （横から中央前へ流れる演出に使用。spawnCubeBurstの全方位ランダムとは異なり、
+    //   起点→目標の方向を基準に小さくジッターさせるだけにする）
+    function spawnConvergingCubeBurst(
+        originPosition,
+        targetPosition,
+        params
+    ) {
+        const baseDirection =
+            targetPosition.clone()
+                .sub(originPosition);
+        if (
+            baseDirection.lengthSq() >
+            0.0001
+        ) {
+            baseDirection.normalize();
+        } else {
+            baseDirection.set(0, 0, 1);
+        }
+        const upHelper =
+            Math.abs(baseDirection.y) >
+            0.99
+                ? new THREE.Vector3(1, 0, 0)
+                : new THREE.Vector3(0, 1, 0);
+        const rightAxis =
+            new THREE.Vector3()
+                .crossVectors(
+                    baseDirection,
+                    upHelper
+                )
+                .normalize();
+        const upAxis =
+            new THREE.Vector3()
+                .crossVectors(
+                    rightAxis,
+                    baseDirection
+                )
+                .normalize();
+        for (
+            let i = 0;
+            i < params.count;
+            i++
+        ) {
+            const size =
+                randomRange(
+                    params.minSize,
+                    params.maxSize
+                );
+            const dimensions =
+                new THREE.Vector3(
+                    size,
+                    size,
+                    size *
+                    randomRange(
+                        0.15,
+                        0.35
+                    )
+                );
+            const color =
+                params.colorA.clone()
+                    .lerp(
+                        params.colorB,
+                        Math.random()
+                    );
+            const material =
+                new THREE.MeshBasicMaterial({
+                    color: color,
+                    transparent: true,
+                    opacity: 1.0,
+                    side: THREE.DoubleSide,
+                    depthWrite: false,
+                    blending:
+                        THREE.AdditiveBlending
+                });
+            const mesh =
+                new THREE.Mesh(
+                    sharedCubeGeometry,
+                    material
+                );
+            mesh.scale.copy(
+                dimensions
+            );
+            mesh.position.copy(
+                originPosition
+            );
+            mesh.rotation.set(
+                Math.random() *
+                    Math.PI * 2,
+                Math.random() *
+                    Math.PI * 2,
+                Math.random() *
+                    Math.PI * 2
+            );
+            const jitterAngleA =
+                randomRange(
+                    -params.spreadAngle,
+                    params.spreadAngle
+                );
+            const jitterAngleB =
+                randomRange(
+                    -params.spreadAngle,
+                    params.spreadAngle
+                );
+            const direction =
+                baseDirection.clone()
+                    .addScaledVector(
+                        rightAxis,
+                        Math.sin(
+                            jitterAngleA
+                        )
+                    )
+                    .addScaledVector(
+                        upAxis,
+                        Math.sin(
+                            jitterAngleB
+                        )
+                    );
+            if (
+                direction.lengthSq() >
+                0
+            ) {
+                direction.normalize();
+            }
+            const speed =
+                randomRange(
+                    params.minSpeed,
+                    params.maxSpeed
+                );
+            const velocity =
+                direction.multiplyScalar(
+                    speed
+                );
+            const angularVelocity =
+                new THREE.Vector3(
+                    randomRange(-10, 10),
+                    randomRange(-10, 10),
+                    randomRange(-10, 10)
+                );
+            scene.add(mesh);
+            particles.push({
+                kind: 'cube',
+                mesh: mesh,
+                elapsed: 0,
+                duration:
+                    randomRange(
+                        params.minDuration,
+                        params.maxDuration
+                    ),
+                velocity:
+                    velocity,
+                angularVelocity:
+                    angularVelocity,
+                gravity:
+                    params.gravity,
+                startOpacity: 1.0,
+                baseScale:
+                    dimensions,
+                startScale: 1.0
+            });
+        }
+        capParticles();
+    }
+    // at1: 体の左側に半円状のエフェクトを順番に出現させる
+    function updateAt1SlashEffect(
+        delta
+    ) {
+        if (
+            !isAttacking1 ||
+            !targetModel
+        ) {
+            return;
+        }
+        const t =
+            Math.min(
+                at1FrameCount /
+                    at1ArcRevealFrames,
+                1
+            );
+        const targetSegment =
+            Math.floor(
+                t *
+                (atArcSegmentCount - 1)
+            );
+        while (
+            at1ArcRevealedSegment <
+            targetSegment
+        ) {
+            at1ArcRevealedSegment++;
+            spawnAtArcSegment(
+                at1ArcRevealedSegment,
+                -1
+            );
+        }
+    }
+    // at2: 体の右側に半円状のエフェクトを順番に出現させる
+    function updateAt2SlashEffect(
+        delta
+    ) {
+        if (
+            !isAttacking2 ||
+            !targetModel
+        ) {
+            return;
+        }
+        const t =
+            Math.min(
+                at2FrameCount /
+                    at2ArcRevealFrames,
+                1
+            );
+        const targetSegment =
+            Math.floor(
+                t *
+                (atArcSegmentCount - 1)
+            );
+        while (
+            at2ArcRevealedSegment <
+            targetSegment
+        ) {
+            at2ArcRevealedSegment++;
+            spawnAtArcSegment(
+                at2ArcRevealedSegment,
+                1
+            );
+        }
+    }
+    // ============================================================
+    // ダッシュ
+    // ============================================================
+    let isDashing = false;
+    let dashElapsed = 0;
+    const dashDuration = 0.22;
+    const dashDistance = 7.0;
+    const dashDirection =
+        new THREE.Vector3();
+    const dashStartPosition =
+        new THREE.Vector3();
+    const dashCurrentPosition =
+        new THREE.Vector3();
+    const dashTrailSpawnPosition =
+        new THREE.Vector3();
+    const dashTrailSpawnCountPerFrame = 5;
+    const dashTrailSpawnSpread = 0.35;
+    const dashTrailMinSize = 0.12;
+    const dashTrailMaxSize = 0.32;
+    const dashTrailMinSpeed = 0.2;
+    const dashTrailMaxSpeed = 1.0;
+    const dashTrailMinDuration = 0.35;
+    const dashTrailMaxDuration = 0.7;
+    const dashTrailGravity = 1.2;
+    const dashTrailElevationMin = -0.15;
+    const dashTrailElevationMax = 0.7;
+    const dashTrailHeightOffset = 0.9;
+    function spawnDashTrailParticles(
+        position
+    ) {
+        spawnCubeBurst(
+            position,
+            {
+                count:
+                    dashTrailSpawnCountPerFrame,
+                minSize:
+                    dashTrailMinSize,
+                maxSize:
+                    dashTrailMaxSize,
+                minSpeed:
+                    dashTrailMinSpeed,
+                maxSpeed:
+                    dashTrailMaxSpeed,
+                minDuration:
+                    dashTrailMinDuration,
+                maxDuration:
+                    dashTrailMaxDuration,
+                gravity:
+                    dashTrailGravity,
+                colorA:
+                    blackBurstColorDark,
+                colorB:
+                    blackBurstColorBlack,
+                elevationMin:
+                    dashTrailElevationMin,
+                elevationMax:
+                    dashTrailElevationMax,
+                spawnSpread:
+                    dashTrailSpawnSpread
+            }
+        );
+    }
+    function dashForward() {
+        if (!targetModel) return;
+        if (isDashing || isJumping) return;
+        if (isAttacking1 || isAttacking2) {
+            isAttacking1 = false;
+            isAttacking2 = false;
+            cancelAtForwardSteps();
+            if (currentAction) {
+                currentAction.fadeOut(0.1);
+            }
+        }
+        const forward =
+            new THREE.Vector3(0, 0, 1);
+        forward.applyQuaternion(
+            targetModel.quaternion
+        );
+        forward.y = 0;
+        forward.normalize();
+        dashDirection.copy(forward);
+        dashStartPosition.copy(
+            targetModel.position
+        );
+        dashElapsed = 0;
+        isDashing = true;
+        targetModel.visible = false;
+    }
+    function updateDash(delta) {
+        if (!isDashing) return;
+        dashElapsed += delta;
+        const t =
+            Math.min(
+                dashElapsed /
+                    dashDuration,
+                1
+            );
+        dashCurrentPosition
+            .copy(dashStartPosition)
+            .addScaledVector(
+                dashDirection,
+                dashDistance * t
+            );
+        targetModel.position.copy(
+            dashCurrentPosition
+        );
+        dashTrailSpawnPosition.copy(
+            dashCurrentPosition
+        );
+        dashTrailSpawnPosition.y +=
+            dashTrailHeightOffset;
+        spawnDashTrailParticles(
+            dashTrailSpawnPosition
+        );
+        if (t >= 1) {
+            isDashing = false;
+            targetModel.visible = true;
+            updateMovementAnimation();
+        }
+    }
+    // ============================================================
+    // カメラシェイク
+    // ============================================================
+    let cameraShakeElapsed = null;
+    const cameraShakeDuration = 0.35;
+    const cameraShakeMagnitude = 0.12;
+    function triggerCameraShake() {
+        cameraShakeElapsed = 0;
+    }
+    function applyCameraShake(delta) {
+        if (
+            cameraShakeElapsed === null
+        ) {
+            return;
+        }
+        cameraShakeElapsed += delta;
+        const t =
+            cameraShakeElapsed /
+            cameraShakeDuration;
+        if (t >= 1) {
+            cameraShakeElapsed = null;
+            return;
+        }
+        const decay = 1 - t;
+        const magnitude =
+            cameraShakeMagnitude *
+            decay *
+            decay;
+        camera.position.x +=
+            (
+                Math.random() * 2 - 1
+            ) *
+            magnitude;
+        camera.position.y +=
+            (
+                Math.random() * 2 - 1
+            ) *
+            magnitude;
+        camera.position.z +=
+            (
+                Math.random() * 2 - 1
+            ) *
+            magnitude;
+    }
+    // ============================================================
+    // 入力状態
+    // ============================================================
+    function hasMoveInput() {
+        return (
+            joystickX !== 0 ||
+            joystickY !== 0 ||
+            keyState.up ||
+            keyState.down ||
+            keyState.left ||
+            keyState.right
+        );
+    }
+    // ============================================================
+    // ジャンプ
+    // ============================================================
+    function jump() {
+        if (!mixer || !actions.jump) return;
+        if (isJumping) return;
+        if (isDashing) return;
+        if (isAttacking1 || isAttacking2) {
+            isAttacking1 = false;
+            isAttacking2 = false;
+            cancelAtForwardSteps();
+        }
+        isJumping = true;
+        jumpFrameCount = 0;
+        jumpShockwaveSpawned = false;
+        jumpAttackHitApplied = false;
+        const jumpAction =
+            actions.jump;
+        if (currentAction) {
+            currentAction.fadeOut(0.1);
+        }
+        jumpAction
+            .reset()
+            .setLoop(
+                THREE.LoopOnce,
+                1
+            );
+        jumpAction.clampWhenFinished = true;
+        jumpAction
+            .fadeIn(0.1)
+            .play();
+        currentAction = jumpAction;
+    }
+    // ============================================================
+    // AT攻撃
+    // ============================================================
+    function playAt1() {
+        if (!mixer || !actions.at1) return;
+        if (isJumping) return;
+        if (isDashing) return;
+
+        // at1の15フレーム以降にATを押した場合はat2へつなぐ。
+        if (
+            isAttacking1 &&
+            at1FrameCount >= at1HitFrameEnd
+        ) {
+            playAt2();
+            return;
+        }
+
+        // at2の10フレーム目以降にATを押した場合はat1へつなぐ。
+        if (
+            isAttacking2 &&
+            at2FrameCount >= at2HitFrame
+        ) {
+            startAt1Attack();
+            return;
+        }
+
+        if (isAttacking1 || isAttacking2) return;
+
+        startAt1Attack();
+    }
+
+    function startAt1Attack() {
+        isAttacking1 = true;
+        isAttacking2 = false;
+        at1FrameCount = 0;
+        at2FrameCount = 0;
+        at1HitApplied = false;
+        at2HitApplied = false;
+        at1ForwardStepApplied = false;
+        at2ForwardStepApplied = false;
+        cancelAtForwardSteps();
+        at1ArcRevealedSegment = -1;
+        // 新しいコンボの開始として、記録していたat1ヒット位置をリセットする
+        at1HasHitPositionThisCombo = false;
+
+        const at1Action =
+            actions.at1;
+        if (currentAction) {
+            currentAction.fadeOut(0.1);
+        }
+        at1Action
+            .reset()
+            .setLoop(
+                THREE.LoopOnce,
+                1
+            );
+        at1Action.clampWhenFinished = true;
+        // ★ at1を1.5倍速で再生
+        at1Action.setEffectiveTimeScale(
+            at1PlaybackSpeed
+        );
+        at1Action
+            .fadeIn(0.1)
+            .play();
+        currentAction = at1Action;
+    }
+
+    function playAt2() {
+        if (!mixer || !actions.at2) return;
+        if (isJumping) return;
+        if (isDashing) return;
+        if (!isAttacking1) return;
+
+        isAttacking1 = false;
+        isAttacking2 = true;
+        at2FrameCount = 0;
+        at2HitApplied = false;
+        at2ForwardStepApplied = false;
+        at2ArcRevealedSegment = -1;
+
+        const at2Action =
+            actions.at2;
+        if (currentAction) {
+            currentAction.fadeOut(0.05);
+        }
+        at2Action
+            .reset()
+            .setLoop(
+                THREE.LoopOnce,
+                1
+            );
+        at2Action.clampWhenFinished = true;
+        at2Action
+            .fadeIn(0.05)
+            .play();
+        currentAction = at2Action;
+    }
+    // ============================================================
+    // ボタン
+    // ============================================================
+    const jumpButton =
+        document.getElementById(
+            'jump-button'
+        );
+    jumpButton.addEventListener(
+        'pointerdown',
+        (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            jump();
+        },
+        { passive: false }
+    );
+    const dashButton =
+        document.getElementById(
+            'dash-button'
+        );
+    dashButton.addEventListener(
+        'pointerdown',
+        (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dashForward();
+        },
+        { passive: false }
+    );
+    const atButton =
+        document.getElementById(
+            'at-button'
+        );
+    atButton.addEventListener(
+        'pointerdown',
+        (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            playAt1();
+        },
+        { passive: false }
+    );
+    // ============================================================
+    // カメラ位置
+    // ============================================================
+    function updateCameraPosition() {
+        if (!targetModel) return;
+        const targetPosition =
+            targetModel.position.clone()
+                .add(
+                    new THREE.Vector3(
+                        0,
+                        targetHeightOffset +
+                            jumpHeightOffset,
+                        0
+                    )
+                );
+        const offset =
+            new THREE.Vector3()
+                .setFromSpherical(
+                    cameraSpherical
+                );
+        camera.position
+            .copy(targetPosition)
+            .add(offset);
+        camera.lookAt(
+            targetPosition
+        );
+    }
+    // ============================================================
+    // アナログスティック
+    // ============================================================
+    const joystickContainer =
+        document.getElementById(
+            'joystick-container'
+        );
+    const joystickStick =
+        document.getElementById(
+            'joystick-stick'
+        );
+    let joystickPointerId = null;
+    let joystickX = 0;
+    let joystickY = 0;
+    const joystickRadius = 52;
+    const joystickDeadZone = 0.08;
+    function updateJoystick(
+        clientX,
+        clientY
+    ) {
+        const rect =
+            joystickContainer
+                .getBoundingClientRect();
+        const centerX =
+            rect.left +
+            rect.width / 2;
+        const centerY =
+            rect.top +
+            rect.height / 2;
+        let dx =
+            clientX -
+            centerX;
+        let dy =
+            clientY -
+            centerY;
+        const distance =
+            Math.hypot(dx, dy);
+        if (
+            distance >
+            joystickRadius
+        ) {
+            dx =
+                dx / distance *
+                joystickRadius;
+            dy =
+                dy / distance *
+                joystickRadius;
+        }
+        // スティックの表示だけを左に90°回転。
+        // 縦持ち時に物理的な「上」入力が画面上の「左」へ動いて見えるようにする。
+        const displayX = dy;
+        const displayY = -dx;
+        joystickStick.style.transform =
+            `translate(${displayX}px, ${displayY}px)`;
+
+        // ゲーム内の移動入力も同じ向きに90°右回転。
+        // 物理的に「上」へ入力 → ゲーム内では「左」へ進む。
+        const rawJoystickX = dx / joystickRadius;
+        const rawJoystickY = dy / joystickRadius;
+        joystickX = rawJoystickY;
+        joystickY = -rawJoystickX;
+        const normalizedDistance =
+            Math.hypot(
+                joystickX,
+                joystickY
+            );
+        if (
+            normalizedDistance <
+            joystickDeadZone
+        ) {
+            joystickX = 0;
+            joystickY = 0;
+        }
+    }
+    function resetJoystick() {
+        joystickPointerId = null;
+        joystickX = 0;
+        joystickY = 0;
+        joystickStick.style.transform =
+            'translate(0px, 0px)';
+    }
+    function handleJoystickStart(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (
+            joystickPointerId !== null
+        ) {
+            return;
+        }
+        joystickPointerId =
+            e.pointerId;
+        try {
+            joystickContainer
+                .setPointerCapture(
+                    e.pointerId
+                );
+        } catch (err) {}
+        updateJoystick(
+            e.clientX,
+            e.clientY
+        );
+    }
+    function handleJoystickMove(e) {
+        if (
+            e.pointerId !==
+            joystickPointerId
+        ) {
+            return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        updateJoystick(
+            e.clientX,
+            e.clientY
+        );
+    }
+    function handleJoystickEnd(e) {
+        if (
+            e.pointerId !==
+            joystickPointerId
+        ) {
+            return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+            if (
+                joystickContainer
+                    .hasPointerCapture(
+                        e.pointerId
+                    )
+            ) {
+                joystickContainer
+                    .releasePointerCapture(
+                        e.pointerId
+                    );
+            }
+        } catch (err) {}
+        resetJoystick();
+    }
+    joystickContainer.addEventListener(
+        'pointerdown',
+        handleJoystickStart,
+        { passive: false }
+    );
+    joystickContainer.addEventListener(
+        'pointermove',
+        handleJoystickMove,
+        { passive: false }
+    );
+    joystickContainer.addEventListener(
+        'pointerup',
+        handleJoystickEnd,
+        { passive: false }
+    );
+    joystickContainer.addEventListener(
+        'pointercancel',
+        handleJoystickEnd,
+        { passive: false }
+    );
+    // ============================================================
+    // キーボード
+    // ============================================================
+    const keyState = {
+        up: false,
+        down: false,
+        left: false,
+        right: false
+    };
+    window.addEventListener(
+        'keydown',
+        (e) => {
+            if (
+                e.key === 'ArrowUp' ||
+                e.key === 'w'
+            ) {
+                keyState.up = true;
+            }
+            if (
+                e.key === 'ArrowDown' ||
+                e.key === 's'
+            ) {
+                keyState.down = true;
+            }
+            if (
+                e.key === 'ArrowLeft' ||
+                e.key === 'a'
+            ) {
+                keyState.left = true;
+            }
+            if (
+                e.key === 'ArrowRight' ||
+                e.key === 'd'
+            ) {
+                keyState.right = true;
+            }
+        }
+    );
+    window.addEventListener(
+        'keyup',
+        (e) => {
+            if (
+                e.key === 'ArrowUp' ||
+                e.key === 'w'
+            ) {
+                keyState.up = false;
+            }
+            if (
+                e.key === 'ArrowDown' ||
+                e.key === 's'
+            ) {
+                keyState.down = false;
+            }
+            if (
+                e.key === 'ArrowLeft' ||
+                e.key === 'a'
+            ) {
+                keyState.left = false;
+            }
+            if (
+                e.key === 'ArrowRight' ||
+                e.key === 'd'
+            ) {
+                keyState.right = false;
+            }
+        }
+    );
+    // ============================================================
+    // カメラ操作
+    // ============================================================
+    let isCameraDragging = false;
+    let cameraPointerId = null;
+    let previousTouchX = 0;
+    let previousTouchY = 0;
+    function handleRightScreenStart(e) {
+        if (
+            e.target.closest(
+                '#joystick-container'
+            )
+        ) {
+            return;
+        }
+        if (
+            e.target.closest(
+                '#jump-button'
+            )
+        ) {
+            return;
+        }
+        if (
+            e.target.closest(
+                '#dash-button'
+            )
+        ) {
+            return;
+        }
+        if (
+            e.target.closest(
+                '#at-button'
+            )
+        ) {
+            return;
+        }
+        if (isCameraDragging) return;
+        // 「画面の右半分」の判定は、実際の画面座標ではなく
+        // 見た目上（横向き表示）の座標系で行う。縦持ちのまま
+        // 回転表示している場合はgetLogicalX/Widthを使うことで、
+        // 回転の有無にかかわらず同じ判定になる。
+        if (
+            getLogicalX(e.clientX, e.clientY) >=
+            getLogicalWidth() / 2
+        ) {
+            e.preventDefault();
+            isCameraDragging = true;
+            cameraPointerId =
+                e.pointerId;
+            previousTouchX =
+                getLogicalX(e.clientX, e.clientY);
+            previousTouchY =
+                getLogicalY(e.clientX, e.clientY);
+            try {
+                renderer.domElement
+                    .setPointerCapture(
+                        e.pointerId
+                    );
+            } catch (err) {}
+        }
+    }
+    function handleRightScreenMove(e) {
+        if (!isCameraDragging) return;
+        if (
+            e.pointerId !==
+            cameraPointerId
+        ) {
+            return;
+        }
+        e.preventDefault();
+        // 見た目上（横向き表示）の座標系でドラッグ量を計算する。
+        const currentLogicalX =
+            getLogicalX(e.clientX, e.clientY);
+        const currentLogicalY =
+            getLogicalY(e.clientX, e.clientY);
+        const deltaX =
+            currentLogicalX -
+            previousTouchX;
+        const deltaY =
+            currentLogicalY -
+            previousTouchY;
+        cameraSpherical.theta -=
+            deltaX *
+            cameraTouchSensitivity;
+        cameraSpherical.phi -=
+            deltaY *
+            cameraTouchSensitivity;
+        cameraSpherical.phi =
+            Math.max(
+                minPolarAngle,
+                Math.min(
+                    maxPolarAngle,
+                    cameraSpherical.phi
+                )
+            );
+        previousTouchX =
+            currentLogicalX;
+        previousTouchY =
+            currentLogicalY;
+    }
+    function handleRightScreenEnd(e) {
+        if (!isCameraDragging) return;
+        if (
+            e.pointerId !==
+            cameraPointerId
+        ) {
+            return;
+        }
+        e.preventDefault();
+        isCameraDragging = false;
+        try {
+            if (
+                renderer.domElement
+                    .hasPointerCapture(
+                        e.pointerId
+                    )
+            ) {
+                renderer.domElement
+                    .releasePointerCapture(
+                        e.pointerId
+                    );
+            }
+        } catch (err) {}
+        cameraPointerId = null;
+    }
+    window.addEventListener(
+        'pointerdown',
+        handleRightScreenStart,
+        { passive: false }
+    );
+    window.addEventListener(
+        'pointermove',
+        handleRightScreenMove,
+        { passive: false }
+    );
+    window.addEventListener(
+        'pointerup',
+        handleRightScreenEnd,
+        { passive: false }
+    );
+    window.addEventListener(
+        'pointercancel',
+        handleRightScreenEnd,
+        { passive: false }
+    );
+    // ============================================================
+    // ct1移動アニメーション
+    // ============================================================
+    function updateMovementAnimation() {
+        if (hasMoveInput()) {
+            if (actions.dash) {
+                setAction('dash');
+            }
+        } else {
+            if (actions.idle) {
+                setAction('idle');
+            }
+        }
+    }
+    // ============================================================
+    // ct1移動
+    // ============================================================
+    function updateModelMovement(delta) {
+        if (!targetModel) return;
+        if (isDashing) return;
+        let moveX = joystickX;
+        let moveY = joystickY;
+        let currentSpeed = 0;
+        let keyboardX = 0;
+        let keyboardY = 0;
+        if (keyState.right) keyboardX += 1;
+        if (keyState.left) keyboardX -= 1;
+        if (keyState.up) keyboardY -= 1;
+        if (keyState.down) keyboardY += 1;
+        if (
+            keyboardX !== 0 ||
+            keyboardY !== 0
+        ) {
+            const length =
+                Math.hypot(
+                    keyboardX,
+                    keyboardY
+                );
+            moveX =
+                keyboardX /
+                length;
+            moveY =
+                keyboardY /
+                length;
+            currentSpeed =
+                maxMoveSpeed;
+        } else {
+            if (
+                moveX !== 0 ||
+                moveY !== 0
+            ) {
+                currentSpeed =
+                    maxMoveSpeed;
+            } else {
+                currentSpeed = 0;
+            }
+        }
+        const isMoving =
+            currentSpeed > 0;
+        if (isJumping || isAttacking1 || isAttacking2) {
+            currentSpeed *=
+                jumpMoveSpeedFactor;
+        }
+        if (!isJumping && !isAttacking1 && !isAttacking2) {
+            if (isMoving) {
+                if (actions.dash) {
+                    setAction('dash');
+                }
+            } else {
+                if (actions.idle) {
+                    setAction('idle');
+                }
+            }
+        }
+        if (isMoving) {
+            const cameraForward =
+                new THREE.Vector3();
+            camera.getWorldDirection(
+                cameraForward
+            );
+            cameraForward.y = 0;
+            cameraForward.normalize();
+            const cameraRight =
+                new THREE.Vector3();
+            cameraRight.crossVectors(
+                cameraForward,
+                new THREE.Vector3(0, 1, 0)
+            ).normalize();
+            const moveDirection =
+                new THREE.Vector3();
+            moveDirection
+                .addScaledVector(
+                    cameraRight,
+                    moveX
+                )
+                .addScaledVector(
+                    cameraForward,
+                    -moveY
+                );
+            if (
+                moveDirection.lengthSq() > 0
+            ) {
+                moveDirection.normalize();
+            }
+            targetModel.position
+                .addScaledVector(
+                    moveDirection,
+                    currentSpeed * delta
+                );
+            const targetAngle =
+                Math.atan2(
+                    moveDirection.x,
+                    moveDirection.z
+                );
+            const targetQuaternion =
+                new THREE.Quaternion();
+            targetQuaternion.setFromAxisAngle(
+                new THREE.Vector3(0, 1, 0),
+                targetAngle
+            );
+            targetModel.quaternion.slerp(
+                targetQuaternion,
+                rotationSpeed * delta
+            );
+        }
+    }
+    // ============================================================
+    // メインループ
+    // ============================================================
+    function animate() {
+        requestAnimationFrame(
+            animate
+        );
+        // WebGLコンテキストが失われている間は描画・更新を行わず、
+        // 復帰を待つだけにする（失われたコンテキストへの連続アクセスは
+        // 一部端末でクラッシュや無限エラーループの原因になる）
+        if (isRendererContextLost) {
+            return;
+        }
+        const delta =
+            clock.getDelta();
+        // ct1操作
+        updateModelMovement(
+            delta
+        );
+        // ct1ダッシュ
+        updateDash(
+            delta
+        );
+        // AT攻撃の前進ステップ（瞬間移動ではなく滑らかに移動）
+        updateAtForwardSteps(
+            delta
+        );
+        // パーティクル
+        updateParticles(
+            delta
+        );
+        // 斬撃エフェクト
+        updateSlashEffect(
+            delta
+        );
+        // AT1斬撃エフェクト（右親指1から中央前へ）
+        updateAt1SlashEffect(
+            delta
+        );
+        // AT2斬撃エフェクト（左親指1から中央前へ）
+        updateAt2SlashEffect(
+            delta
+        );
+        // ========================================================
+        // ct1アニメーション
+        // ========================================================
+        if (mixer) {
+            mixer.update(
+                delta
+            );
+            if (
+                isJumping &&
+                actions.jump
+            ) {
+                jumpFrameCount =
+                    Math.floor(
+                        actions.jump.time *
+                        animationFPS
+                    );
+                if (
+                    !jumpShockwaveSpawned &&
+                    jumpFrameCount >=
+                    shockwaveFrame
+                ) {
+                    spawnJumpImpactEffects();
+                    triggerCameraShake();
+                    jumpShockwaveSpawned = true;
+                }
+                if (
+                    jumpFrameCount >=
+                    jumpTransitionFrame &&
+                    hasMoveInput()
+                ) {
+                    isJumping = false;
+                    updateMovementAnimation();
+                }
+            }
+            if (
+                isAttacking1 &&
+                actions.at1
+            ) {
+                // ★ at1は1.5倍速なので、
+                //   timeの進行も1.5倍になる。
+                at1FrameCount =
+                    Math.floor(
+                        actions.at1.time *
+                        animationFPS
+                    );
+
+                // at1のヒット判定開始フレームで、その時点でct1が向いている方向へ滑らかに1進む（従来の15フレームより早める）。
+                if (
+                    !at1ForwardStepApplied &&
+                    at1FrameCount >= at1HitFrameStart
+                ) {
+                    startAtForwardStep(
+                        'at1',
+                        atAttackForwardStepDistance
+                    );
+                    at1ForwardStepApplied = true;
+                }
+
+            }
+
+            if (
+                isAttacking2 &&
+                actions.at2
+            ) {
+                at2FrameCount =
+                    Math.floor(
+                        actions.at2.time *
+                        animationFPS
+                    );
+
+                // at2の10フレーム目に、その時点でct1が向いている方向へ滑らかに1進む。
+                if (
+                    !at2ForwardStepApplied &&
+                    at2FrameCount >= 10
+                ) {
+                    startAtForwardStep(
+                        'at2',
+                        atAttackForwardStepDistance
+                    );
+                    at2ForwardStepApplied = true;
+                }
+
+            }
+        }
+        // ========================================================
+        // ct1ジャンプ高さ
+        // ========================================================
+        if (rootBone) {
+            targetModel.updateMatrixWorld(
+                true
+            );
+            rootBone.getWorldPosition(
+                rootBoneWorldPosition
+            );
+            jumpHeightOffset =
+                rootBoneWorldPosition.y -
+                rootBoneRestY;
+        }
+        // カメラ
+        updateCameraPosition();
+        applyCameraShake(
+            delta
+        );
+        // 追加のWebGLポストプロセスは使わず、通常描画を1回だけ行う。
+        renderer.setRenderTarget(null);
+renderer.render(scene, camera);
+
+// 低解像度WebGLバッファを2D canvasへコピーしてポスタライズ
+if (posterizeCtx && posterizeCanvas) {
+    posterizeCtx.drawImage(renderer.domElement, 0, 0);
+
+    const imageData = posterizeCtx.getImageData(
+        0, 0, posterizeCanvas.width, posterizeCanvas.height
+    );
+    const data = imageData.data;
+    const levels = 6;
+    const step = 255 / (levels - 1);
+
+    for (let i = 0; i < data.length; i += 4) {
+        data[i]     = Math.round(Math.round(data[i]     / step) * step);
+        data[i + 1] = Math.round(Math.round(data[i + 1] / step) * step);
+        data[i + 2] = Math.round(Math.round(data[i + 2] / step) * step);
+    }
+
+    posterizeCtx.putImageData(imageData, 0, 0);
+}
+    }
+    animate();
+    // ============================================================
+    // リサイズ
+    // ============================================================
+    window.addEventListener(
+        'resize',
+        () => {
+            updateForceRotateClass();
+            camera.aspect =
+                getLogicalWidth() /
+                getLogicalHeight();
+            camera.updateProjectionMatrix();
+            applyPixelatedRendererSize();
+        }
+    );
+    window.addEventListener(
+        'orientationchange',
+        () => {
+            updateForceRotateClass();
+            camera.aspect =
+                getLogicalWidth() /
+                getLogicalHeight();
+            camera.updateProjectionMatrix();
+            applyPixelatedRendererSize();
+        }
+    );
+</script>
+</body>
+</html>
