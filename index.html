@@ -144,31 +144,6 @@
         pointer-events: none;
         transform: translate(0px, 0px);
     }
-    #jump-button {
-        position: absolute;
-        right: 70px;
-        bottom: 81px;
-        width: 56px;
-        height: 56px;
-        z-index: 20;
-        border-radius: 50%;
-        background: rgba(255, 255, 255, 0.18);
-        border: 2px solid rgba(255, 255, 255, 0.4);
-        color: rgba(255, 255, 255, 0.9);
-        font-size: 24px;
-        font-weight: bold;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        touch-action: none;
-        user-select: none;
-        -webkit-user-select: none;
-        -webkit-tap-highlight-color: transparent;
-    }
-    #jump-button:active {
-        background: rgba(255, 255, 255, 0.35);
-        transform: scale(0.94);
-    }
     #dash-button {
         position: absolute;
         right: 70px;
@@ -235,7 +210,6 @@
         <div id="joystick-base"></div>
         <div id="joystick-stick"></div>
     </div>
-    <div id="jump-button">↑</div>
     <div id="dash-button">⏫</div>
     <div id="at-button">AT</div>
 </div>
@@ -570,59 +544,29 @@ function applyPixelatedRendererSize() {
     let mixer = null;
     let actions = {};
     let currentAction = null;
-    let rootBone = null;
-    let slashSourceNode = null;
-    const rightWristBoneNamePattern =
-        /(right.*hand|right.*wrist|r[_\.]?hand\b|hand[_\.]?r\b|wrist.*r\b|r.*wrist|righthand|rightwrist|右手首|右手首関節|みぎてくび)/i;
-    let at1SourceBone = null; // 右親指1（AT1エフェクト起点ボーン）
-    let at2SourceBone = null; // 左親指1（AT2エフェクト起点ボーン）
-    const at1SourceWorldPosition = new THREE.Vector3();
-    const at2SourceWorldPosition = new THREE.Vector3();
-    let rootBoneRestLocalOffset = 0;
-    let jumpHeightOffset = 0;
-    const rootBoneWorldPosition = new THREE.Vector3();
-    let isJumping = false;
-    let jumpFrameCount = 0;
-    const jumpTransitionFrame = 25;
-    const animationFPS = 30;
-    const shockwaveFrame = 22;
-    let jumpShockwaveSpawned = false;
-    // ------------------------------------------------------------
+let at1SourceBone = null; // 右親指1（AT1エフェクト起点ボーン）
+// 左親指1（AT2エフェクト起点ボーン）
+const animationFPS = 30;
+// ------------------------------------------------------------
     // ct1のAT（at1）攻撃
     // ------------------------------------------------------------
     let isAttacking1 = false;
-    let isAttacking2 = false;
-    let at1FrameCount = 0;
-    let at2FrameCount = 0;
-    let at1HitApplied = false;
-    let at2HitApplied = false;
-    // at1のヒット位置を記録し、コンボでat2がヒットした際に同じ位置へ
+let at1FrameCount = 0;
+let at1HitApplied = false;
     // パーティクルを重ねて表示できるようにする
-    const at1HitWorldPosition = new THREE.Vector3();
-    let at1HasHitPositionThisCombo = false;
-    // at1/at2の指定フレームで、ct1の現在の向きへ1だけ移動するためのフラグ
+// at1の指定フレームで、ct1の現在の向きへ移動するためのフラグ
     let at1ForwardStepApplied = false;
-    let at2ForwardStepApplied = false;
-    // at1/at2の前進ステップを瞬間移動ではなく滑らかに行うための状態
+// at1の前進ステップを瞬間移動ではなく滑らかに行うための状態
     let at1StepActive = false;
     let at1StepElapsed = 0;
     let at1StepMovedDistance = 0;
     let at1StepTotalDistance = 0;
     const at1StepDuration = 0.12;
     const at1StepDirection = new THREE.Vector3();
-    let at2StepActive = false;
-    let at2StepElapsed = 0;
-    let at2StepMovedDistance = 0;
-    let at2StepTotalDistance = 0;
-    const at2StepDuration = 0.12;
-    const at2StepDirection = new THREE.Vector3();
-    const at1HitFrameStart = 11;
+const at1HitFrameStart = 11;
     const at1HitFrameEnd = 15;
-    const at2HitFrame = 10;
-    const ct1AttackForwardOffset = 0.1;
-    const jumpAttackFrame = 22;
-    let jumpAttackHitApplied = false;
-    // ★ at1のみ1.5倍速
+const ct1AttackForwardOffset = 0.1;
+// ★ at1のみ1.5倍速
     const at1PlaybackSpeed = 1.5;
     const clock = new THREE.Clock();
     // ============================================================
@@ -630,8 +574,7 @@ function applyPixelatedRendererSize() {
     // ============================================================
     const maxMoveSpeed = 4.0;
     const jumpMoveSpeedFactor = 0.3;
-    const atAttackMoveSpeedFactor = jumpMoveSpeedFactor;
-    const atAttackForwardStepDistance = 1.0;
+const atAttackForwardStepDistance = 1.0;
     const rotationSpeed = 10.0;
     const cameraTouchSensitivity = 0.005;
     // ============================================================
@@ -870,21 +813,13 @@ function applyPixelatedRendererSize() {
                         const action = mixer.clipAction(clip);
                         const animationName =
                             clip.name.trim().toLowerCase();
-                        if (animationName === 'jump') {
-                            actions.jump = action;
-                            action.setLoop(THREE.LoopOnce, 1);
-                            action.clampWhenFinished = true;
-                        } else if (animationName === 'at1') {
+                        if (animationName === 'at1') {
                             actions.at1 = action;
                             action.setLoop(THREE.LoopOnce, 1);
                             action.clampWhenFinished = true;
                             action.setEffectiveTimeScale(
                                 at1PlaybackSpeed
                             );
-                        } else if (animationName === 'at2') {
-                            actions.at2 = action;
-                            action.setLoop(THREE.LoopOnce, 1);
-                            action.clampWhenFinished = true;
                         } else if (animationName === 'hit') {
                             actions.hit = action;
                             action.setLoop(THREE.LoopOnce, 1);
@@ -900,33 +835,14 @@ function applyPixelatedRendererSize() {
                             }
                         }
                     });
-                    if (!actions.at2) {
-                        console.warn(
-                            '[ct1] at2アニメーションが見つかりません。'
-                        );
-                    }
                     mixer.addEventListener(
                         'finished',
                         function (event) {
-                            if (
-                                event.action === actions.jump &&
-                                isJumping
-                            ) {
-                                isJumping = false;
-                                updateMovementAnimation();
-                            }
                             if (
                                 event.action === actions.at1 &&
                                 isAttacking1
                             ) {
                                 isAttacking1 = false;
-                                updateMovementAnimation();
-                            }
-                            if (
-                                event.action === actions.at2 &&
-                                isAttacking2
-                            ) {
-                                isAttacking2 = false;
                                 updateMovementAnimation();
                             }
                         }
@@ -935,69 +851,17 @@ function applyPixelatedRendererSize() {
                 }
 
                 // ====================================================
-                // ボーン検出
+                // ボーン検出（AT1エフェクト起点用）
                 // ====================================================
                 targetModel.traverse((child) => {
-                    if (child.isBone && !rootBone) {
-                        rootBone = child;
-                    }
-                    if (
-                        !slashSourceNode &&
-                        child.isBone &&
-                        rightWristBoneNamePattern.test(child.name)
-                    ) {
-                        slashSourceNode = child;
-                        console.info(
-                            '[斬撃エフェクト] 右手首らしき名前のボーンを検出:',
-                            child.name
-                        );
-                    }
                     if (
                         !at1SourceBone &&
                         child.isBone &&
                         child.name === '右親指1'
                     ) {
                         at1SourceBone = child;
-                        console.info(
-                            '[AT1エフェクト] 右親指1ボーンを検出:',
-                            child.name
-                        );
-                    }
-                    if (
-                        !at2SourceBone &&
-                        child.isBone &&
-                        child.name === '左親指1'
-                    ) {
-                        at2SourceBone = child;
-                        console.info(
-                            '[AT2エフェクト] 左親指1ボーンを検出:',
-                            child.name
-                        );
                     }
                 });
-                if (!slashSourceNode) {
-                    slashSourceNode = rootBone;
-                    console.warn(
-                        '[斬撃エフェクト] 右手首らしき名前のボーンが見つからなかったため、rootBoneにフォールバックしました。'
-                    );
-                }
-                if (!at1SourceBone) {
-                    console.warn(
-                        '[AT1エフェクト] 右親指1ボーンが見つからなかったため、従来の位置計算にフォールバックします。'
-                    );
-                }
-                if (!at2SourceBone) {
-                    console.warn(
-                        '[AT2エフェクト] 左親指1ボーンが見つからなかったため、従来の位置計算にフォールバックします。'
-                    );
-                }
-                if (rootBone) {
-                    targetModel.updateMatrixWorld(true);
-                    rootBone.getWorldPosition(rootBoneWorldPosition);
-                    rootBoneRestLocalOffset =
-                        rootBoneWorldPosition.y -
-                        targetModel.position.y;
-                }
                 updateCameraPosition();
                 markAssetLoaded();
             },
@@ -1055,17 +919,13 @@ function applyPixelatedRendererSize() {
     // ct1ノックバック
     // ============================================================
     // ============================================================
-    // ct1ジャンプ攻撃
+        // ============================================================
     // ============================================================
-    // ============================================================
-    // at1/at2 前進ステップ（滑らかな移動）
+    // at1前進ステップ（滑らかな移動）
     // ============================================================
     function startAtForwardStep(kind, distance) {
         if (!targetModel) return;
-        const direction =
-            kind === 'at1'
-                ? at1StepDirection
-                : at2StepDirection;
+        const direction = at1StepDirection;
         direction.set(0, 0, 1);
         direction.applyQuaternion(
             targetModel.quaternion
@@ -1079,12 +939,7 @@ function applyPixelatedRendererSize() {
             at1StepMovedDistance = 0;
             at1StepElapsed = 0;
             at1StepActive = true;
-        } else {
-            at2StepTotalDistance = distance;
-            at2StepMovedDistance = 0;
-            at2StepElapsed = 0;
-            at2StepActive = true;
-        }
+    }
     }
     // イーズアウトで加速の少ない自然な前進にする
     function easeOutQuad(t) {
@@ -1116,41 +971,16 @@ function applyPixelatedRendererSize() {
                 at1StepActive = false;
             }
         }
-        if (at2StepActive) {
-            at2StepElapsed += delta;
-            const t =
-                Math.min(
-                    at2StepElapsed /
-                        at2StepDuration,
-                    1
-                );
-            const targetDistance =
-                at2StepTotalDistance *
-                easeOutQuad(t);
-            const deltaDistance =
-                targetDistance -
-                at2StepMovedDistance;
-            targetModel.position.addScaledVector(
-                at2StepDirection,
-                deltaDistance
-            );
-            at2StepMovedDistance =
-                targetDistance;
-            if (t >= 1) {
-                at2StepActive = false;
-            }
-        }
     }
     function cancelAtForwardSteps() {
         at1StepActive = false;
-        at2StepActive = false;
     }
     // ============================================================
     // ct1攻撃ヒット時のパーティクル
-    // （ジャンプ着地時の弾けるパーティクルをそのまま使用）
+    
     // ============================================================
     // ------------------------------------------------------------
-    // ct1のヒット演出（ジャンプ攻撃・AT攻撃で共通の白い閃光＋赤黒ブロック）
+    // ct1のヒット演出（AT攻撃で使用する白い閃光＋赤黒ブロック）
     // ------------------------------------------------------------
     const ct1HitFlashColor = 0xffffff;
     const ct1HitFlashDuration = 0.16;
@@ -1192,55 +1022,11 @@ function applyPixelatedRendererSize() {
         attackPosition.addScaledVector(forward, ct1AttackForwardOffset);
 
         at1HitApplied = true;
-        at1HitWorldPosition.copy(attackPosition);
-        at1HasHitPositionThisCombo = true;
         spawnCt1HitEffect(attackPosition, forward);
         triggerCameraShake();
     }
 
-    function updateCt1At2Hit() {
-        if (!targetModel) return;
-        if (!isAttacking2) return;
-        if (at2HitApplied) return;
-        if (at2FrameCount !== at2HitFrame) return;
 
-        const forward = new THREE.Vector3(0, 0, 1);
-        forward.applyQuaternion(targetModel.quaternion);
-        forward.y = 0;
-        if (forward.lengthSq() > 0) forward.normalize();
-
-        const attackPosition = targetModel.position.clone();
-        attackPosition.y += targetHeightOffset * 0.5;
-        attackPosition.addScaledVector(forward, ct1AttackForwardOffset);
-
-        at2HitApplied = true;
-        const particleSpawnPosition =
-            at1HasHitPositionThisCombo
-                ? at1HitWorldPosition
-                : attackPosition;
-        spawnCt1HitEffect(particleSpawnPosition, forward);
-        triggerCameraShake();
-    }
-
-    function updateCt1JumpAttackHit() {
-        if (!targetModel) return;
-        if (!isJumping) return;
-        if (jumpAttackHitApplied) return;
-        if (jumpFrameCount !== jumpAttackFrame) return;
-
-        const forward = new THREE.Vector3(0, 0, 1);
-        forward.applyQuaternion(targetModel.quaternion);
-        forward.y = 0;
-        if (forward.lengthSq() > 0) forward.normalize();
-
-        const attackPosition = targetModel.position.clone();
-        attackPosition.y += jumpHeightOffset;
-        attackPosition.addScaledVector(forward, ct1AttackForwardOffset);
-
-        jumpAttackHitApplied = true;
-        spawnCt1HitEffect(attackPosition, forward);
-        triggerCameraShake();
-    }
 
     // ============================================================
     // ct1 AT攻撃ヒット判定
@@ -1541,20 +1327,7 @@ function applyPixelatedRendererSize() {
     // ============================================================
     // ジャンプ衝撃波
     // ============================================================
-    const shockwaveFlashDuration = 0.12;
-    const shockwaveFlashRadius = 0.5;
-    const shockwaveFlashMaxScale = 3.2;
-    const shockwaveFlashMaxOpacity = 1.0;
-    const shockwaveFlashColor = 0xffffff;
-    const shockwaveSparkCount = 80;
-    const shockwaveSparkMinSpeed = 2.5;
-    const shockwaveSparkMaxSpeed = 7.5;
-    const shockwaveSparkMinSize = 0.09;
-    const shockwaveSparkMaxSize = 0.3;
-    const shockwaveSparkMinDuration = 0.4;
-    const shockwaveSparkMaxDuration = 0.9;
-    const shockwaveSparkGravity = 3.5;
-    const shockwaveSparkColorRed =
+const shockwaveSparkColorRed =
         new THREE.Color(0xff2200);
     const shockwaveSparkColorBlack =
         new THREE.Color(0x120000);
@@ -1573,106 +1346,8 @@ function applyPixelatedRendererSize() {
         new THREE.Color(0x1a0000);
     const blackBurstColorBlack =
         new THREE.Color(0x000000);
-    const shockwaveForwardOffset = 0.9;
-    const shockwaveGroundOffset = 0.05;
-    function getShockwaveOriginPosition() {
-        const forward =
-            new THREE.Vector3(0, 0, 1);
-        forward.applyQuaternion(
-            targetModel.quaternion
-        );
-        forward.y = 0;
-        forward.normalize();
-        const basePosition =
-            targetModel.position.clone()
-                .addScaledVector(
-                    forward,
-                    shockwaveForwardOffset
-                );
-        basePosition.y +=
-            shockwaveGroundOffset;
-        return basePosition;
-    }
-    function spawnJumpImpactEffects() {
-        if (!targetModel) return;
-        const origin =
-            getShockwaveOriginPosition();
-        spawnFlashParticle(
-            origin,
-            {
-                radius:
-                    shockwaveFlashRadius,
-                duration:
-                    shockwaveFlashDuration,
-                maxScale:
-                    shockwaveFlashMaxScale,
-                startOpacity:
-                    shockwaveFlashMaxOpacity,
-                color:
-                    shockwaveFlashColor
-            }
-        );
-    }
-    // ============================================================
-    // 斬撃エフェクト
-    // ============================================================
-    const slashEffectSpawnCountPerFrame = 3;
-    const slashEffectSpawnSpread = 0.55;
-    const slashEffectMinSize = 0.14;
-    const slashEffectMaxSize = 0.38;
-    const slashEffectMinSpeed = 0.6;
-    const slashEffectMaxSpeed = 2.4;
-    const slashEffectMinDuration = 0.25;
-    const slashEffectMaxDuration = 0.55;
-    const slashEffectGravity = 1.0;
-    const slashEffectElevationMin = -0.3;
-    const slashEffectElevationMax = 0.9;
-    const slashSourceWorldPosition =
-        new THREE.Vector3();
-    function updateSlashEffect(delta) {
-        if (
-            !isJumping ||
-            !slashSourceNode
-        ) {
-            return;
-        }
-        slashSourceNode.getWorldPosition(
-            slashSourceWorldPosition
-        );
-        spawnCubeBurst(
-            slashSourceWorldPosition,
-            {
-                count:
-                    slashEffectSpawnCountPerFrame,
-                minSize:
-                    slashEffectMinSize,
-                maxSize:
-                    slashEffectMaxSize,
-                minSpeed:
-                    slashEffectMinSpeed,
-                maxSpeed:
-                    slashEffectMaxSpeed,
-                minDuration:
-                    slashEffectMinDuration,
-                maxDuration:
-                    slashEffectMaxDuration,
-                gravity:
-                    slashEffectGravity,
-                colorA:
-                    shockwaveSparkColorRed,
-                colorB:
-                    shockwaveSparkColorBlack,
-                elevationMin:
-                    slashEffectElevationMin,
-                elevationMax:
-                    slashEffectElevationMax,
-                spawnSpread:
-                    slashEffectSpawnSpread
-            }
-        );
-    }
-    // ============================================================
-    // AT攻撃エフェクト（at1:右親指1から中央前へ／at2:左親指1から中央前へ）
+// ============================================================
+    // AT1攻撃エフェクト（右親指1から中央前へ）
     // ============================================================
     const atSlashSpawnCountPerFrame = 4;
     const atSlashMinSize = 0.12;
@@ -1688,7 +1363,7 @@ function applyPixelatedRendererSize() {
         targetHeightOffset * 0.6;
     const atSlashForwardTargetDistance = 1.4;
     // ------------------------------------------------------------
-    // AT攻撃 半円エフェクト（at1:体の左／at2:体の右に、順番に出現）
+    // AT1攻撃 半円エフェクト（体の左に、順番に出現）
     // ------------------------------------------------------------
     const atArcRadius = 1.3;
     const atArcRadiusVariance = 0.15;
@@ -1703,15 +1378,13 @@ function applyPixelatedRendererSize() {
     const atArcParticleGravity = 0.7;
     // 半円を描き切るまでにかかるフレーム数（この間に順番にセグメントが現れる）
     const at1ArcRevealFrames = 12;
-    const at2ArcRevealFrames = 10;
-    // 半円1本あたりの分割数（多いほど滑らかにつながって見える）
+// 半円1本あたりの分割数（多いほど滑らかにつながって見える）
     const atArcSegmentCount = 18;
     let at1ArcRevealedSegment = -1;
-    let at2ArcRevealedSegment = -1;
-    // AT半円エフェクトは他のct1ヒット演出と同じ赤×黒のブロックカラーで統一する
+// AT半円エフェクトは他のct1ヒット演出と同じ赤×黒のブロックカラーで統一する
     // sideSignが-1なら体の左（後方→前方）、+1なら体の右（後方→前方）を通る半円上の
     // segmentIndex番目の位置にパーティクルを発生させる
-    function spawnAtArcSegment(segmentIndex, sideSign) {
+    function spawnAtArcSegment(segmentIndex) {
         if (!targetModel) return;
         const forward = new THREE.Vector3(0, 0, 1);
         forward.applyQuaternion(
@@ -1734,13 +1407,8 @@ function applyPixelatedRendererSize() {
                 ? 0
                 : segmentIndex /
                   (atArcSegmentCount - 1);
-        // sideSign < 0（at1・体の左）: 後方(-PI) → 前方(0)
-        // sideSign >= 0（at2・体の右）: 後方(+PI) → 前方(0)
-        // どちらも「後方→前方」の順で半円を描くようにする
-        const angle =
-            sideSign < 0
-                ? -Math.PI + t * Math.PI
-                : Math.PI - t * Math.PI;
+        // at1は体の左側を後方から前方へ半円状に描く
+        const angle = -Math.PI + t * Math.PI;
         const radius =
             atArcRadius +
             randomRange(
@@ -2099,39 +1767,6 @@ function applyPixelatedRendererSize() {
             at1ArcRevealedSegment++;
             spawnAtArcSegment(
                 at1ArcRevealedSegment,
-                -1
-            );
-        }
-    }
-    // at2: 体の右側に半円状のエフェクトを順番に出現させる
-    function updateAt2SlashEffect(
-        delta
-    ) {
-        if (
-            !isAttacking2 ||
-            !targetModel
-        ) {
-            return;
-        }
-        const t =
-            Math.min(
-                at2FrameCount /
-                    at2ArcRevealFrames,
-                1
-            );
-        const targetSegment =
-            Math.floor(
-                t *
-                (atArcSegmentCount - 1)
-            );
-        while (
-            at2ArcRevealedSegment <
-            targetSegment
-        ) {
-            at2ArcRevealedSegment++;
-            spawnAtArcSegment(
-                at2ArcRevealedSegment,
-                1
             );
         }
     }
@@ -2199,11 +1834,10 @@ function applyPixelatedRendererSize() {
     }
     function dashForward() {
         if (!targetModel) return;
-        if (isDashing || isJumping) return;
-        if (isAttacking1 || isAttacking2) {
+        if (isDashing) return;
+        if (isAttacking1) {
             isAttacking1 = false;
-            isAttacking2 = false;
-            cancelAtForwardSteps();
+                cancelAtForwardSteps();
             if (currentAction) {
                 currentAction.fadeOut(0.1);
             }
@@ -2315,81 +1949,25 @@ function applyPixelatedRendererSize() {
     // ============================================================
     // ジャンプ
     // ============================================================
-    function jump() {
-        if (!mixer || !actions.jump) return;
-        if (isJumping) return;
-        if (isDashing) return;
-        if (isAttacking1 || isAttacking2) {
-            isAttacking1 = false;
-            isAttacking2 = false;
-            cancelAtForwardSteps();
-        }
-        isJumping = true;
-        jumpAttackHitApplied = false;
-        jumpFrameCount = 0;
-        jumpShockwaveSpawned = false;
-        jumpAttackHitApplied = false;
-        const jumpAction =
-            actions.jump;
-        if (currentAction) {
-            currentAction.fadeOut(0.1);
-        }
-        jumpAction
-            .reset()
-            .setLoop(
-                THREE.LoopOnce,
-                1
-            );
-        jumpAction.clampWhenFinished = true;
-        jumpAction
-            .fadeIn(0.1)
-            .play();
-        currentAction = jumpAction;
-    }
     // ============================================================
     // AT攻撃
     // ============================================================
     function playAt1() {
         if (!mixer || !actions.at1) return;
-        if (isJumping) return;
         if (isDashing) return;
-
-        // at1の15フレーム以降にATを押した場合はat2へつなぐ。
-        if (
-            isAttacking1 &&
-            at1FrameCount >= at1HitFrameEnd
-        ) {
-            playAt2();
-            return;
-        }
-
-        // at2の10フレーム目以降にATを押した場合はat1へつなぐ。
-        if (
-            isAttacking2 &&
-            at2FrameCount >= at2HitFrame
-        ) {
-            startAt1Attack();
-            return;
-        }
-
-        if (isAttacking1 || isAttacking2) return;
+        if (isAttacking1) return;
 
         startAt1Attack();
     }
 
     function startAt1Attack() {
         isAttacking1 = true;
-        isAttacking2 = false;
         at1FrameCount = 0;
-        at2FrameCount = 0;
         at1HitApplied = false;
-        at2HitApplied = false;
         at1ForwardStepApplied = false;
-        at2ForwardStepApplied = false;
         cancelAtForwardSteps();
         at1ArcRevealedSegment = -1;
         // 新しいコンボの開始として、記録していたat1ヒット位置をリセットする
-        at1HasHitPositionThisCombo = false;
 
         const at1Action =
             actions.at1;
@@ -2413,52 +1991,9 @@ function applyPixelatedRendererSize() {
         currentAction = at1Action;
     }
 
-    function playAt2() {
-        if (!mixer || !actions.at2) return;
-        if (isJumping) return;
-        if (isDashing) return;
-        if (!isAttacking1) return;
-
-        isAttacking1 = false;
-        isAttacking2 = true;
-        at2FrameCount = 0;
-        at2HitApplied = false;
-        at2ForwardStepApplied = false;
-        at2ArcRevealedSegment = -1;
-
-        const at2Action =
-            actions.at2;
-        if (currentAction) {
-            currentAction.fadeOut(0.05);
-        }
-        at2Action
-            .reset()
-            .setLoop(
-                THREE.LoopOnce,
-                1
-            );
-        at2Action.clampWhenFinished = true;
-        at2Action
-            .fadeIn(0.05)
-            .play();
-        currentAction = at2Action;
-    }
     // ============================================================
     // ボタン
     // ============================================================
-    const jumpButton =
-        document.getElementById(
-            'jump-button'
-        );
-    jumpButton.addEventListener(
-        'pointerdown',
-        (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            jump();
-        },
-        { passive: false }
-    );
     const dashButton =
         document.getElementById(
             'dash-button'
@@ -2495,8 +2030,7 @@ function applyPixelatedRendererSize() {
                 .add(
                     new THREE.Vector3(
                         0,
-                        targetHeightOffset +
-                            jumpHeightOffset,
+                        targetHeightOffset,
                         0
                     )
                 );
@@ -2756,13 +2290,6 @@ function applyPixelatedRendererSize() {
         }
         if (
             e.target.closest(
-                '#jump-button'
-            )
-        ) {
-            return;
-        }
-        if (
-            e.target.closest(
                 '#dash-button'
             )
         ) {
@@ -2943,11 +2470,11 @@ function applyPixelatedRendererSize() {
         }
         const isMoving =
             currentSpeed > 0;
-        if (isJumping || isAttacking1 || isAttacking2) {
+        if (isAttacking1) {
             currentSpeed *=
                 jumpMoveSpeedFactor;
         }
-        if (!isJumping && !isAttacking1 && !isAttacking2) {
+        if (!isAttacking1) {
             if (isMoving) {
                 if (actions.dash) {
                     setAction('dash');
@@ -3076,16 +2603,8 @@ function applyPixelatedRendererSize() {
         updateParticles(
             delta
         );
-        // 斬撃エフェクト
-        updateSlashEffect(
-            delta
-        );
         // AT1斬撃エフェクト（右親指1から中央前へ）
         updateAt1SlashEffect(
-            delta
-        );
-        // AT2斬撃エフェクト（左親指1から中央前へ）
-        updateAt2SlashEffect(
             delta
         );
         // ========================================================
@@ -3095,34 +2614,6 @@ function applyPixelatedRendererSize() {
             mixer.update(
                 delta
             );
-            if (
-                isJumping &&
-                actions.jump
-            ) {
-                jumpFrameCount =
-                    Math.floor(
-                        actions.jump.time *
-                        animationFPS
-                    );
-                if (
-                    !jumpShockwaveSpawned &&
-                    jumpFrameCount >=
-                    shockwaveFrame
-                ) {
-                    spawnJumpImpactEffects();
-                    triggerCameraShake();
-                    jumpShockwaveSpawned = true;
-                }
-                updateCt1JumpAttackHit();
-                if (
-                    jumpFrameCount >=
-                    jumpTransitionFrame &&
-                    hasMoveInput()
-                ) {
-                    isJumping = false;
-                    updateMovementAnimation();
-                }
-            }
             if (
                 isAttacking1 &&
                 actions.at1
@@ -3135,7 +2626,7 @@ function applyPixelatedRendererSize() {
                         animationFPS
                     );
 
-                // at1のヒット判定開始フレームで、その時点でct1が向いている方向へ滑らかに1進む（従来の15フレームより早める）。
+                // at1のヒット判定開始フレームで、その時点でct1が向いている方向へ滑らかに移動する。
                 if (
                     !at1ForwardStepApplied &&
                     at1FrameCount >= at1HitFrameStart
@@ -3147,48 +2638,7 @@ function applyPixelatedRendererSize() {
                     at1ForwardStepApplied = true;
                 }
                 updateCt1At1Hit();
-
             }
-
-            if (
-                isAttacking2 &&
-                actions.at2
-            ) {
-                at2FrameCount =
-                    Math.floor(
-                        actions.at2.time *
-                        animationFPS
-                    );
-
-                // at2の10フレーム目に、その時点でct1が向いている方向へ滑らかに1進む。
-                if (
-                    !at2ForwardStepApplied &&
-                    at2FrameCount >= 10
-                ) {
-                    startAtForwardStep(
-                        'at2',
-                        atAttackForwardStepDistance
-                    );
-                    at2ForwardStepApplied = true;
-                }
-                updateCt1At2Hit();
-
-            }
-        }
-        // ========================================================
-        // ct1ジャンプ高さ
-        // ========================================================
-        if (rootBone) {
-            targetModel.updateMatrixWorld(
-                true
-            );
-            rootBone.getWorldPosition(
-                rootBoneWorldPosition
-            );
-            jumpHeightOffset =
-                (rootBoneWorldPosition.y -
-                    targetModel.position.y) -
-                rootBoneRestLocalOffset;
         }
         updateGroundCollision();
         // カメラ
