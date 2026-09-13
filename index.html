@@ -610,7 +610,7 @@ function applyPixelatedRendererSize() {
         function (gltf) {
             try {
                 bgModel = gltf.scene;
-                bgModel.scale.set(2, 2, 2);
+                bgModel.scale.set(1, 1, 1);
                 bgModel.traverse((child) => {
                     if (!child.isMesh) return;
                     const oldMaterial = child.material;
