@@ -272,6 +272,8 @@
     // Three.js 基本設定
     // ============================================================
     const scene = new THREE.Scene();
+    const bgGroup = new THREE.Group();
+    scene.add(bgGroup);
     const camera = new THREE.PerspectiveCamera(
         75,
         getLogicalWidth() / getLogicalHeight(),
@@ -339,9 +341,6 @@ function applyPixelatedRendererSize() {
     // ============================================================
     // 地面当たり判定（Raycaster）
     // ============================================================
-    // ============================================================
-    // 地面当たり判定（Raycaster）
-    // ============================================================
     const groundRaycaster = new THREE.Raycaster();
     const groundRayDirection = new THREE.Vector3(0, -1, 0);
     const groundRayOrigin = new THREE.Vector3();
@@ -355,10 +354,10 @@ function applyPixelatedRendererSize() {
     const maxWalkableSlopeAngle = THREE.MathUtils.degToRad(50);
     const upVector = new THREE.Vector3(0, 1, 0);
 
-    // 指定したXZ座標の直下にある地形（bgModel）との交点を返す。
+    // 指定したXZ座標の直下にある地形（bgGroup）との交点を返す。
     // 交点がなければnull。
     function probeGroundHeight(x, z, referenceY) {
-        if (!bgModel) return null;
+        if (!bgGroup || bgGroup.children.length === 0) return null;
         groundRayOrigin.set(
             x,
             referenceY + terrainProbeHeight,
@@ -370,7 +369,7 @@ function applyPixelatedRendererSize() {
         );
         const hits =
             groundRaycaster.intersectObject(
-                bgModel,
+                bgGroup,
                 true
             );
         return hits.length > 0 ? hits[0] : null;
@@ -395,7 +394,13 @@ function applyPixelatedRendererSize() {
     }
 
     function updateGroundCollision() {
-        if (!targetModel || !bgModel) return;
+        if (
+            !targetModel ||
+            !bgGroup ||
+            bgGroup.children.length === 0
+        ) {
+            return;
+        }
 
         const hit = probeGroundHeight(
             targetModel.position.x,
@@ -548,7 +553,7 @@ function applyPixelatedRendererSize() {
     // モデル・アニメーション（ct1）
     // ============================================================
     let targetModel = null;
-    let bgModel = null;
+    let bgModel = null; // 互換のため残すが、実体はbgGroupへの参照
     let mixer = null;
     let actions = {};
     let currentAction = null;
@@ -625,7 +630,7 @@ function applyPixelatedRendererSize() {
     // ============================================================
     const loadingScreenElement =
         document.getElementById('loading-screen');
-    const totalAssetsToLoad = 2; // bg, ct1
+    const totalAssetsToLoad = 7; // bg1a〜bg1f(6個) + ct1
     let loadedAssetCount = 0;
     let loadingScreenHidden = false;
     function markAssetLoaded() {
@@ -678,276 +683,91 @@ function applyPixelatedRendererSize() {
     }, LOADING_FALLBACK_TIMEOUT_MS);
     // ============================================================
     // ============================================================
-    // bg1a.glb
+    // bg1a〜bg1f.glb（背景を分割したパーツを順番に読み込む）
     // ============================================================
     // モデルを同時並行でダウンロード・デコードすると、モバイル端末で
     // メモリ／GPUリソースが逼迫してクラッシュしやすくなるため、
-    // bg1a → ct1 の順に1つずつ読み込む。
-    loader.load(
+    // bg1a → bg1b → ... → bg1f → ct1 の順に1つずつ読み込む。
+    const bgFileNames = [
         './bg1a.glb',
-        function (gltf) {
-            try {
-                bgModel = gltf.scene;
-                bgModel.scale.set(1, 1, 1);
-                bgModel.traverse((child) => {
-                    if (!child.isMesh) return;
-                    const oldMaterial = child.material;
-                    const materials =
-                        Array.isArray(oldMaterial)
-                            ? oldMaterial
-                            : [oldMaterial];
-                    const newMaterials = materials.map((material) => {
-                        if (material.map) {
-                            material.map.encoding = THREE.sRGBEncoding;
-                            material.map.anisotropy = cappedAnisotropy;
-                            material.map.needsUpdate = true;
-                        }
-                        return new THREE.MeshBasicMaterial({
-                            color: 0xffffff,
-                            wireframe: false,
-                            transparent: true,
-                            opacity: 0.99,
-                            map: material.map || null,
-                            vertexColors: material.vertexColors
-                        });
-                    });
-                    child.material =
-                        Array.isArray(oldMaterial)
-                            ? newMaterials
-                            : newMaterials[0];
-                    child.receiveShadow = true;
+        './bg1b.glb',
+        './bg1c.glb',
+        './bg1d.glb',
+        './bg1e.glb',
+        './bg1f.glb'
+    ];
+
+    function setupBgMaterials(bgScene) {
+        bgScene.traverse((child) => {
+            if (!child.isMesh) return;
+            const oldMaterial = child.material;
+            const materials =
+                Array.isArray(oldMaterial)
+                    ? oldMaterial
+                    : [oldMaterial];
+            const newMaterials = materials.map((material) => {
+                if (material.map) {
+                    material.map.encoding = THREE.sRGBEncoding;
+                    material.map.anisotropy = cappedAnisotropy;
+                    material.map.needsUpdate = true;
+                }
+                return new THREE.MeshBasicMaterial({
+                    color: 0xffffff,
+                    wireframe: false,
+                    transparent: true,
+                    opacity: 0.99,
+                    map: material.map || null,
+                    vertexColors: material.vertexColors
                 });
-                scene.add(bgModel);
-            } catch (setupError) {
-                console.error(
-                    'bg1a.glb のセットアップエラー:',
-                    setupError
-                );
-            }
-            markAssetLoaded();
-            loadCt1Model();
-        },
-        undefined,
-        function (error) {
-            console.error(
-                'bg1a.glb の読み込みエラー:',
-                error
-            );
-            markAssetLoaded();
-            loadCt1Model();
-        }
-    );
-    // ============================================================
-    // ct1.glb（bg1a.glbの読み込み完了後に開始する）
-    // ============================================================
-    function loadCt1Model() {
-    loader.load(
-        './ct1.glb',
-        function (gltf) {
-            targetModel = gltf.scene;
-            targetModel.rotation.y = Math.PI;
-            targetModel.traverse((child) => {
-                if (!child.isMesh) return;
-                const materials =
-                    Array.isArray(child.material)
-                        ? child.material
-                        : [child.material];
-                materials.forEach((material) => {
-                    if (!material) return;
-                    if (material.color) {
-                        material.color.multiplyScalar(0.4);
-                    }
-                    material.metalness = 0.0;
-                    material.roughness = 0.95;
-                    material.envMapIntensity = 0.08;
-                    if (material.map) {
-                        material.map.encoding =
-                            THREE.sRGBEncoding;
-                        material.map.anisotropy =
-                            cappedAnisotropy;
-                        material.map.needsUpdate = true;
-                    }
-                    material.needsUpdate = true;
-                });
-                child.castShadow = true;
-                child.receiveShadow = true;
             });
-            scene.add(targetModel);
-            const ct1InitialPosition =
-                targetModel.position.clone();
-            const ct1InitialQuaternion =
-                targetModel.quaternion.clone();
-            // ====================================================
-            // ct1アニメーション
-            // ====================================================
-            if (
-                gltf.animations &&
-                gltf.animations.length > 0
-            ) {
-                mixer =
-                    new THREE.AnimationMixer(targetModel);
-                gltf.animations.forEach((clip) => {
-                    const action =
-                        mixer.clipAction(clip);
-                    const animationName =
-                        clip.name.trim().toLowerCase();
-                    if (animationName === 'jump') {
-                        actions.jump = action;
-                        action.setLoop(
-                            THREE.LoopOnce,
-                            1
-                        );
-                        action.clampWhenFinished = true;
-                    } else if (animationName === 'at1') {
-                        actions.at1 = action;
-                        action.setLoop(
-                            THREE.LoopOnce,
-                            1
-                        );
-                        action.clampWhenFinished = true;
-                        // ★ at1を1.5倍速に設定
-                        action.setEffectiveTimeScale(
-                            at1PlaybackSpeed
-                        );
-                    } else if (animationName === 'at2') {
-                        actions.at2 = action;
-                        action.setLoop(
-                            THREE.LoopOnce,
-                            1
-                        );
-                        action.clampWhenFinished = true;
-                    } else if (animationName === 'hit') {
-                        actions.hit = action;
-                        action.setLoop(
-                            THREE.LoopOnce,
-                            1
-                        );
-                        action.clampWhenFinished = true;
-                    } else {
-                        action.setLoop(
-                            THREE.LoopRepeat,
-                            Infinity
-                        );
-                        action.clampWhenFinished = false;
-                        if (animationName === 'idle') {
-                            actions.idle = action;
-                        }
-                        if (animationName === 'dash') {
-                            actions.dash = action;
-                        }
-                    }
-                });
-                if (!actions.at2) {
-                    console.warn(
-                        '[ct1] at2アニメーションが見つかりません。'
-                    );
-                }
-                mixer.addEventListener(
-                    'finished',
-                    function (event) {
-                        if (
-                            event.action === actions.jump &&
-                            isJumping
-                        ) {
-                            isJumping = false;
-                            updateMovementAnimation();
-                        }
-                        if (
-                            event.action === actions.at1 &&
-                            isAttacking1
-                        ) {
-                            isAttacking1 = false;
-                            updateMovementAnimation();
-                        }
-                        if (
-                            event.action === actions.at2 &&
-                            isAttacking2
-                        ) {
-                            isAttacking2 = false;
-                            updateMovementAnimation();
-                        }
-                    }
-                );
-                setAction('idle');
-            }
-            // ====================================================
-            // ボーン検出
-            // ====================================================
-            targetModel.traverse((child) => {
-                if (child.isBone && !rootBone) {
-                    rootBone = child;
-                }
-                if (
-                    !slashSourceNode &&
-                    child.isBone &&
-                    rightWristBoneNamePattern.test(child.name)
-                ) {
-                    slashSourceNode = child;
-                    console.info(
-                        '[斬撃エフェクト] 右手首らしき名前のボーンを検出:',
-                        child.name
-                    );
-                }
-                if (
-                    !at1SourceBone &&
-                    child.isBone &&
-                    child.name === '右親指1'
-                ) {
-                    at1SourceBone = child;
-                    console.info(
-                        '[AT1エフェクト] 右親指1ボーンを検出:',
-                        child.name
-                    );
-                }
-                if (
-                    !at2SourceBone &&
-                    child.isBone &&
-                    child.name === '左親指1'
-                ) {
-                    at2SourceBone = child;
-                    console.info(
-                        '[AT2エフェクト] 左親指1ボーンを検出:',
-                        child.name
-                    );
-                }
-            });
-            if (!slashSourceNode) {
-                slashSourceNode = rootBone;
-                console.warn(
-                    '[斬撃エフェクト] 右手首らしき名前のボーンが見つからなかったため、rootBoneにフォールバックしました。'
-                );
-            }
-            if (!at1SourceBone) {
-                console.warn(
-                    '[AT1エフェクト] 右親指1ボーンが見つからなかったため、従来の位置計算にフォールバックします。'
-                );
-            }
-            if (!at2SourceBone) {
-                console.warn(
-                    '[AT2エフェクト] 左親指1ボーンが見つからなかったため、従来の位置計算にフォールバックします。'
-                );
-            }
-            if (rootBone) {
-                targetModel.updateMatrixWorld(true);
-                rootBone.getWorldPosition(
-                    rootBoneWorldPosition
-                );
-                rootBoneRestLocalOffset =
-                    rootBoneWorldPosition.y - targetModel.position.y;
-            }
-            updateCameraPosition();
-            markAssetLoaded();
-        },
-        undefined,
-        function (error) {
-            console.error(
-                'ct1.glb の読み込みエラー:',
-                error
-            );
-            markAssetLoaded();
-        }
-    );
+            child.material =
+                Array.isArray(oldMaterial)
+                    ? newMaterials
+                    : newMaterials[0];
+            child.receiveShadow = true;
+        });
     }
+
+    function loadBgModelAt(index) {
+        if (index >= bgFileNames.length) {
+            // 背景パーツが全て揃った後、地面判定などで使う
+            // bgModelはbgGroup全体を指すようにする
+            bgModel = bgGroup;
+            loadCt1Model();
+            return;
+        }
+
+        const fileName = bgFileNames[index];
+        loader.load(
+            fileName,
+            function (gltf) {
+                try {
+                    const partScene = gltf.scene;
+                    partScene.scale.set(1, 1, 1);
+                    setupBgMaterials(partScene);
+                    bgGroup.add(partScene);
+                } catch (setupError) {
+                    console.error(
+                        fileName + ' のセットアップエラー:',
+                        setupError
+                    );
+                }
+                markAssetLoaded();
+                loadBgModelAt(index + 1);
+            },
+            undefined,
+            function (error) {
+                console.error(
+                    fileName + ' の読み込みエラー:',
+                    error
+                );
+                markAssetLoaded();
+                loadBgModelAt(index + 1);
+            }
+        );
+    }
+
+    loadBgModelAt(0);
     // ============================================================
     // ct1 アニメーション切り替え
     // ============================================================
@@ -2930,56 +2750,43 @@ function applyPixelatedRendererSize() {
 
             const moveDistance =
                 currentSpeed * delta;
-            if (
-                moveDirection.lengthSq() > 0 &&
-                moveDistance > 0
+            const proposedX =
+                targetModel.position.x +
+                moveDirection.x * moveDistance;
+            const proposedZ =
+                targetModel.position.z +
+                moveDirection.z * moveDistance;
+            const groundHit =
+                probeGroundHeight(
+                    proposedX,
+                    proposedZ,
+                    targetModel.position.y
+                );
+
+            let canMove = true;
+            if (!groundHit) {
+                // 地面がない場所には進ませない
+                canMove = false;
+            } else if (isTooSteep(groundHit)) {
+                // 急斜面・壁には進ませない
+                canMove = false;
+            } else if (
+                Math.abs(
+                    groundHit.point.y -
+                    targetModel.position.y
+                ) > maxStepHeight
             ) {
-                const proposedX =
-                    targetModel.position.x +
-                    moveDirection.x *
-                        moveDistance;
-                const proposedZ =
-                    targetModel.position.z +
-                    moveDirection.z *
-                        moveDistance;
-                let canMove = true;
-
-                // 段差・急斜面チェック：移動先の地面が現在より
-                // 大きく高い/低い、または急な傾斜なら進めない
-                const groundHit =
-                    probeGroundHeight(
-                        proposedX,
-                        proposedZ,
-                        targetModel.position.y
-                    );
-                if (groundHit) {
-                    const heightDiff =
-                        groundHit.point.y -
-                        targetModel.position.y;
-                    if (
-                        Math.abs(heightDiff) >
-                        maxStepHeight
-                    ) {
-                        canMove = false;
-                    }
-                    if (isTooSteep(groundHit)) {
-                        canMove = false;
-                    }
-                } else {
-                    // 地面自体が見つからない（地形の外＝奈落）場合も進めない
-                    canMove = false;
-                }
-
-                if (canMove) {
-                    targetModel.position.x =
-                        proposedX;
-                    targetModel.position.z =
-                        proposedZ;
-                }
+                // 高すぎる段差・崖には進ませない
+                canMove = false;
             }
 
-            // 向きの回転は、移動が塞き止められた場合でも
-            // 入力方向へ向けておく（壁に押し当たる自然な見た目にする）
+            if (canMove) {
+                targetModel.position.x =
+                    proposedX;
+                targetModel.position.z =
+                    proposedZ;
+            }
+
             const targetAngle =
                 Math.atan2(
                     moveDirection.x,
@@ -3138,7 +2945,8 @@ function applyPixelatedRendererSize() {
                 rootBoneWorldPosition
             );
             jumpHeightOffset =
-                (rootBoneWorldPosition.y - targetModel.position.y) -
+                (rootBoneWorldPosition.y -
+                    targetModel.position.y) -
                 rootBoneRestLocalOffset;
         }
         updateGroundCollision();
@@ -3197,6 +3005,3 @@ if (posterizeCtx && posterizeCanvas) {
             applyPixelatedRendererSize();
         }
     );
-</script>
-</body>
-</html>
