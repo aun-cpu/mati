@@ -607,9 +607,6 @@ const atAttackForwardStepDistance = 1.0;
             loadedAssetCount >= totalAssetsToLoad &&
             !loadingScreenHidden
         ) {
-            // ローディング画面がまだ覆っているこのタイミングで、
-            // 全bgパーツのテクスチャ／シェーダーを先読みしておく
-            warmUpBgTextures();
             loadingScreenHidden = true;
             if (loadingScreenElement) {
                 loadingScreenElement.classList.add(
@@ -636,9 +633,6 @@ const atAttackForwardStepDistance = 1.0;
             console.warn(
                 'ロードがタイムアウトしました。強制的にローディング画面を閉じます。'
             );
-            // タイムアウト時点で読み込めているbgパーツだけでも
-            // 先読みしておく
-            warmUpBgTextures();
             loadingScreenHidden = true;
 
             if (loadingScreenElement) {
@@ -808,35 +802,9 @@ const atAttackForwardStepDistance = 1.0;
         const sphere = new THREE.Sphere();
         box.getBoundingSphere(sphere);
         sphere.radius += bgCullingMargin;
-
-        // GPUメモリのページング（後述）用に、このパーツに含まれる
-        // ジオメトリとテクスチャをあらかじめ収集しておく。
-        // 毎フレームtraverseするのはコストが高いため、ロード時に1回だけ行う。
-        const geometries = [];
-        const textures = [];
-        partScene.traverse((child) => {
-            if (!child.isMesh) return;
-            if (child.geometry) {
-                geometries.push(child.geometry);
-            }
-            const materials =
-                Array.isArray(child.material)
-                    ? child.material
-                    : [child.material];
-            materials.forEach((m) => {
-                if (m && m.map) {
-                    textures.push(m.map);
-                }
-            });
-        });
-
         bgCullingParts.push({
             object: partScene,
-            sphere: sphere,
-            geometries: geometries,
-            textures: textures,
-            // ウォームアップ直後は全パーツがVRAMへアップロード済みの状態
-            residentInGpu: true
+            sphere: sphere
         });
     }
 
@@ -854,105 +822,6 @@ const atAttackForwardStepDistance = 1.0;
             part.object.visible =
                 bgCullingFrustum.intersectsSphere(part.sphere);
         }
-    }
-    // ============================================================
-    // GPUメモリのページング（遠方のbgパーツをVRAMから解放する）
-    // ============================================================
-    // bg1本あたり20〜24MBあり、テクスチャはGPUへアップロードされると
-    // ファイルの圧縮形式（PNG/JPG）に関係なく非圧縮のRGBAとしてVRAMを
-    // 消費する（見かけのファイルサイズより実際のVRAM消費は大きくなる）。
-    // 全パーツを同時にVRAMへ保持し続けるとモバイル端末では容量不足で
-    // クラッシュしやすいため、カメラから一定距離以上離れ、かつ現在
-    // 視界にも入っていないパーツは、ジオメトリ／テクスチャをGPUから
-    // 明示的に解放(dispose)する。dispose()はJS側の元データ（ジオメトリ
-    // の頂点配列やテクスチャの画像データ）までは削除しないため、
-    // 再びカメラに近づいて描画対象になった瞬間、three.jsが自動的に
-    // 同じデータからGPUへ再アップロードしてくれる
-    // （＝ネットワークへの再アクセスは発生しない）。
-    //
-    // ★ bgUnloadDistance はレベル（bgモデル）の実際のスケールに合わせて
-    //   調整してください。小さすぎると近くのパーツまで解放され
-    //   カクつきの原因になり、大きすぎるとVRAM解放の効果が薄れます。
-    const bgUnloadDistance = 35;
-    const bgUnloadDistanceSq = bgUnloadDistance * bgUnloadDistance;
-
-    function updateBgGpuPaging() {
-        if (bgCullingParts.length === 0) return;
-        const camPos = camera.position;
-        for (let i = 0; i < bgCullingParts.length; i++) {
-            const part = bgCullingParts[i];
-            // 今まさに描画されている（視界に入っている）パーツは
-            // 解放しない
-            if (part.object.visible) {
-                part.residentInGpu = true;
-                continue;
-            }
-            if (!part.residentInGpu) {
-                // 既に解放済み
-                continue;
-            }
-            const distSq =
-                camPos.distanceToSquared(
-                    part.sphere.center
-                );
-            if (distSq > bgUnloadDistanceSq) {
-                part.geometries.forEach((g) => g.dispose());
-                part.textures.forEach((t) => t.dispose());
-                part.residentInGpu = false;
-            }
-        }
-    }
-    // ============================================================
-    // テクスチャ／シェーダーの事前ウォームアップ
-    // ============================================================
-    // 視錐台カリングで「今まで一度も画面に映っていない」bgパーツは、
-    // GLTFのデコード自体は終わっていてもGPU側へのテクスチャ転送と
-    // シェーダーの初回コンパイルがまだ行われていない。そのため、
-    // カメラを動かして複数パーツが同時に初めて視界へ入った瞬間に
-    // 複数テクスチャの初回転送＋シェーダーコンパイルが一気に発生し、
-    // モバイル端末ではGPU側の処理が詰まってクラッシュ
-    // （WebGLコンテキストロスト）しやすくなる。
-    // これを避けるため、全アセットの読み込みが完了した直後
-    // （ローディング画面がまだ画面を覆っていてユーザーには見えない
-    // タイミング）に、全bgパーツを一度だけ強制的に描画し、
-    // テクスチャ・シェーダーを先読みしておく。
-    let bgTexturesWarmedUp = false;
-    function warmUpBgTextures() {
-        if (bgTexturesWarmedUp) return;
-        if (bgCullingParts.length === 0) return;
-        bgTexturesWarmedUp = true;
-
-        // 各メッシュのfrustumCulledを一時的に無効化し、カメラが
-        // 今どちらを向いていても全メッシュを確実に描画対象に含める
-        const temporarilyUnculled = [];
-        bgCullingParts.forEach((part) => {
-            part.object.visible = true;
-            part.object.traverse((child) => {
-                if (child.isMesh && child.frustumCulled) {
-                    child.frustumCulled = false;
-                    temporarilyUnculled.push(child);
-                }
-            });
-        });
-
-        // ローディング画面に隠れている間に1フレームだけ描画し、
-        // テクスチャ／シェーダーをGPU側で確定させる
-        try {
-            renderer.compile(scene, camera);
-            renderer.render(scene, camera);
-        } catch (warmUpError) {
-            console.warn(
-                'テクスチャの事前ウォームアップに失敗しました:',
-                warmUpError
-            );
-        }
-
-        // 個別カリングが機能する元の状態に戻す
-        // （このフレーム分の visible 状態は次の
-        //  updateBgFrustumCulling() 呼び出しで上書きされる）
-        temporarilyUnculled.forEach((child) => {
-            child.frustumCulled = true;
-        });
     }
     // ============================================================
     // ct1.glb（背景の読み込み完了後に開始する）
@@ -2785,9 +2654,6 @@ const shockwaveSparkColorRed =
         // カメラの向きが確定した後に、視界に入っていない背景パーツの
         // 描画をスキップする（視錐台カリング）
         updateBgFrustumCulling();
-        // 視界に入っておらず、かつカメラから遠いパーツはVRAMからも解放する
-        // （GPUメモリのページング）
-        updateBgGpuPaging();
         // 追加のWebGLポストプロセスは使わず、通常描画を1回だけ行う。
         renderer.setRenderTarget(null);
 renderer.render(scene, camera);
