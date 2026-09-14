@@ -808,9 +808,35 @@ const atAttackForwardStepDistance = 1.0;
         const sphere = new THREE.Sphere();
         box.getBoundingSphere(sphere);
         sphere.radius += bgCullingMargin;
+
+        // GPUメモリのページング（後述）用に、このパーツに含まれる
+        // ジオメトリとテクスチャをあらかじめ収集しておく。
+        // 毎フレームtraverseするのはコストが高いため、ロード時に1回だけ行う。
+        const geometries = [];
+        const textures = [];
+        partScene.traverse((child) => {
+            if (!child.isMesh) return;
+            if (child.geometry) {
+                geometries.push(child.geometry);
+            }
+            const materials =
+                Array.isArray(child.material)
+                    ? child.material
+                    : [child.material];
+            materials.forEach((m) => {
+                if (m && m.map) {
+                    textures.push(m.map);
+                }
+            });
+        });
+
         bgCullingParts.push({
             object: partScene,
-            sphere: sphere
+            sphere: sphere,
+            geometries: geometries,
+            textures: textures,
+            // ウォームアップ直後は全パーツがVRAMへアップロード済みの状態
+            residentInGpu: true
         });
     }
 
@@ -827,6 +853,53 @@ const atAttackForwardStepDistance = 1.0;
             const part = bgCullingParts[i];
             part.object.visible =
                 bgCullingFrustum.intersectsSphere(part.sphere);
+        }
+    }
+    // ============================================================
+    // GPUメモリのページング（遠方のbgパーツをVRAMから解放する）
+    // ============================================================
+    // bg1本あたり20〜24MBあり、テクスチャはGPUへアップロードされると
+    // ファイルの圧縮形式（PNG/JPG）に関係なく非圧縮のRGBAとしてVRAMを
+    // 消費する（見かけのファイルサイズより実際のVRAM消費は大きくなる）。
+    // 全パーツを同時にVRAMへ保持し続けるとモバイル端末では容量不足で
+    // クラッシュしやすいため、カメラから一定距離以上離れ、かつ現在
+    // 視界にも入っていないパーツは、ジオメトリ／テクスチャをGPUから
+    // 明示的に解放(dispose)する。dispose()はJS側の元データ（ジオメトリ
+    // の頂点配列やテクスチャの画像データ）までは削除しないため、
+    // 再びカメラに近づいて描画対象になった瞬間、three.jsが自動的に
+    // 同じデータからGPUへ再アップロードしてくれる
+    // （＝ネットワークへの再アクセスは発生しない）。
+    //
+    // ★ bgUnloadDistance はレベル（bgモデル）の実際のスケールに合わせて
+    //   調整してください。小さすぎると近くのパーツまで解放され
+    //   カクつきの原因になり、大きすぎるとVRAM解放の効果が薄れます。
+    const bgUnloadDistance = 35;
+    const bgUnloadDistanceSq = bgUnloadDistance * bgUnloadDistance;
+
+    function updateBgGpuPaging() {
+        if (bgCullingParts.length === 0) return;
+        const camPos = camera.position;
+        for (let i = 0; i < bgCullingParts.length; i++) {
+            const part = bgCullingParts[i];
+            // 今まさに描画されている（視界に入っている）パーツは
+            // 解放しない
+            if (part.object.visible) {
+                part.residentInGpu = true;
+                continue;
+            }
+            if (!part.residentInGpu) {
+                // 既に解放済み
+                continue;
+            }
+            const distSq =
+                camPos.distanceToSquared(
+                    part.sphere.center
+                );
+            if (distSq > bgUnloadDistanceSq) {
+                part.geometries.forEach((g) => g.dispose());
+                part.textures.forEach((t) => t.dispose());
+                part.residentInGpu = false;
+            }
         }
     }
     // ============================================================
@@ -2712,6 +2785,9 @@ const shockwaveSparkColorRed =
         // カメラの向きが確定した後に、視界に入っていない背景パーツの
         // 描画をスキップする（視錐台カリング）
         updateBgFrustumCulling();
+        // 視界に入っておらず、かつカメラから遠いパーツはVRAMからも解放する
+        // （GPUメモリのページング）
+        updateBgGpuPaging();
         // 追加のWebGLポストプロセスは使わず、通常描画を1回だけ行う。
         renderer.setRenderTarget(null);
 renderer.render(scene, camera);
