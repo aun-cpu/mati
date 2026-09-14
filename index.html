@@ -607,6 +607,9 @@ const atAttackForwardStepDistance = 1.0;
             loadedAssetCount >= totalAssetsToLoad &&
             !loadingScreenHidden
         ) {
+            // ローディング画面がまだ覆っているこのタイミングで、
+            // 全bgパーツのテクスチャ／シェーダーを先読みしておく
+            warmUpBgTextures();
             loadingScreenHidden = true;
             if (loadingScreenElement) {
                 loadingScreenElement.classList.add(
@@ -633,6 +636,9 @@ const atAttackForwardStepDistance = 1.0;
             console.warn(
                 'ロードがタイムアウトしました。強制的にローディング画面を閉じます。'
             );
+            // タイムアウト時点で読み込めているbgパーツだけでも
+            // 先読みしておく
+            warmUpBgTextures();
             loadingScreenHidden = true;
 
             if (loadingScreenElement) {
@@ -822,6 +828,58 @@ const atAttackForwardStepDistance = 1.0;
             part.object.visible =
                 bgCullingFrustum.intersectsSphere(part.sphere);
         }
+    }
+    // ============================================================
+    // テクスチャ／シェーダーの事前ウォームアップ
+    // ============================================================
+    // 視錐台カリングで「今まで一度も画面に映っていない」bgパーツは、
+    // GLTFのデコード自体は終わっていてもGPU側へのテクスチャ転送と
+    // シェーダーの初回コンパイルがまだ行われていない。そのため、
+    // カメラを動かして複数パーツが同時に初めて視界へ入った瞬間に
+    // 複数テクスチャの初回転送＋シェーダーコンパイルが一気に発生し、
+    // モバイル端末ではGPU側の処理が詰まってクラッシュ
+    // （WebGLコンテキストロスト）しやすくなる。
+    // これを避けるため、全アセットの読み込みが完了した直後
+    // （ローディング画面がまだ画面を覆っていてユーザーには見えない
+    // タイミング）に、全bgパーツを一度だけ強制的に描画し、
+    // テクスチャ・シェーダーを先読みしておく。
+    let bgTexturesWarmedUp = false;
+    function warmUpBgTextures() {
+        if (bgTexturesWarmedUp) return;
+        if (bgCullingParts.length === 0) return;
+        bgTexturesWarmedUp = true;
+
+        // 各メッシュのfrustumCulledを一時的に無効化し、カメラが
+        // 今どちらを向いていても全メッシュを確実に描画対象に含める
+        const temporarilyUnculled = [];
+        bgCullingParts.forEach((part) => {
+            part.object.visible = true;
+            part.object.traverse((child) => {
+                if (child.isMesh && child.frustumCulled) {
+                    child.frustumCulled = false;
+                    temporarilyUnculled.push(child);
+                }
+            });
+        });
+
+        // ローディング画面に隠れている間に1フレームだけ描画し、
+        // テクスチャ／シェーダーをGPU側で確定させる
+        try {
+            renderer.compile(scene, camera);
+            renderer.render(scene, camera);
+        } catch (warmUpError) {
+            console.warn(
+                'テクスチャの事前ウォームアップに失敗しました:',
+                warmUpError
+            );
+        }
+
+        // 個別カリングが機能する元の状態に戻す
+        // （このフレーム分の visible 状態は次の
+        //  updateBgFrustumCulling() 呼び出しで上書きされる）
+        temporarilyUnculled.forEach((child) => {
+            child.frustumCulled = true;
+        });
     }
     // ============================================================
     // ct1.glb（背景の読み込み完了後に開始する）
