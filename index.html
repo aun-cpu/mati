@@ -1,2709 +1,999 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no">
-    <title>3D GLB Viewer - Analog Stick & Camera Control</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>プロシージャルマップ</title>
 <style>
-    * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-    }
-    body {
-        width: 100vw;
-        height: 100vh;
-        overflow: hidden;
-        background-color: #1a1a1a;
-        touch-action: none;
-    }
-    /* ============================================================
-       スマホを縦のまま持った状態で、画面表示だけを横向きにする
-       ============================================================
-       物理的な向きは変えず（回転操作を要求せず）、#app-stage全体を
-       CSSでその場で90度回転させて表示する。縦持ちの実解像度
-       (幅Wp×高さHp)に対して、#app-stageは横向きコンテンツとして
-       幅Hp×高さWpで組み立てておき、それを回転させて画面いっぱいに
-       収める。JS側では isPortraitDevice()/getLogicalWidth() 等を使い、
-       「見た目上の横向き座標系」に合わせてタッチ座標やレンダラー
-       サイズを換算する。
-       ============================================================ */
-    #app-stage {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
-        transform-origin: left top;
-        z-index: 1;
-    }
-    body.force-rotate #app-stage {
-        top: 0;
-        left: 100%;
-        width: 100vh;
-        height: 100vw;
-        transform: rotate(90deg);
-    }
-    #canvas-container {
-        width: 100%;
-        height: 100%;
-        position: absolute;
-        top: 0;
-        left: 0;
-        z-index: 1;
-    }
-    #loading-screen {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        z-index: 1000;
-        background-color: #1a1208;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-        transition: opacity 0.7s ease;
-        opacity: 1;
-    }
-    #loading-screen.is-hidden {
-        opacity: 0;
-        pointer-events: none;
-    }
-    #loading-progress {
-        position: absolute;
-        bottom: 8%;
-        left: 0;
-        width: 100%;
-        text-align: center;
-        color: #fff;
-        font-family: sans-serif;
-        font-size: 14px;
-        text-shadow: 0 1px 3px rgba(0,0,0,0.6);
-        z-index: 1001;
-    }
-    #loading-screen img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        image-rendering: pixelated;
-        image-rendering: -moz-crisp-edges;
-        image-rendering: crisp-edges;
-        animation: loadingPulse 1.6s ease-in-out infinite;
-    }
-    @keyframes loadingPulse {
-        0%, 100% {
-            filter: brightness(1);
-        }
-        50% {
-            filter: brightness(1.08);
-        }
-    }
-    #canvas-container canvas {
-        image-rendering: pixelated;
-        image-rendering: -moz-crisp-edges;
-        image-rendering: crisp-edges;
-    }
-    #joystick-container {
-        position: absolute;
-        left: 30px;
-        bottom: 30px;
-        width: 150px;
-        height: 150px;
-        z-index: 20;
-        touch-action: none;
-        user-select: none;
-        -webkit-user-select: none;
-    }
-    #joystick-base {
-        position: absolute;
-        left: 0;
-        top: 0;
-        width: 150px;
-        height: 150px;
-        border-radius: 50%;
-        background: rgba(255, 255, 255, 0.15);
-        border: 2px solid rgba(255, 255, 255, 0.35);
-        touch-action: none;
-        user-select: none;
-        -webkit-user-select: none;
-    }
-    #joystick-stick {
-        position: absolute;
-        left: 52px;
-        top: 52px;
-        width: 46px;
-        height: 46px;
-        border-radius: 50%;
-        background: rgba(255, 255, 255, 0.45);
-        border: 2px solid rgba(255, 255, 255, 0.65);
-        touch-action: none;
-        user-select: none;
-        -webkit-user-select: none;
-        pointer-events: none;
-        transform: translate(0px, 0px);
-    }
-    #dash-button {
-        position: absolute;
-        right: 70px;
-        bottom: 15px;
-        width: 56px;
-        height: 56px;
-        z-index: 20;
-        border-radius: 50%;
-        background: rgba(255, 255, 255, 0.18);
-        border: 2px solid rgba(255, 255, 255, 0.4);
-        color: rgba(255, 255, 255, 0.9);
-        font-size: 22px;
-        font-weight: bold;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        line-height: 1;
-        touch-action: none;
-        user-select: none;
-        -webkit-user-select: none;
-        -webkit-tap-highlight-color: transparent;
-    }
-    #dash-button:active {
-        background: rgba(255, 255, 255, 0.35);
-        transform: scale(0.94);
-    }
-    #at-button {
-        position: absolute;
-        right: 141px;
-        bottom: 31px;
-        width: 90px;
-        height: 90px;
-        z-index: 20;
-        border-radius: 50%;
-        background: rgba(255, 255, 255, 0.18);
-        border: 2px solid rgba(255, 255, 255, 0.4);
-        color: rgba(255, 255, 255, 0.9);
-        font-size: 28px;
-        font-weight: bold;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        touch-action: none;
-        user-select: none;
-        -webkit-user-select: none;
-        -webkit-tap-highlight-color: transparent;
-    }
-    #at-button:active {
-        background: rgba(255, 255, 255, 0.35);
-        transform: scale(0.94);
-    }
+  html,body{margin:0;height:100%;overflow:hidden;background:#9cc7e8;touch-action:none;font-family:sans-serif}
+  canvas{display:block}
+  #ui{position:fixed;top:calc(env(safe-area-inset-top,0px) + 8px);left:8px;color:#fff;font-size:12px;text-shadow:0 1px 3px #000}
+  button{margin-top:6px;padding:8px 12px;border:0;border-radius:8px;background:rgba(0,0,0,.5);color:#fff;font-size:13px}
+  #stick{position:fixed;left:24px;bottom:calc(env(safe-area-inset-bottom,0px) + 24px);width:110px;height:110px;border-radius:50%;background:rgba(255,255,255,.15);display:none}
+  #knob{position:absolute;left:35px;top:35px;width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.5)}
 </style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 </head>
 <body>
-<div id="app-stage">
-    <div id="loading-screen">
-        <img src="./loading.jpg" alt="Loading...">
-        <div id="loading-progress">0%</div>
-    </div>
-    <div id="canvas-container"></div>
-    <div id="joystick-container">
-        <div id="joystick-base"></div>
-        <div id="joystick-stick"></div>
-    </div>
-    <div id="dash-button">⏫</div>
-    <div id="at-button">AT</div>
-</div>
+<div id="ui"><div id="info"></div><div id="nav" style="font-size:13px"></div><button id="regen">新しいマップ</button><div>PC: クリックで操作 / WASD+Shift　スマホ: 左=移動 右=視点</div></div>
+<div id="stick"><div id="knob"></div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-    // ============================================================
-    // 画面の向き制御（スマホは縦持ちのまま、表示だけを横向きにする）
-    // ============================================================
-    // 実機を回転させる代わりに、#app-stage全体をCSSで90度回転させて
-    // 表示する。ここではその判定と、実際の指のタッチ座標
-    // （縦持ちの画面座標）を「見た目上の横向き座標系」に変換する
-    // ヘルパーを用意する。以降のジョイスティック／カメラドラッグ等の
-    // 数値計算は、この「論理（横向き）座標」を使うことで、
-    // 回転の有無にかかわらず同じロジックで動作する。
-    function isPortraitDevice() {
-        return window.innerWidth < window.innerHeight;
-    }
-    function getLogicalWidth() {
-        return isPortraitDevice()
-            ? window.innerHeight
-            : window.innerWidth;
-    }
-    function getLogicalHeight() {
-        return isPortraitDevice()
-            ? window.innerWidth
-            : window.innerHeight;
-    }
-    // 実画面座標(clientX, clientY)を、回転後の見た目座標に変換する。
-    // #app-stageは transform-origin:left top; left:100%; rotate(90deg)
-    // で配置しているため、その幾何から導いた変換式を使う。
-    function getLogicalX(clientX, clientY) {
-        return isPortraitDevice() ? clientY : clientX;
-    }
-    function getLogicalY(clientX, clientY) {
-        return isPortraitDevice()
-            ? window.innerWidth - clientX
-            : clientY;
-    }
-    function updateForceRotateClass() {
-        if (isPortraitDevice()) {
-            document.body.classList.add('force-rotate');
-        } else {
-            document.body.classList.remove('force-rotate');
-        }
-    }
-    updateForceRotateClass();
-    // ============================================================
-    // Three.js 基本設定
-    // ============================================================
-    const scene = new THREE.Scene();
-    const bgGroup = new THREE.Group();
-    scene.add(bgGroup);
-    const camera = new THREE.PerspectiveCamera(
-        75,
-        getLogicalWidth() / getLogicalHeight(),
-        0.1,
-        1000
-    );
-    const renderer = new THREE.WebGLRenderer({
-        antialias: false,
-        powerPreference: 'default',
-        failIfMajorPerformanceCaveat: false,
-        preserveDrawingBuffer: false
-    });
-    // ============================================================
-    // ピクセルアート風レンダリング
-    // ============================================================
-    // 実際の描画解像度を落とし、CSSで画面いっぱいに拡大表示することで
-    // ドット絵のような粗いピクセル表現にする。数値が大きいほど粗くなる。
-    const pixelationScale = 1.7;
-    let posterizeCanvas = null;
-let posterizeCtx = null;
-
-function applyPixelatedRendererSize() {
-    const displayWidth = getLogicalWidth();
-    const displayHeight = getLogicalHeight();
-    const lowResWidth = Math.max(1, Math.floor(displayWidth / pixelationScale));
-    const lowResHeight = Math.max(1, Math.floor(displayHeight / pixelationScale));
-
-    renderer.setPixelRatio(1);
-    renderer.setSize(lowResWidth, lowResHeight, false);
-
-    if (!posterizeCanvas) {
-        posterizeCanvas = document.createElement('canvas');
-        posterizeCanvas.style.imageRendering = 'pixelated';
-        posterizeCanvas.style.position = 'absolute';
-        posterizeCanvas.style.top = '0';
-        posterizeCanvas.style.left = '0';
-        posterizeCtx = posterizeCanvas.getContext('2d', { alpha: false });
-        if (!posterizeCtx) {
-            console.warn('2D canvas context could not be created.');
-            return;
-        }
-        posterizeCtx.imageSmoothingEnabled = false;
-        document.getElementById('canvas-container').appendChild(posterizeCanvas);
-    }
-
-    posterizeCanvas.width = lowResWidth;
-    posterizeCanvas.height = lowResHeight;
-    posterizeCanvas.style.width = displayWidth + 'px';
-    posterizeCanvas.style.height = displayHeight + 'px';
-    posterizeCanvas.style.filter = 'contrast(1.15) saturate(1.3)';
+// ---------- 乱数・ノイズ ----------
+let SEED = Math.floor(Math.random()*1e9);
+function hash(x,y,s){let h=(x*374761393+y*668265263+s*2147483647)|0;h=(h^(h>>>13))*1274126177|0;return ((h^(h>>>16))>>>0)/4294967295}
+function vnoise(x,y){
+  const xi=Math.floor(x),yi=Math.floor(y),xf=x-xi,yf=y-yi;
+  const u=xf*xf*(3-2*xf),v=yf*yf*(3-2*yf);
+  const a=hash(xi,yi,SEED),b=hash(xi+1,yi,SEED),c=hash(xi,yi+1,SEED),d=hash(xi+1,yi+1,SEED);
+  return a+(b-a)*u+(c-a)*v+(a-b-c+d)*u*v;
 }
-    applyPixelatedRendererSize();
-    renderer.outputEncoding = THREE.sRGBEncoding;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 0.95;
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    // 端末の最大値をそのまま使うとテクスチャのGPUメモリ消費が
-    // 跳ね上がりモバイルでクラッシュしやすくなるため、上限を設ける
-    const cappedAnisotropy = Math.min(
-        4,
-        renderer.capabilities.getMaxAnisotropy()
-    );
-
-    // ============================================================
-    // 地面当たり判定（Raycaster）
-    // ============================================================
-    const groundRaycaster = new THREE.Raycaster();
-    const groundRayDirection = new THREE.Vector3(0, -1, 0);
-    const groundRayOrigin = new THREE.Vector3();
-    const groundOffset = 0.0;
-    // レイの開始高さは、壁など背の高い障害物より確実に上から
-    // 判定できるよう、現在位置から十分に高い位置に設定する。
-    const terrainProbeHeight = 20.0;
-    // これを超える高低差がある場所には進めない（段差・崖・壁）
-    const maxStepHeight = 0.5;
-    // これを超える傾斜角は「地面」ではなく「壁」として扱う
-    const maxWalkableSlopeAngle = THREE.MathUtils.degToRad(50);
-    const upVector = new THREE.Vector3(0, 1, 0);
-
-    // 指定したXZ座標の直下にある地形（bgGroup）との交点を返す。
-    // 交点がなければnull。
-    function probeGroundHeight(x, z, referenceY) {
-        if (!bgGroup || bgGroup.children.length === 0) return null;
-        groundRayOrigin.set(
-            x,
-            referenceY + terrainProbeHeight,
-            z
-        );
-        groundRaycaster.set(
-            groundRayOrigin,
-            groundRayDirection
-        );
-        const hits =
-            groundRaycaster.intersectObject(
-                bgGroup,
-                true
-            );
-        return hits.length > 0 ? hits[0] : null;
-    }
-
-    // ヒットしたポリゴンの法線から傾斜角を求める。
-    // 急すぎる場合は「壁」とみなしtrueを返す。
-    function isTooSteep(hit) {
-        if (!hit || !hit.face) return false;
-        const worldNormal =
-            hit.face.normal
-                .clone()
-                .transformDirection(
-                    hit.object.matrixWorld
-                );
-        const slopeAngle =
-            worldNormal.angleTo(upVector);
-        return (
-            slopeAngle >
-            maxWalkableSlopeAngle
-        );
-    }
-
-    function updateGroundCollision() {
-        if (
-            !targetModel ||
-            !bgGroup ||
-            bgGroup.children.length === 0
-        ) {
-            return;
-        }
-
-        const hit = probeGroundHeight(
-            targetModel.position.x,
-            targetModel.position.z,
-            targetModel.position.y
-        );
-        if (!hit) return;
-        if (isTooSteep(hit)) {
-            // 急斜面・壁面は地面として扱わず、高さを合わせない
-            return;
-        }
-        targetModel.position.y =
-            hit.point.y + groundOffset;
-    }
-    // ============================================================
-    // ズーム無効化（ダブルタップ／ピンチ）
-    // ============================================================
-    // viewportのuser-scalable=noだけでは端末やブラウザによって
-    // ダブルタップズームが働いてしまう場合があるため、JS側でも防止する。
-    let lastTouchEndTime = 0;
-    document.addEventListener(
-        'touchend',
-        function (e) {
-            const now = Date.now();
-            if (now - lastTouchEndTime <= 350) {
-                e.preventDefault();
-            }
-            lastTouchEndTime = now;
-        },
-        { passive: false }
-    );
-    document.addEventListener(
-        'dblclick',
-        function (e) {
-            e.preventDefault();
-        },
-        { passive: false }
-    );
-    // Safari系のピンチズーム（gestureイベント）を無効化
-    document.addEventListener(
-        'gesturestart',
-        function (e) {
-            e.preventDefault();
-        }
-    );
-    document.addEventListener(
-        'gesturechange',
-        function (e) {
-            e.preventDefault();
-        }
-    );
-    document.addEventListener(
-        'gestureend',
-        function (e) {
-            e.preventDefault();
-        }
-    );
-    // 複数指でのピンチズームも念のため防止
-    document.addEventListener(
-        'touchmove',
-        function (e) {
-            if (e.touches.length > 1) {
-                e.preventDefault();
-            }
-        },
-        { passive: false }
-    );
-    // ============================================================
-    // WebGLコンテキストロスト対策
-    // ============================================================
-    // モバイル端末ではメモリ不足やGPUドライバのリセットで
-    // WebGLコンテキストが失われることがあり、対処しないと
-    // 画面が固まったりクラッシュしたように見える。
-    // 描画ループを安全に止め、復帰時に再開できるようにする。
-    let isRendererContextLost = false;
-    renderer.domElement.addEventListener(
-        'webglcontextlost',
-        function (e) {
-            e.preventDefault();
-            isRendererContextLost = true;
-            console.warn(
-                'WebGLコンテキストが失われました。復帰を待機します。'
-            );
-        },
-        false
-    );
-    renderer.domElement.addEventListener(
-        'webglcontextrestored',
-        function () {
-            isRendererContextLost = false;
-            // 停止していた間の経過時間をリセットし、
-            // 復帰直後に大きなdeltaで動きが飛ぶのを防ぐ
-            if (typeof clock !== 'undefined') {
-                clock.getDelta();
-            }
-            console.info(
-                'WebGLコンテキストが復帰しました。'
-            );
-        },
-        false
-    );
-    // ============================================================
-    // ライト
-    // ============================================================
-    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-    const dirLight = new THREE.DirectionalLight(0xffffff, 2.6);
-    dirLight.position.set(5, 10, 7.5);
-    dirLight.castShadow = true;
-    dirLight.shadow.mapSize.width = 1024;
-    dirLight.shadow.mapSize.height = 1024;
-    dirLight.shadow.camera.near = 0.5;
-    dirLight.shadow.camera.far = 50;
-    dirLight.shadow.camera.left = -15;
-    dirLight.shadow.camera.right = 15;
-    dirLight.shadow.camera.top = 15;
-    dirLight.shadow.camera.bottom = -15;
-    dirLight.shadow.bias = -0.0005;
-    scene.add(dirLight);
-    const fillLight = new THREE.DirectionalLight(0xffffff, 1.0);
-    fillLight.position.set(-5, 5, -7);
-    scene.add(fillLight);
-    // ============================================================
-    // 環境マップ
-    // ============================================================
-    const pmremGenerator = new THREE.PMREMGenerator(renderer);
-    const environmentScene = new THREE.Scene();
-    environmentScene.background = new THREE.Color(0x202020);
-    const environmentLight = new THREE.HemisphereLight(
-        0xffffff,
-        0x222222,
-        2
-    );
-    environmentScene.add(environmentLight);
-    const environmentTarget =
-        pmremGenerator.fromScene(environmentScene);
-    scene.environment = environmentTarget.texture;
-    // ============================================================
-    // カメラ設定
-    // ============================================================
-    const targetHeightOffset = 1.5;
-    const cameraDistance = 1.6;
-    let cameraSpherical = new THREE.Spherical(
-        cameraDistance,
-        Math.PI / 2.2,
-        0
-    );
-    const minPolarAngle = 0.1;
-    const maxPolarAngle = Math.PI / 2 - 0.05;
-    // ============================================================
-    // モデル・アニメーション（ct1）
-    // ============================================================
-    let targetModel = null;
-    let bgModel = null; // 互換のため残すが、実体はbgGroupへの参照
-    let mixer = null;
-    let actions = {};
-    let currentAction = null;
-let at1SourceBone = null; // 右親指1（AT1エフェクト起点ボーン）
-// 左親指1（AT2エフェクト起点ボーン）
-const animationFPS = 30;
-// ------------------------------------------------------------
-    // ct1のAT（at1）攻撃
-    // ------------------------------------------------------------
-    let isAttacking1 = false;
-let at1FrameCount = 0;
-let at1HitApplied = false;
-    // パーティクルを重ねて表示できるようにする
-// at1の指定フレームで、ct1の現在の向きへ移動するためのフラグ
-    let at1ForwardStepApplied = false;
-// at1の前進ステップを瞬間移動ではなく滑らかに行うための状態
-    let at1StepActive = false;
-    let at1StepElapsed = 0;
-    let at1StepMovedDistance = 0;
-    let at1StepTotalDistance = 0;
-    const at1StepDuration = 0.12;
-    const at1StepDirection = new THREE.Vector3();
-const at1HitFrameStart = 11;
-    const at1HitFrameEnd = 15;
-const ct1AttackForwardOffset = 0.1;
-// ★ at1のみ1.5倍速
-    const at1PlaybackSpeed = 1.5;
-    const clock = new THREE.Clock();
-    // ============================================================
-    // 移動・カメラ設定
-    // ============================================================
-    const maxMoveSpeed = 4.0;
-    const jumpMoveSpeedFactor = 0.3;
-const atAttackForwardStepDistance = 1.0;
-    const rotationSpeed = 10.0;
-    const cameraTouchSensitivity = 0.005;
-    // ============================================================
-    // GLTF Loader
-    // ============================================================
-    const loader = new THREE.GLTFLoader();
-    // ============================================================
-    // ロード画面（bg1a.glb / ct1.glb の2つが揃ったら非表示にする）
-    // ============================================================
-    const loadingScreenElement =
-        document.getElementById('loading-screen');
-    const totalAssetsToLoad = 6; // bg1a〜bg1e(5個) + ct1
-    let loadedAssetCount = 0;
-    let loadingScreenHidden = false;
-    const loadingProgressElement =
-        document.getElementById('loading-progress');
-
-    function markAssetLoaded() {
-        loadedAssetCount++;
-
-        if (loadingProgressElement) {
-            const percent = Math.round(
-                (loadedAssetCount / totalAssetsToLoad) * 100
-            );
-            loadingProgressElement.textContent =
-                percent + '%';
-        }
-
-        if (
-            loadedAssetCount >= totalAssetsToLoad &&
-            !loadingScreenHidden
-        ) {
-            loadingScreenHidden = true;
-            if (loadingScreenElement) {
-                loadingScreenElement.classList.add(
-                    'is-hidden'
-                );
-                setTimeout(() => {
-                    if (loadingScreenElement.parentNode) {
-                        loadingScreenElement.parentNode.removeChild(
-                            loadingScreenElement
-                        );
-                    }
-                }, 800);
-            }
-        }
-    }
-    // ============================================================
-    // ロード画面のフォールバック
-    // ============================================================
-    // 何らかの理由でアセット読み込みが完了しなかった場合でも、
-    // 一定時間後にはゲーム画面へ進める。
-    const LOADING_FALLBACK_TIMEOUT_MS = 20000;
-    setTimeout(() => {
-        if (!loadingScreenHidden) {
-            console.warn(
-                'ロードがタイムアウトしました。強制的にローディング画面を閉じます。'
-            );
-            loadingScreenHidden = true;
-
-            if (loadingScreenElement) {
-                loadingScreenElement.classList.add(
-                    'is-hidden'
-                );
-                setTimeout(() => {
-                    if (loadingScreenElement.parentNode) {
-                        loadingScreenElement.parentNode.removeChild(
-                            loadingScreenElement
-                        );
-                    }
-                }, 800);
-            }
-        }
-    }, LOADING_FALLBACK_TIMEOUT_MS);
-    // ============================================================
-    // ============================================================
-    // bg1a〜bg1e.glb（背景を分割したパーツを順番に読み込む）
-    // ============================================================
-    // モデルを同時並行でダウンロード・デコードすると、モバイル端末で
-    // メモリ／GPUリソースが逼迫してクラッシュしやすくなるため、
-    // bg1a → bg1b → ... → bg1e → ct1 の順に1つずつ読み込む。
-    const bgFileNames = [
-        './bg1a.glb',
-        './bg1b.glb',
-        './bg1c.glb',
-        './bg1d.glb',
-        './bg1e.glb'
-    ];
-
-    function setupBgMaterials(bgScene) {
-        bgScene.traverse((child) => {
-            if (!child.isMesh) return;
-            const oldMaterial = child.material;
-            const materials =
-                Array.isArray(oldMaterial)
-                    ? oldMaterial
-                    : [oldMaterial];
-            const newMaterials = materials.map((material) => {
-                if (material.map) {
-                    material.map.encoding = THREE.sRGBEncoding;
-                    material.map.anisotropy = cappedAnisotropy;
-                    material.map.needsUpdate = true;
-                }
-                return new THREE.MeshBasicMaterial({
-                    color: 0xffffff,
-                    wireframe: false,
-                    transparent: true,
-                    opacity: 0.99,
-                    map: material.map || null,
-                    vertexColors: material.vertexColors
-                });
-            });
-            child.material =
-                Array.isArray(oldMaterial)
-                    ? newMaterials
-                    : newMaterials[0];
-            child.receiveShadow = true;
-            // 個々のメッシュ単位で確実にフラスタムカリング（画面外の
-            // 描画スキップ）が働くようにする。バウンディング情報が
-            // 未計算のままだと正しく判定されないことがあるため、
-            // ここで明示的に計算しておく。
-            child.frustumCulled = true;
-            if (child.geometry) {
-                if (!child.geometry.boundingSphere) {
-                    child.geometry.computeBoundingSphere();
-                }
-                if (!child.geometry.boundingBox) {
-                    child.geometry.computeBoundingBox();
-                }
-            }
-        });
-    }
-
-    // ============================================================
-    // 背景の並列ロード（同時2ファイルまで）
-    // ============================================================
-    // 完全逐次ロードによる待ち時間を短縮しつつ、
-    // 6ファイル同時ロードによるモバイル端末のメモリ負荷を避ける。
-    const BG_LOAD_CONCURRENCY = 2;
-    let bgNextIndex = 0;
-    let bgInFlightCount = 0;
-
-    function loadBgModelAt(index) {
-        // 互換のため残すが、実体はstartBgLoadingを使う。
-        startBgLoading();
-    }
-
-    function startBgLoading() {
-        while (
-            bgInFlightCount < BG_LOAD_CONCURRENCY &&
-            bgNextIndex < bgFileNames.length
-        ) {
-            loadOneBgFile(bgNextIndex);
-            bgNextIndex++;
-            bgInFlightCount++;
-        }
-    }
-
-    function loadOneBgFile(index) {
-        const fileName = bgFileNames[index];
-        loader.load(
-            fileName,
-            function (gltf) {
-                try {
-                    const partScene = gltf.scene;
-                    partScene.scale.set(1, 1, 1);
-                    setupBgMaterials(partScene);
-                    bgGroup.add(partScene);
-                    registerBgCullingPart(partScene);
-                } catch (setupError) {
-                    console.error(
-                        fileName + ' のセットアップエラー:',
-                        setupError
-                    );
-                }
-                onBgFileSettled();
-            },
-            undefined,
-            function (error) {
-                console.error(
-                    fileName + ' の読み込みエラー:',
-                    error
-                );
-                onBgFileSettled();
-            }
-        );
-    }
-
-    function onBgFileSettled() {
-        markAssetLoaded();
-        bgInFlightCount--;
-
-        if (
-            bgNextIndex >= bgFileNames.length &&
-            bgInFlightCount === 0
-        ) {
-            // 背景パーツが全て揃った後、地面判定などで使う。
-            bgModel = bgGroup;
-            loadCt1Model();
-        } else {
-            startBgLoading();
-        }
-    }
-
-    startBgLoading();
-    // ============================================================
-    // 背景パーツの視錐台カリング（見えていない部分を描画しない）
-    // ============================================================
-    // bg1a〜bg1e は広い背景を分割したパーツ単位のグループなので、
-    // パーツ単位でカメラの視錐台（フラスタム）に入っているかを判定し、
-    // 入っていないパーツはvisible=falseにして描画自体をスキップする。
-    // 個々のメッシュのfrustumCulledだけに頼るより、パーツ丸ごと
-    // 描画対象から外せるためドローコール自体を大きく減らせ、
-    // カメラを動かした際の負荷急増（クラッシュの一因）を抑えられる。
-    const bgCullingParts = [];
-    const bgCullingFrustum = new THREE.Frustum();
-    const bgCullingProjScreenMatrix = new THREE.Matrix4();
-    // パーツの境界が視錐台のすぐ外に出た瞬間に描画/非描画が
-    // 切り替わってチラつくのを避けるため、球の半径に少し余裕を持たせる
-    const bgCullingMargin = 2.0;
-
-    function registerBgCullingPart(partScene) {
-        const box = new THREE.Box3().setFromObject(partScene);
-        if (box.isEmpty()) return;
-        const sphere = new THREE.Sphere();
-        box.getBoundingSphere(sphere);
-        sphere.radius += bgCullingMargin;
-        bgCullingParts.push({
-            object: partScene,
-            sphere: sphere
-        });
-    }
-
-    function updateBgFrustumCulling() {
-        if (bgCullingParts.length === 0) return;
-        bgCullingProjScreenMatrix.multiplyMatrices(
-            camera.projectionMatrix,
-            camera.matrixWorldInverse
-        );
-        bgCullingFrustum.setFromProjectionMatrix(
-            bgCullingProjScreenMatrix
-        );
-        for (let i = 0; i < bgCullingParts.length; i++) {
-            const part = bgCullingParts[i];
-            part.object.visible =
-                bgCullingFrustum.intersectsSphere(part.sphere);
-        }
-    }
-    // ============================================================
-    // ct1.glb（背景の読み込み完了後に開始する）
-    // ============================================================
-    function loadCt1Model() {
-        loader.load(
-            './ct1.glb',
-            function (gltf) {
-                targetModel = gltf.scene;
-                targetModel.rotation.y = Math.PI;
-                targetModel.traverse((child) => {
-                    if (!child.isMesh) return;
-                    const materials =
-                        Array.isArray(child.material)
-                            ? child.material
-                            : [child.material];
-                    materials.forEach((material) => {
-                        if (!material) return;
-                        if (material.color) {
-                            material.color.multiplyScalar(0.4);
-                        }
-                        material.metalness = 0.0;
-                        material.roughness = 0.95;
-                        material.envMapIntensity = 0.08;
-                        if (material.map) {
-                            material.map.encoding =
-                                THREE.sRGBEncoding;
-                            material.map.anisotropy =
-                                cappedAnisotropy;
-                            material.map.needsUpdate = true;
-                        }
-                        material.needsUpdate = true;
-                    });
-                    child.castShadow = true;
-                    child.receiveShadow = true;
-                });
-                scene.add(targetModel);
-
-                // ====================================================
-                // ct1アニメーション
-                // ====================================================
-                if (gltf.animations && gltf.animations.length > 0) {
-                    mixer = new THREE.AnimationMixer(targetModel);
-                    gltf.animations.forEach((clip) => {
-                        const action = mixer.clipAction(clip);
-                        const animationName =
-                            clip.name.trim().toLowerCase();
-                        if (animationName === 'at1') {
-                            actions.at1 = action;
-                            action.setLoop(THREE.LoopOnce, 1);
-                            action.clampWhenFinished = true;
-                            action.setEffectiveTimeScale(
-                                at1PlaybackSpeed
-                            );
-                        } else if (animationName === 'hit') {
-                            actions.hit = action;
-                            action.setLoop(THREE.LoopOnce, 1);
-                            action.clampWhenFinished = true;
-                        } else {
-                            action.setLoop(THREE.LoopRepeat, Infinity);
-                            action.clampWhenFinished = false;
-                            if (animationName === 'idle') {
-                                actions.idle = action;
-                            }
-                            if (animationName === 'dash') {
-                                actions.dash = action;
-                            }
-                        }
-                    });
-                    mixer.addEventListener(
-                        'finished',
-                        function (event) {
-                            if (
-                                event.action === actions.at1 &&
-                                isAttacking1
-                            ) {
-                                isAttacking1 = false;
-                                updateMovementAnimation();
-                            }
-                        }
-                    );
-                    setAction('idle');
-                }
-
-                // ====================================================
-                // ボーン検出（AT1エフェクト起点用）
-                // ====================================================
-                targetModel.traverse((child) => {
-                    if (
-                        !at1SourceBone &&
-                        child.isBone &&
-                        child.name === '右親指1'
-                    ) {
-                        at1SourceBone = child;
-                    }
-                });
-                updateCameraPosition();
-                markAssetLoaded();
-            },
-            undefined,
-            function (error) {
-                console.error('ct1.glb の読み込みエラー:', error);
-                markAssetLoaded();
-            }
-        );
-    }
-
-    // ============================================================
-    // ct1 アニメーション切り替え
-    // ============================================================
-    function setAction(name) {
-        if (!mixer || !actions[name]) return;
-        const nextAction = actions[name];
-        if (currentAction !== nextAction) {
-            if (currentAction) {
-                currentAction.fadeOut(0.2);
-            }
-            nextAction.reset().play();
-            // ★ at1は常に1.5倍速を維持
-            if (name === 'at1') {
-                nextAction.setEffectiveTimeScale(
-                    at1PlaybackSpeed
-                );
-            }
-            currentAction = nextAction;
-        }
-    }
-    // ============================================================
-    // at1前進ステップ（滑らかな移動）
-    // ============================================================
-    function startAtForwardStep(kind, distance) {
-        if (!targetModel) return;
-        const direction = at1StepDirection;
-        direction.set(0, 0, 1);
-        direction.applyQuaternion(
-            targetModel.quaternion
-        );
-        direction.y = 0;
-        if (direction.lengthSq() > 0) {
-            direction.normalize();
-        }
-        if (kind === 'at1') {
-            at1StepTotalDistance = distance;
-            at1StepMovedDistance = 0;
-            at1StepElapsed = 0;
-            at1StepActive = true;
-    }
-    }
-    // イーズアウトで加速の少ない自然な前進にする
-    function easeOutQuad(t) {
-        return 1 - (1 - t) * (1 - t);
-    }
-    function updateAtForwardSteps(delta) {
-        if (!targetModel) return;
-        if (at1StepActive) {
-            at1StepElapsed += delta;
-            const t =
-                Math.min(
-                    at1StepElapsed /
-                        at1StepDuration,
-                    1
-                );
-            const targetDistance =
-                at1StepTotalDistance *
-                easeOutQuad(t);
-            const deltaDistance =
-                targetDistance -
-                at1StepMovedDistance;
-            targetModel.position.addScaledVector(
-                at1StepDirection,
-                deltaDistance
-            );
-            at1StepMovedDistance =
-                targetDistance;
-            if (t >= 1) {
-                at1StepActive = false;
-            }
-        }
-    }
-    function cancelAtForwardSteps() {
-        at1StepActive = false;
-    }
-    // ============================================================
-    // ct1攻撃ヒット時のパーティクル
-    // ============================================================
-    // ------------------------------------------------------------
-    // ct1のヒット演出（AT攻撃で使用する白い閃光＋赤黒ブロック）
-    // ------------------------------------------------------------
-    const ct1HitFlashColor = 0xffffff;
-    const ct1HitFlashDuration = 0.16;
-    const ct1HitFlashRadius = 0.55;
-    const ct1HitFlashMaxScale = 4.0;
-
-    function spawnCt1HitEffect(position, forward) {
-        spawnFlashParticle(
-            position,
-            {
-                radius: ct1HitFlashRadius,
-                duration: ct1HitFlashDuration,
-                maxScale: ct1HitFlashMaxScale,
-                startOpacity: 1.0,
-                color: ct1HitFlashColor
-            }
-        );
-    }
-
-    // ============================================================
-    // ct1 攻撃ヒット演出（対象モデルなしのため、前方に無条件で発生させる）
-    // ============================================================
-    function updateCt1At1Hit() {
-        if (!targetModel) return;
-        if (!isAttacking1) return;
-        if (at1HitApplied) return;
-        const hitFrameActive =
-            at1FrameCount >= at1HitFrameStart &&
-            at1FrameCount <= at1HitFrameEnd;
-        if (!hitFrameActive) return;
-
-        const forward = new THREE.Vector3(0, 0, 1);
-        forward.applyQuaternion(targetModel.quaternion);
-        forward.y = 0;
-        if (forward.lengthSq() > 0) forward.normalize();
-
-        const attackPosition = targetModel.position.clone();
-        attackPosition.y += targetHeightOffset * 0.5;
-        attackPosition.addScaledVector(forward, ct1AttackForwardOffset);
-
-        at1HitApplied = true;
-        spawnCt1HitEffect(attackPosition, forward);
-        triggerCameraShake();
-    }
-
-    // ============================================================
-    // パーティクル
-    // ============================================================
-    const particles = [];
-    // 個別にジオメトリを作らず共有ジオメトリ＋スケールで表現することで、
-    // 頻繁なジオメトリの生成／破棄によるメモリ負荷（クラッシュの一因）を減らす。
-    const sharedFlashGeometry =
-        new THREE.SphereGeometry(1, 12, 12);
-    const sharedCubeGeometry =
-        new THREE.BoxGeometry(1, 1, 1);
-    // パーティクル総数の上限。超えた分は古いものから強制的に消す。
-    const MAX_PARTICLES = 320;
-    function capParticles() {
-        while (particles.length > MAX_PARTICLES) {
-            const oldest = particles.shift();
-            scene.remove(oldest.mesh);
-            oldest.mesh.material.dispose();
-        }
-    }
-    function randomRange(min, max) {
-        return min +
-            Math.random() *
-            (max - min);
-    }
-    function spawnFlashParticle(
-        position,
-        options
-    ) {
-        const material =
-            new THREE.MeshBasicMaterial({
-                color: options.color,
-                transparent: true,
-                opacity:
-                    options.startOpacity,
-                depthWrite: false,
-                blending:
-                    THREE.AdditiveBlending
-            });
-        const mesh =
-            new THREE.Mesh(
-                sharedFlashGeometry,
-                material
-            );
-        mesh.position.copy(position);
-        mesh.scale.setScalar(
-            options.radius
-        );
-        scene.add(mesh);
-        particles.push({
-            kind: 'flash',
-            mesh: mesh,
-            elapsed: 0,
-            duration:
-                options.duration,
-            baseScale:
-                options.radius,
-            maxScale:
-                options.maxScale,
-            startOpacity:
-                options.startOpacity
-        });
-        capParticles();
-    }
-    function spawnCubeBurst(
-        position,
-        params
-    ) {
-        const spawnSpread =
-            params.spawnSpread || 0;
-        for (
-            let i = 0;
-            i < params.count;
-            i++
-        ) {
-            const size =
-                randomRange(
-                    params.minSize,
-                    params.maxSize
-                );
-            const dimensions =
-                new THREE.Vector3(
-                    size,
-                    size,
-                    size *
-                    randomRange(
-                        0.15,
-                        0.35
-                    )
-                );
-            const color =
-                params.colorA.clone()
-                    .lerp(
-                        params.colorB,
-                        Math.random()
-                    );
-            const material =
-                new THREE.MeshBasicMaterial({
-                    color: color,
-                    transparent: true,
-                    opacity: 1.0,
-                    side: THREE.DoubleSide,
-                    depthWrite: false,
-                    blending:
-                        THREE.AdditiveBlending
-                });
-            const mesh =
-                new THREE.Mesh(
-                    sharedCubeGeometry,
-                    material
-                );
-            mesh.scale.copy(
-                dimensions
-            );
-            const spawnPosition =
-                position.clone();
-            if (spawnSpread > 0) {
-                spawnPosition.x +=
-                    randomRange(
-                        -spawnSpread,
-                        spawnSpread
-                    );
-                spawnPosition.y +=
-                    randomRange(
-                        -spawnSpread * 0.4,
-                        spawnSpread
-                    );
-                spawnPosition.z +=
-                    randomRange(
-                        -spawnSpread,
-                        spawnSpread
-                    );
-            }
-            mesh.position.copy(
-                spawnPosition
-            );
-            mesh.rotation.set(
-                Math.random() *
-                    Math.PI * 2,
-                Math.random() *
-                    Math.PI * 2,
-                Math.random() *
-                    Math.PI * 2
-            );
-            const azimuth =
-                Math.random() *
-                Math.PI * 2;
-            const elevation =
-                randomRange(
-                    params.elevationMin,
-                    params.elevationMax
-                );
-            const horizontalRadius =
-                Math.cos(elevation);
-            const direction =
-                new THREE.Vector3(
-                    Math.cos(azimuth) *
-                        horizontalRadius,
-                    Math.sin(elevation),
-                    Math.sin(azimuth) *
-                        horizontalRadius
-                );
-            const speed =
-                randomRange(
-                    params.minSpeed,
-                    params.maxSpeed
-                );
-            const velocity =
-                direction.multiplyScalar(
-                    speed
-                );
-            const angularVelocity =
-                new THREE.Vector3(
-                    randomRange(-10, 10),
-                    randomRange(-10, 10),
-                    randomRange(-10, 10)
-                );
-            scene.add(mesh);
-            particles.push({
-                kind: 'cube',
-                mesh: mesh,
-                elapsed: 0,
-                duration:
-                    randomRange(
-                        params.minDuration,
-                        params.maxDuration
-                    ),
-                velocity:
-                    velocity,
-                angularVelocity:
-                    angularVelocity,
-                gravity:
-                    params.gravity,
-                startOpacity: 1.0,
-                baseScale:
-                    dimensions,
-                startScale: 1.0
-            });
-        }
-        capParticles();
-    }
-    function updateParticles(delta) {
-        for (
-            let i = particles.length - 1;
-            i >= 0;
-            i--
-        ) {
-            const effect =
-                particles[i];
-            effect.elapsed += delta;
-            const t =
-                Math.min(
-                    effect.elapsed /
-                        effect.duration,
-                    1
-                );
-            if (
-                effect.kind === 'flash'
-            ) {
-                const scale =
-                    effect.baseScale *
-                    (
-                        1 +
-                        t *
-                        (
-                            effect.maxScale -
-                            1
-                        )
-                    );
-                effect.mesh.scale.set(
-                    scale,
-                    scale,
-                    scale
-                );
-                effect.mesh.material.opacity =
-                    effect.startOpacity *
-                    (1 - t);
-            } else {
-                effect.velocity.y -=
-                    effect.gravity *
-                    delta;
-                effect.mesh.position
-                    .addScaledVector(
-                        effect.velocity,
-                        delta
-                    );
-                effect.mesh.rotation.x +=
-                    effect.angularVelocity.x *
-                    delta;
-                effect.mesh.rotation.y +=
-                    effect.angularVelocity.y *
-                    delta;
-                effect.mesh.rotation.z +=
-                    effect.angularVelocity.z *
-                    delta;
-                const factor =
-                    effect.startScale *
-                    (1 - t * 0.5);
-                effect.mesh.scale.set(
-                    effect.baseScale.x *
-                        factor,
-                    effect.baseScale.y *
-                        factor,
-                    effect.baseScale.z *
-                        factor
-                );
-                effect.mesh.material.opacity =
-                    effect.startOpacity *
-                    (1 - t);
-            }
-            if (t >= 1) {
-                scene.remove(
-                    effect.mesh
-                );
-                effect.mesh.material.dispose();
-                particles.splice(i, 1);
-            }
-        }
-    }
-    // ============================================================
-    // ジャンプ衝撃波
-    // ============================================================
-const shockwaveSparkColorRed =
-        new THREE.Color(0xff2200);
-    const shockwaveSparkColorBlack =
-        new THREE.Color(0x120000);
-    const blackBurstCount = 65;
-    const blackBurstMinSpeed = 3.0;
-    const blackBurstMaxSpeed = 8.0;
-    const blackBurstMinSize = 0.1;
-    const blackBurstMaxSize = 0.3;
-    const blackBurstMinDuration = 0.5;
-    const blackBurstMaxDuration = 1.0;
-    const blackBurstGravity = 2.5;
-    const blackBurstElevationMin = 0.9;
-    const blackBurstElevationMax = 1.4;
-    const blackBurstSpawnSpread = 0.2;
-    const blackBurstColorDark =
-        new THREE.Color(0x1a0000);
-    const blackBurstColorBlack =
-        new THREE.Color(0x000000);
-// ============================================================
-    // AT1攻撃エフェクト（右親指1から中央前へ）
-    // ============================================================
-    const atSlashSpawnCountPerFrame = 4;
-    const atSlashMinSize = 0.12;
-    const atSlashMaxSize = 0.34;
-    const atSlashMinSpeed = 3.0;
-    const atSlashMaxSpeed = 6.5;
-    const atSlashMinDuration = 0.2;
-    const atSlashMaxDuration = 0.45;
-    const atSlashGravity = 0.6;
-    const atSlashSpreadAngle = 0.35;
-    const atSlashSideOffset = 0.9;
-    const atSlashHeight =
-        targetHeightOffset * 0.6;
-    const atSlashForwardTargetDistance = 1.4;
-    // ------------------------------------------------------------
-    // AT1攻撃 半円エフェクト（体の左に、順番に出現）
-    // ------------------------------------------------------------
-    const atArcRadius = 1.3;
-    const atArcRadiusVariance = 0.15;
-    const atArcHeight = targetHeightOffset * 0.55;
-    const atArcSegmentSize = 0.22;
-    const atArcSegmentSizeVariance = 0.1;
-    const atArcParticlesPerSegment = 5;
-    const atArcParticleMinSpeed = 0.6;
-    const atArcParticleMaxSpeed = 2.0;
-    const atArcParticleMinDuration = 0.35;
-    const atArcParticleMaxDuration = 0.7;
-    const atArcParticleGravity = 0.7;
-    // 半円を描き切るまでにかかるフレーム数（この間に順番にセグメントが現れる）
-    const at1ArcRevealFrames = 12;
-// 半円1本あたりの分割数（多いほど滑らかにつながって見える）
-    const atArcSegmentCount = 18;
-    let at1ArcRevealedSegment = -1;
-// AT半円エフェクトは他のct1ヒット演出と同じ赤×黒のブロックカラーで統一する
-    // sideSignが-1なら体の左（後方→前方）、+1なら体の右（後方→前方）を通る半円上の
-    // segmentIndex番目の位置にパーティクルを発生させる
-    function spawnAtArcSegment(segmentIndex) {
-        if (!targetModel) return;
-        const forward = new THREE.Vector3(0, 0, 1);
-        forward.applyQuaternion(
-            targetModel.quaternion
-        );
-        forward.y = 0;
-        if (forward.lengthSq() > 0) {
-            forward.normalize();
-        }
-        const right = new THREE.Vector3(1, 0, 0);
-        right.applyQuaternion(
-            targetModel.quaternion
-        );
-        right.y = 0;
-        if (right.lengthSq() > 0) {
-            right.normalize();
-        }
-        const t =
-            atArcSegmentCount <= 1
-                ? 0
-                : segmentIndex /
-                  (atArcSegmentCount - 1);
-        // at1は体の左側を後方から前方へ半円状に描く
-        const angle = -Math.PI + t * Math.PI;
-        const radius =
-            atArcRadius +
-            randomRange(
-                -atArcRadiusVariance,
-                atArcRadiusVariance
-            );
-        const center =
-            targetModel.position.clone();
-        center.y += atArcHeight;
-        const position = center
-            .clone()
-            .addScaledVector(
-                forward,
-                Math.cos(angle) * radius
-            )
-            .addScaledVector(
-                right,
-                Math.sin(angle) * radius
-            );
-        const outwardDirection =
-            new THREE.Vector3()
-                .addScaledVector(
-                    forward,
-                    Math.cos(angle)
-                )
-                .addScaledVector(
-                    right,
-                    Math.sin(angle)
-                );
-        if (
-            outwardDirection.lengthSq() > 0
-        ) {
-            outwardDirection.normalize();
-        }
-        // 半円は赤黒ブロックのみで表現し、白い閃光は使わない
-        for (
-            let i = 0;
-            i < atArcParticlesPerSegment;
-            i++
-        ) {
-            const size =
-                atArcSegmentSize +
-                randomRange(
-                    -atArcSegmentSizeVariance,
-                    atArcSegmentSizeVariance
-                );
-            const dimensions =
-                new THREE.Vector3(
-                    Math.max(size, 0.05),
-                    Math.max(
-                        size *
-                            randomRange(0.5, 0.9),
-                        0.05
-                    ),
-                    Math.max(
-                        size *
-                            randomRange(0.2, 0.4),
-                        0.03
-                    )
-                );
-            const color =
-                shockwaveSparkColorRed
-                    .clone()
-                    .lerp(
-                        shockwaveSparkColorBlack,
-                        Math.random()
-                    );
-            const material =
-                new THREE.MeshBasicMaterial({
-                    color: color,
-                    transparent: true,
-                    opacity: 1.0,
-                    side: THREE.DoubleSide,
-                    depthWrite: false,
-                    blending:
-                        THREE.AdditiveBlending
-                });
-            const mesh =
-                new THREE.Mesh(
-                    sharedCubeGeometry,
-                    material
-                );
-            mesh.scale.copy(dimensions);
-            mesh.position.copy(position);
-            mesh.position.y +=
-                randomRange(-0.1, 0.15);
-            mesh.rotation.y = angle;
-            mesh.rotation.x =
-                randomRange(-0.2, 0.2);
-            mesh.rotation.z =
-                randomRange(-0.2, 0.2);
-            scene.add(mesh);
-            const velocity =
-                outwardDirection
-                    .clone()
-                    .multiplyScalar(
-                        randomRange(
-                            atArcParticleMinSpeed,
-                            atArcParticleMaxSpeed
-                        )
-                    );
-            velocity.y +=
-                randomRange(0, 0.9);
-            particles.push({
-                kind: 'cube',
-                mesh: mesh,
-                elapsed: 0,
-                duration:
-                    randomRange(
-                        atArcParticleMinDuration,
-                        atArcParticleMaxDuration
-                    ),
-                velocity: velocity,
-                angularVelocity:
-                    new THREE.Vector3(
-                        randomRange(-5, 5),
-                        randomRange(-5, 5),
-                        randomRange(-5, 5)
-                    ),
-                gravity:
-                    atArcParticleGravity,
-                startOpacity: 1.0,
-                baseScale: dimensions,
-                startScale: 1.0
-            });
-        }
-        capParticles();
-    }
-    // sideSignが+1なら右、-1なら左を起点にする（ボーンが見つからない場合のフォールバック用）
-    function getAtSlashOrigin(sideSign) {
-        const right =
-            new THREE.Vector3(1, 0, 0);
-        right.applyQuaternion(
-            targetModel.quaternion
-        );
-        right.y = 0;
-        if (right.lengthSq() > 0) {
-            right.normalize();
-        }
-        const origin =
-            targetModel.position.clone();
-        origin.y += atSlashHeight;
-        origin.addScaledVector(
-            right,
-            sideSign * atSlashSideOffset
-        );
-        return origin;
-    }
-    // ct1の中央前方（収束先）の位置を取得
-    function getAtSlashTarget() {
-        const forward =
-            new THREE.Vector3(0, 0, 1);
-        forward.applyQuaternion(
-            targetModel.quaternion
-        );
-        forward.y = 0;
-        if (forward.lengthSq() > 0) {
-            forward.normalize();
-        }
-        const target =
-            targetModel.position.clone();
-        target.y += atSlashHeight;
-        target.addScaledVector(
-            forward,
-            atSlashForwardTargetDistance
-        );
-        return target;
-    }
-    // 起点から目標地点へ収束するように飛ぶパーティクル
-    // （横から中央前へ流れる演出に使用。spawnCubeBurstの全方位ランダムとは異なり、
-    //   起点→目標の方向を基準に小さくジッターさせるだけにする）
-    function spawnConvergingCubeBurst(
-        originPosition,
-        targetPosition,
-        params
-    ) {
-        const baseDirection =
-            targetPosition.clone()
-                .sub(originPosition);
-        if (
-            baseDirection.lengthSq() >
-            0.0001
-        ) {
-            baseDirection.normalize();
-        } else {
-            baseDirection.set(0, 0, 1);
-        }
-        const upHelper =
-            Math.abs(baseDirection.y) >
-            0.99
-                ? new THREE.Vector3(1, 0, 0)
-                : new THREE.Vector3(0, 1, 0);
-        const rightAxis =
-            new THREE.Vector3()
-                .crossVectors(
-                    baseDirection,
-                    upHelper
-                )
-                .normalize();
-        const upAxis =
-            new THREE.Vector3()
-                .crossVectors(
-                    rightAxis,
-                    baseDirection
-                )
-                .normalize();
-        for (
-            let i = 0;
-            i < params.count;
-            i++
-        ) {
-            const size =
-                randomRange(
-                    params.minSize,
-                    params.maxSize
-                );
-            const dimensions =
-                new THREE.Vector3(
-                    size,
-                    size,
-                    size *
-                    randomRange(
-                        0.15,
-                        0.35
-                    )
-                );
-            const color =
-                params.colorA.clone()
-                    .lerp(
-                        params.colorB,
-                        Math.random()
-                    );
-            const material =
-                new THREE.MeshBasicMaterial({
-                    color: color,
-                    transparent: true,
-                    opacity: 1.0,
-                    side: THREE.DoubleSide,
-                    depthWrite: false,
-                    blending:
-                        THREE.AdditiveBlending
-                });
-            const mesh =
-                new THREE.Mesh(
-                    sharedCubeGeometry,
-                    material
-                );
-            mesh.scale.copy(
-                dimensions
-            );
-            mesh.position.copy(
-                originPosition
-            );
-            mesh.rotation.set(
-                Math.random() *
-                    Math.PI * 2,
-                Math.random() *
-                    Math.PI * 2,
-                Math.random() *
-                    Math.PI * 2
-            );
-            const jitterAngleA =
-                randomRange(
-                    -params.spreadAngle,
-                    params.spreadAngle
-                );
-            const jitterAngleB =
-                randomRange(
-                    -params.spreadAngle,
-                    params.spreadAngle
-                );
-            const direction =
-                baseDirection.clone()
-                    .addScaledVector(
-                        rightAxis,
-                        Math.sin(
-                            jitterAngleA
-                        )
-                    )
-                    .addScaledVector(
-                        upAxis,
-                        Math.sin(
-                            jitterAngleB
-                        )
-                    );
-            if (
-                direction.lengthSq() >
-                0
-            ) {
-                direction.normalize();
-            }
-            const speed =
-                randomRange(
-                    params.minSpeed,
-                    params.maxSpeed
-                );
-            const velocity =
-                direction.multiplyScalar(
-                    speed
-                );
-            const angularVelocity =
-                new THREE.Vector3(
-                    randomRange(-10, 10),
-                    randomRange(-10, 10),
-                    randomRange(-10, 10)
-                );
-            scene.add(mesh);
-            particles.push({
-                kind: 'cube',
-                mesh: mesh,
-                elapsed: 0,
-                duration:
-                    randomRange(
-                        params.minDuration,
-                        params.maxDuration
-                    ),
-                velocity:
-                    velocity,
-                angularVelocity:
-                    angularVelocity,
-                gravity:
-                    params.gravity,
-                startOpacity: 1.0,
-                baseScale:
-                    dimensions,
-                startScale: 1.0
-            });
-        }
-        capParticles();
-    }
-    // at1: 体の左側に半円状のエフェクトを順番に出現させる
-    function updateAt1SlashEffect(
-        delta
-    ) {
-        if (
-            !isAttacking1 ||
-            !targetModel
-        ) {
-            return;
-        }
-        const t =
-            Math.min(
-                at1FrameCount /
-                    at1ArcRevealFrames,
-                1
-            );
-        const targetSegment =
-            Math.floor(
-                t *
-                (atArcSegmentCount - 1)
-            );
-        while (
-            at1ArcRevealedSegment <
-            targetSegment
-        ) {
-            at1ArcRevealedSegment++;
-            spawnAtArcSegment(
-                at1ArcRevealedSegment,
-            );
-        }
-    }
-    // ============================================================
-    // ダッシュ
-    // ============================================================
-    let isDashing = false;
-    let dashElapsed = 0;
-    const dashDuration = 0.22;
-    const dashDistance = 7.0;
-    const dashDirection =
-        new THREE.Vector3();
-    const dashStartPosition =
-        new THREE.Vector3();
-    const dashCurrentPosition =
-        new THREE.Vector3();
-    const dashTrailSpawnPosition =
-        new THREE.Vector3();
-    const dashTrailSpawnCountPerFrame = 5;
-    const dashTrailSpawnSpread = 0.35;
-    const dashTrailMinSize = 0.12;
-    const dashTrailMaxSize = 0.32;
-    const dashTrailMinSpeed = 0.2;
-    const dashTrailMaxSpeed = 1.0;
-    const dashTrailMinDuration = 0.35;
-    const dashTrailMaxDuration = 0.7;
-    const dashTrailGravity = 1.2;
-    const dashTrailElevationMin = -0.15;
-    const dashTrailElevationMax = 0.7;
-    const dashTrailHeightOffset = 0.9;
-    function spawnDashTrailParticles(
-        position
-    ) {
-        spawnCubeBurst(
-            position,
-            {
-                count:
-                    dashTrailSpawnCountPerFrame,
-                minSize:
-                    dashTrailMinSize,
-                maxSize:
-                    dashTrailMaxSize,
-                minSpeed:
-                    dashTrailMinSpeed,
-                maxSpeed:
-                    dashTrailMaxSpeed,
-                minDuration:
-                    dashTrailMinDuration,
-                maxDuration:
-                    dashTrailMaxDuration,
-                gravity:
-                    dashTrailGravity,
-                colorA:
-                    blackBurstColorDark,
-                colorB:
-                    blackBurstColorBlack,
-                elevationMin:
-                    dashTrailElevationMin,
-                elevationMax:
-                    dashTrailElevationMax,
-                spawnSpread:
-                    dashTrailSpawnSpread
-            }
-        );
-    }
-    function dashForward() {
-        if (!targetModel) return;
-        if (isDashing) return;
-        if (isAttacking1) {
-            isAttacking1 = false;
-                cancelAtForwardSteps();
-            if (currentAction) {
-                currentAction.fadeOut(0.1);
-            }
-        }
-        const forward =
-            new THREE.Vector3(0, 0, 1);
-        forward.applyQuaternion(
-            targetModel.quaternion
-        );
-        forward.y = 0;
-        forward.normalize();
-        dashDirection.copy(forward);
-        dashStartPosition.copy(
-            targetModel.position
-        );
-        dashElapsed = 0;
-        isDashing = true;
-        targetModel.visible = false;
-    }
-    function updateDash(delta) {
-        if (!isDashing) return;
-        dashElapsed += delta;
-        const t =
-            Math.min(
-                dashElapsed /
-                    dashDuration,
-                1
-            );
-        dashCurrentPosition
-            .copy(dashStartPosition)
-            .addScaledVector(
-                dashDirection,
-                dashDistance * t
-            );
-        targetModel.position.copy(
-            dashCurrentPosition
-        );
-        dashTrailSpawnPosition.copy(
-            dashCurrentPosition
-        );
-        dashTrailSpawnPosition.y +=
-            dashTrailHeightOffset;
-        spawnDashTrailParticles(
-            dashTrailSpawnPosition
-        );
-        if (t >= 1) {
-            isDashing = false;
-            targetModel.visible = true;
-            updateMovementAnimation();
-        }
-    }
-    // ============================================================
-    // カメラシェイク
-    // ============================================================
-    let cameraShakeElapsed = null;
-    const cameraShakeDuration = 0.35;
-    const cameraShakeMagnitude = 0.12;
-    function triggerCameraShake() {
-        cameraShakeElapsed = 0;
-    }
-    function applyCameraShake(delta) {
-        if (
-            cameraShakeElapsed === null
-        ) {
-            return;
-        }
-        cameraShakeElapsed += delta;
-        const t =
-            cameraShakeElapsed /
-            cameraShakeDuration;
-        if (t >= 1) {
-            cameraShakeElapsed = null;
-            return;
-        }
-        const decay = 1 - t;
-        const magnitude =
-            cameraShakeMagnitude *
-            decay *
-            decay;
-        camera.position.x +=
-            (
-                Math.random() * 2 - 1
-            ) *
-            magnitude;
-        camera.position.y +=
-            (
-                Math.random() * 2 - 1
-            ) *
-            magnitude;
-        camera.position.z +=
-            (
-                Math.random() * 2 - 1
-            ) *
-            magnitude;
-    }
-    // ============================================================
-    // 入力状態
-    // ============================================================
-    function hasMoveInput() {
-        return (
-            joystickX !== 0 ||
-            joystickY !== 0 ||
-            keyState.up ||
-            keyState.down ||
-            keyState.left ||
-            keyState.right
-        );
-    }
-    // ============================================================
-    // AT攻撃
-    // ============================================================
-    function playAt1() {
-        if (!mixer || !actions.at1) return;
-        if (isDashing) return;
-        if (isAttacking1) return;
-
-        startAt1Attack();
-    }
-
-    function startAt1Attack() {
-        isAttacking1 = true;
-        at1FrameCount = 0;
-        at1HitApplied = false;
-        at1ForwardStepApplied = false;
-        cancelAtForwardSteps();
-        at1ArcRevealedSegment = -1;
-        // 新しいコンボの開始として、記録していたat1ヒット位置をリセットする
-
-        const at1Action =
-            actions.at1;
-        if (currentAction) {
-            currentAction.fadeOut(0.1);
-        }
-        at1Action
-            .reset()
-            .setLoop(
-                THREE.LoopOnce,
-                1
-            );
-        at1Action.clampWhenFinished = true;
-        // ★ at1を1.5倍速で再生
-        at1Action.setEffectiveTimeScale(
-            at1PlaybackSpeed
-        );
-        at1Action
-            .fadeIn(0.1)
-            .play();
-        currentAction = at1Action;
-    }
-
-    // ============================================================
-    // ボタン
-    // ============================================================
-    const dashButton =
-        document.getElementById(
-            'dash-button'
-        );
-    dashButton.addEventListener(
-        'pointerdown',
-        (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            dashForward();
-        },
-        { passive: false }
-    );
-    const atButton =
-        document.getElementById(
-            'at-button'
-        );
-    atButton.addEventListener(
-        'pointerdown',
-        (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            playAt1();
-        },
-        { passive: false }
-    );
-    // ============================================================
-    // カメラ位置
-    // ============================================================
-    function updateCameraPosition() {
-        if (!targetModel) return;
-        const targetPosition =
-            targetModel.position.clone()
-                .add(
-                    new THREE.Vector3(
-                        0,
-                        targetHeightOffset,
-                        0
-                    )
-                );
-        const offset =
-            new THREE.Vector3()
-                .setFromSpherical(
-                    cameraSpherical
-                );
-        camera.position
-            .copy(targetPosition)
-            .add(offset);
-        camera.lookAt(
-            targetPosition
-        );
-    }
-    // ============================================================
-    // アナログスティック
-    // ============================================================
-    const joystickContainer =
-        document.getElementById(
-            'joystick-container'
-        );
-    const joystickStick =
-        document.getElementById(
-            'joystick-stick'
-        );
-    let joystickPointerId = null;
-    let joystickX = 0;
-    let joystickY = 0;
-    const joystickRadius = 52;
-    const joystickDeadZone = 0.08;
-    function updateJoystick(
-        clientX,
-        clientY
-    ) {
-        const rect =
-            joystickContainer
-                .getBoundingClientRect();
-        const centerX =
-            rect.left +
-            rect.width / 2;
-        const centerY =
-            rect.top +
-            rect.height / 2;
-        let dx =
-            clientX -
-            centerX;
-        let dy =
-            clientY -
-            centerY;
-        const distance =
-            Math.hypot(dx, dy);
-        if (
-            distance >
-            joystickRadius
-        ) {
-            dx =
-                dx / distance *
-                joystickRadius;
-            dy =
-                dy / distance *
-                joystickRadius;
-        }
-        // スティックの表示だけを左に90°回転。
-        // 縦持ち時に物理的な「上」入力が画面上の「左」へ動いて見えるようにする。
-        const displayX = dy;
-        const displayY = -dx;
-        joystickStick.style.transform =
-            `translate(${displayX}px, ${displayY}px)`;
-
-        // ゲーム内の移動入力も同じ向きに90°右回転。
-        // 物理的に「上」へ入力 → ゲーム内では「左」へ進む。
-        const rawJoystickX = dx / joystickRadius;
-        const rawJoystickY = dy / joystickRadius;
-        joystickX = rawJoystickY;
-        joystickY = -rawJoystickX;
-        const normalizedDistance =
-            Math.hypot(
-                joystickX,
-                joystickY
-            );
-        if (
-            normalizedDistance <
-            joystickDeadZone
-        ) {
-            joystickX = 0;
-            joystickY = 0;
-        }
-    }
-    function resetJoystick() {
-        joystickPointerId = null;
-        joystickX = 0;
-        joystickY = 0;
-        joystickStick.style.transform =
-            'translate(0px, 0px)';
-    }
-    function handleJoystickStart(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (
-            joystickPointerId !== null
-        ) {
-            return;
-        }
-        joystickPointerId =
-            e.pointerId;
-        try {
-            joystickContainer
-                .setPointerCapture(
-                    e.pointerId
-                );
-        } catch (err) {}
-        updateJoystick(
-            e.clientX,
-            e.clientY
-        );
-    }
-    function handleJoystickMove(e) {
-        if (
-            e.pointerId !==
-            joystickPointerId
-        ) {
-            return;
-        }
-        e.preventDefault();
-        e.stopPropagation();
-        updateJoystick(
-            e.clientX,
-            e.clientY
-        );
-    }
-    function handleJoystickEnd(e) {
-        if (
-            e.pointerId !==
-            joystickPointerId
-        ) {
-            return;
-        }
-        e.preventDefault();
-        e.stopPropagation();
-        try {
-            if (
-                joystickContainer
-                    .hasPointerCapture(
-                        e.pointerId
-                    )
-            ) {
-                joystickContainer
-                    .releasePointerCapture(
-                        e.pointerId
-                    );
-            }
-        } catch (err) {}
-        resetJoystick();
-    }
-    joystickContainer.addEventListener(
-        'pointerdown',
-        handleJoystickStart,
-        { passive: false }
-    );
-    joystickContainer.addEventListener(
-        'pointermove',
-        handleJoystickMove,
-        { passive: false }
-    );
-    joystickContainer.addEventListener(
-        'pointerup',
-        handleJoystickEnd,
-        { passive: false }
-    );
-    joystickContainer.addEventListener(
-        'pointercancel',
-        handleJoystickEnd,
-        { passive: false }
-    );
-    // ============================================================
-    // キーボード
-    // ============================================================
-    const keyState = {
-        up: false,
-        down: false,
-        left: false,
-        right: false
+function fbm(x,y){let s=0,a=.5,f=1;for(let i=0;i<5;i++){s+=a*vnoise(x*f,y*f);f*=2;a*=.5}return s}
+// 街: ワールドを TCELL(m) 四方のセルに分け、セルごとに70%で1つ、ランダムな位置・大きさ(半径500〜850m=直径1〜1.7km)・形の巨大な街ができる
+// スポーン地点とは無関係に決まる（スポーンは街の外）。街同士が重ならないよう、中心のずれ幅はセルの30%まで。
+const TOWN_H=3,L=14,TCELL=3600,TBLEND=150,TOWN_P=.7;      // L=1区画の大きさ
+const townCache=new Map();
+// 街の構成（中心から外へ）:
+//  ① 中心: 四角い城壁（ミナレット付き）に囲まれた、とても大きな宮殿
+//  ② 内壁（街の輪郭を縮めた形）までの広場: 庭とヤシ
+//  ③ 内壁と外壁のあいだ: 入り組んだ路地の地区（建物・中庭・大モスク風の大建築）
+//  ④ 外壁（街の輪郭に沿う）
+// 東西南北に伸びる幅RW(m)の主要な道が、宮殿の城壁・内壁・外壁を門で通り抜ける。
+const RW=12,INNER_K=.48,GW=9;
+const DH=12,SLOPE=3.5,RL=DH*SLOPE,TUN=8,RGATE=8,TOWER_OFF=9.6;   // 橋の高さ / 勾配(1:3.5) / 橋の下の通路幅 / 内外壁の門(小片の中心がこれ未満なら省く) / 門塔の位置                                   // 主要な道の幅 / 内壁の半径=外壁の半径×INNER_K / 門の開口の目安(道の中心からGW)
+function roadClip(t,cx,cz,ex,ez,strict){                       // 橋の下の通路・傾斜路の敷地・(strict)橋の真下に、置いてはいけない物がかかるか
+  for(const q of t.roads){
+    const zr=q.ax==='z',pp=zr?cx:cz,pe=zr?ex:ez,al=zr?cz:cx,ae=zr?ez:ex,off=Math.abs(pp-q.c)-pe,m=q.sg*(al-(zr?t.z:t.x)),a=m-ae,b=m+ae;
+    if(b>q.sf&&a<q.s1&&off<(strict?RW/2+2:TUN/2))return true;
+    if(b>q.s0-8&&a<q.sf&&off<RW/2+2)return true;
+  }
+  return false;
+}
+function underDeck(t,cx,cz,ex,ez){                              // 橋桁（平らな部分）の真下にかかるか
+  for(const q of t.roads){
+    const zr=q.ax==='z',pp=zr?cx:cz,pe=zr?ex:ez,al=zr?cz:cx,ae=zr?ez:ex,m=q.sg*(al-(zr?t.z:t.x));
+    if(m+ae>q.sf&&m-ae<q.s1&&Math.abs(pp-q.c)-pe<RW/2+1.2)return true;
+  }
+  return false;
+}
+function deckInfo(x,z){                                         // 橋の上面の高さ(TOWN_Hからの高さ)。傾斜路ならramp=true。橋は外壁の門楼の外側の面で終わる
+  for(const t of nearTowns(x,z))for(const q of t.roads){
+    const zr=q.ax==='z',pp=zr?x:z;
+    if(Math.abs(pp-q.c)>=RW/2)continue;
+    const s=q.sg*((zr?z:x)-(zr?t.z:t.x));
+    if(s<q.s0||s>q.s1)continue;
+    return{h:DH,ramp:false,zr,c:q.c,s,s1:q.s1,ctr:zr?t.z:t.x,sg:q.sg};
+  }
+  return null;
+}
+const PAL={WW:44,CW:30,WH:15,CH:30,DW:24,DC:30,W:118};          // 翼棟の幅・中央棟の幅・翼棟の高さ・中央棟の高さ・翼棟の奥行・中央棟の奥行・全幅（k=1の大きさ。実際は街の大きさに合わせて拡大）
+function palW(p,u,v){const c=Math.cos(p.th),s=Math.sin(p.th);u*=p.k;v*=p.k;return [p.x+u*c+v*s,p.z-u*s+v*c]}   // 宮殿の局所座標(u=横,v=正面方向)→ワールド（k倍）
+function palL(p,x,z){const c=Math.cos(p.th),s=Math.sin(p.th),dx=x-p.x,dz=z-p.z;return [(dx*c-dz*s)/p.k,(dx*s+dz*c)/p.k]}
+function palRect(p,u,v,w,d,h,m){const[x,z]=palW(p,u,v),sw=Math.abs(Math.sin(p.th))>.5,k=p.k;return{x,z,w:(sw?d:w)*k,d:(sw?w:d)*k,top:TOWN_H+DH+h*k,m:m===undefined?.3:m}}
+const HALL_TIERS=[2,5];                                          // 本殿の段数の範囲（最小,最大）。街ごとにこの範囲でランダム
+const BLUE={u:62,v0:-62,v1:58,g:22},PLAZA=25,BAR_W=48;           // 青い壁（宮殿を囲む追加の壁）: 局所座標の左右±u・奥v0・手前v1・正面の門の半幅g / 広場の半幅 / U字の建物の半幅
+function makePalace(t,fx,fz,k){                                   // 宮殿（局所座標 u=横, v=正面(+)）: 奥に本殿(1)、その左右にすき間なく続く建物(2)、手前に広場(3)を囲むU字の建物。全体が u=0 の軸で左右対称
+  const p={x:t.x,z:t.z,th:Math.atan2(fx,fz),k,rects:[],circs:[],bx:[],roofs:[],dc:[],wings:[],arcs:[]};
+  const r=mulberry(hash(Math.round(t.x),Math.round(t.z),SEED+55)*1e9|0),T=1.2,DR=9;
+  const R=(u,v,w,d,h,m)=>p.rects.push(palRect(p,u,v,w,d,h,m));
+  const blk=(u,v,w,d,y0,y1)=>{p.bx.push([u,v,w,d,y0,y1]);if(!y0)R(u,v,w,d,y1)};
+  const W=(u0,u1,v0,v1,h)=>({u0,u1,v0,v1,h,skip:{},doors:{l:[],r:[],f:[],b:[]}});
+  const sdome=(x,y,z,s)=>p.dc.push(['D',x,y+.8,z,s,1.8*s],['M',x,y+.8+1.8*s,z,1.18*s,1.45*s],['F',x,y+.8+1.8*s+1.45*s,z,.36*s]);   // 小ドーム（y=屋根の下面の高さ）
+  // ① 本殿: 奥(v=-55)に接して置く、n段の階段状の塔。各段は壁で囲み、屋根は縁の輪だけ（中央はあけて）、全段ぶち抜きの吹き抜け
+  const hw=56+r()*10,hd=34+r()*6,n=HALL_TIERS[0]+Math.floor(r()*(HALL_TIERS[1]-HALL_TIERS[0]+1)),VB=-55,vc=VB+hd/2;
+  const h0=17+r()*3,th=8.5+r()*2.5,inset=Math.min(5,(Math.min(hw,hd)/2-7)/(n-1));
+  const tiers=[];for(let i=0;i<n;i++){const y0=i?h0+(i-1)*th:0;tiers.push({w:hw-2*inset*i,d:hd-2*inset*i,y0,y1:i?y0+th:h0})}
+  const hall=W(-hw/2,hw/2,VB,VB+hd,h0),all=[hall],H=tiers[n-1].y1;
+  hall.doors.f.push([0,10]);hall.noArcs=true;
+  // ② 本殿の左右にすき間なく続く建物（本殿との境の壁に扉）
+  const w2=20+r()*3,d2=hd*.8,h2=11+r()*5,dome2=r()<.5;
+  for(const sd of[-1,1]){
+    const a=sd*hw/2,b=sd*(hw/2+w2),wg=W(Math.min(a,b),Math.max(a,b),VB,VB+d2,h2);
+    wg.skip[sd>0?'l':'r']=true;wg.dome=dome2;hall.doors[sd>0?'r':'l'].push([VB+d2/2,6]);all.push(wg);
+  }
+  // ③ 広場を囲むU字の建物: 本殿の手前に横長の棟、その両端から手前へ脚が伸びる。扉は 本殿→横長の棟→広場
+  const bh=10+r()*3,b0=hall.v1,b1=b0+18,LEG=42,mid=(PLAZA+BAR_W)/2;
+  const bar=W(-BAR_W,BAR_W,b0,b1,bh);bar.doors.b.push([0,10]);bar.doors.f.push([-mid,6],[0,10],[mid,6]);bar.arcRange=[-PLAZA,PLAZA];all.push(bar);
+  for(const sd of[-1,1]){const a=sd*PLAZA,b=sd*BAR_W,leg=W(Math.min(a,b),Math.max(a,b),b1,b1+LEG,bh-.5);leg.skip.b=true;all.push(leg)}
+  for(const wg of all){                                             // 壁（扉の上は楣）・窓・屋根
+    const{u0,u1,v0,v1,h}=wg,uc=(u0+u1)/2,vcw=(v0+v1)/2,w=u1-u0,d=v1-v0;
+    const wall=(sideKey,fixed,a0,a1,alongU)=>{
+      if(wg.skip[sideKey])return;const ds=wg.doors[sideKey].slice().sort((a,b)=>a[0]-b[0]);let cur=a0;
+      const put=(x0,x1,y0,y1)=>{if(x1-x0>.01)alongU?blk((x0+x1)/2,fixed,x1-x0,T,y0,y1):blk(fixed,(x0+x1)/2,T,x1-x0,y0,y1)};
+      for(const[c,dw] of ds){put(cur,c-dw/2,0,h);put(c-dw/2,c+dw/2,DR,h);cur=c+dw/2}put(cur,a1,0,h);
     };
-    window.addEventListener(
-        'keydown',
-        (e) => {
-            if (
-                e.key === 'ArrowUp' ||
-                e.key === 'w'
-            ) {
-                keyState.up = true;
-            }
-            if (
-                e.key === 'ArrowDown' ||
-                e.key === 's'
-            ) {
-                keyState.down = true;
-            }
-            if (
-                e.key === 'ArrowLeft' ||
-                e.key === 'a'
-            ) {
-                keyState.left = true;
-            }
-            if (
-                e.key === 'ArrowRight' ||
-                e.key === 'd'
-            ) {
-                keyState.right = true;
-            }
-        }
-    );
-    window.addEventListener(
-        'keyup',
-        (e) => {
-            if (
-                e.key === 'ArrowUp' ||
-                e.key === 'w'
-            ) {
-                keyState.up = false;
-            }
-            if (
-                e.key === 'ArrowDown' ||
-                e.key === 's'
-            ) {
-                keyState.down = false;
-            }
-            if (
-                e.key === 'ArrowLeft' ||
-                e.key === 'a'
-            ) {
-                keyState.left = false;
-            }
-            if (
-                e.key === 'ArrowRight' ||
-                e.key === 'd'
-            ) {
-                keyState.right = false;
-            }
-        }
-    );
-    // ============================================================
-    // カメラ操作
-    // ============================================================
-    let isCameraDragging = false;
-    let cameraPointerId = null;
-    let previousTouchX = 0;
-    let previousTouchY = 0;
-    function handleRightScreenStart(e) {
-        if (
-            e.target.closest(
-                '#joystick-container'
-            )
-        ) {
-            return;
-        }
-        if (
-            e.target.closest(
-                '#dash-button'
-            )
-        ) {
-            return;
-        }
-        if (
-            e.target.closest(
-                '#at-button'
-            )
-        ) {
-            return;
-        }
-        if (isCameraDragging) return;
-        // 「画面の右半分」の判定は、実際の画面座標ではなく
-        // 見た目上（横向き表示）の座標系で行う。縦持ちのまま
-        // 回転表示している場合はgetLogicalX/Widthを使うことで、
-        // 回転の有無にかかわらず同じ判定になる。
-        if (
-            getLogicalX(e.clientX, e.clientY) >=
-            getLogicalWidth() / 2
-        ) {
-            e.preventDefault();
-            isCameraDragging = true;
-            cameraPointerId =
-                e.pointerId;
-            previousTouchX =
-                getLogicalX(e.clientX, e.clientY);
-            previousTouchY =
-                getLogicalY(e.clientX, e.clientY);
-            try {
-                renderer.domElement
-                    .setPointerCapture(
-                        e.pointerId
-                    );
-            } catch (err) {}
-        }
+    const sa=wg.skip.b?v0:v0+T,sb=wg.skip.f?v1:v1-T;                  // 脚は奥の壁を持たない（横長の棟の壁と一続き）ので、側壁を奥の端まで伸ばす
+    wall('f',v1-T/2,u0,u1,true);wall('b',v0+T/2,u0,u1,true);wall('l',u0+T/2,sa,sb,false);wall('r',u1-T/2,sa,sb,false);
+    p.wings.push([uc,vcw,w,d]);
+    if(wg!==hall){
+      p.roofs.push([uc,vcw,w,d,h,1]);if(wg.dome){const R2=Math.min(w,d)*.28;p.dc.push(['D',uc,h+.8,vcw,R2*.8,3],['M',uc,h+3.8,vcw,R2,R2*1.1])}
     }
-    function handleRightScreenMove(e) {
-        if (!isCameraDragging) return;
-        if (
-            e.pointerId !==
-            cameraPointerId
-        ) {
-            return;
-        }
-        e.preventDefault();
-        // 見た目上（横向き表示）の座標系でドラッグ量を計算する。
-        const currentLogicalX =
-            getLogicalX(e.clientX, e.clientY);
-        const currentLogicalY =
-            getLogicalY(e.clientX, e.clientY);
-        const deltaX =
-            currentLogicalX -
-            previousTouchX;
-        const deltaY =
-            currentLogicalY -
-            previousTouchY;
-        cameraSpherical.theta -=
-            deltaX *
-            cameraTouchSensitivity;
-        cameraSpherical.phi -=
-            deltaY *
-            cameraTouchSensitivity;
-        cameraSpherical.phi =
-            Math.max(
-                minPolarAngle,
-                Math.min(
-                    maxPolarAngle,
-                    cameraSpherical.phi
-                )
-            );
-        previousTouchX =
-            currentLogicalX;
-        previousTouchY =
-            currentLogicalY;
+  }
+  // ④ 本殿の2段目以上の壁と、各段の屋根（縁だけの輪。中央は吹き抜け）、最上段の天井と大ドーム
+  for(let i=0;i<n;i++){
+    const a=tiers[i],b=tiers[i+1];
+    if(i>0){const y0=a.y0+.4,y1=a.y1;                               // 壁（前の段の屋根の板に少し埋める）
+      blk(0,vc+a.d/2-T/2,a.w,T,y0,y1);blk(0,vc-a.d/2+T/2,a.w,T,y0,y1);
+      blk(a.w/2-T/2,vc,T,a.d-2*T,y0,y1);blk(-a.w/2+T/2,vc,T,a.d-2*T,y0,y1);
     }
-    function handleRightScreenEnd(e) {
-        if (!isCameraDragging) return;
-        if (
-            e.pointerId !==
-            cameraPointerId
-        ) {
-            return;
-        }
-        e.preventDefault();
-        isCameraDragging = false;
-        try {
-            if (
-                renderer.domElement
-                    .hasPointerCapture(
-                        e.pointerId
-                    )
-            ) {
-                renderer.domElement
-                    .releasePointerCapture(
-                        e.pointerId
-                    );
-            }
-        } catch (err) {}
-        cameraPointerId = null;
+    if(b){const h=a.y1,ow=a.w+.8,od=a.d+.8,iw=b.w-2*T-.2,id=b.d-2*T-.2;   // 輪の屋根（外は軒、内は上の段の壁の下まで）
+      blk(0,vc+(od+id)/4,ow,(od-id)/2,h,h+.8);blk(0,vc-(od+id)/4,ow,(od-id)/2,h,h+.8);
+      blk((ow+iw)/4,vc,(ow-iw)/2,id,h,h+.8);blk(-(ow+iw)/4,vc,(ow-iw)/2,id,h,h+.8);
+      const s=Math.min(2.2,inset*.42),cx=a.w/2-inset/2,cz=a.d/2-inset/2;
+      for(const sx of[-1,1])for(const sz of[-1,1])sdome(sx*cx,h,vc+sz*cz,s);
+    }else{
+      p.roofs.push([0,vc,a.w,a.d,H,1]);
+      const D=Math.min(11,Math.max(4.5,Math.min(a.w,a.d)*.32));     // 最上段の天井と大ドーム（大きさは最上段に合わせる）
+      p.dc.push(['D',0,H+.8,vc,D,D*.667],['M',0,H+.8+D*.667,vc,D*1.044,D*1.28],['F',0,H+.8+D*.667+D*1.28,vc,D*.18]);
+      for(const sx of[-1,1])for(const sz of[-1,1])sdome(sx*(a.w/2-3.2),H,vc+sz*(a.d/2-3.2),2.2);
     }
-    window.addEventListener(
-        'pointerdown',
-        handleRightScreenStart,
-        { passive: false }
-    );
-    window.addEventListener(
-        'pointermove',
-        handleRightScreenMove,
-        { passive: false }
-    );
-    window.addEventListener(
-        'pointerup',
-        handleRightScreenEnd,
-        { passive: false }
-    );
-    window.addEventListener(
-        'pointercancel',
-        handleRightScreenEnd,
-        { passive: false }
-    );
-    // ============================================================
-    // ct1移動アニメーション
-    // ============================================================
-    function updateMovementAnimation() {
-        if (hasMoveInput()) {
-            if (actions.dash) {
-                setAction('dash');
-            }
-        } else {
-            if (actions.idle) {
-                setAction('idle');
-            }
-        }
-    }
-    // ============================================================
-    // ct1移動
-    // ============================================================
-    function updateModelMovement(delta) {
-        if (!targetModel) return;
-        if (isDashing) return;
-        let moveX = joystickX;
-        let moveY = joystickY;
-        let currentSpeed = 0;
-        let keyboardX = 0;
-        let keyboardY = 0;
-        if (keyState.right) keyboardX += 1;
-        if (keyState.left) keyboardX -= 1;
-        if (keyState.up) keyboardY -= 1;
-        if (keyState.down) keyboardY += 1;
-        if (
-            keyboardX !== 0 ||
-            keyboardY !== 0
-        ) {
-            const length =
-                Math.hypot(
-                    keyboardX,
-                    keyboardY
-                );
-            moveX =
-                keyboardX /
-                length;
-            moveY =
-                keyboardY /
-                length;
-            currentSpeed =
-                maxMoveSpeed;
-        } else {
-            if (
-                moveX !== 0 ||
-                moveY !== 0
-            ) {
-                currentSpeed =
-                    maxMoveSpeed;
-            } else {
-                currentSpeed = 0;
-            }
-        }
-        const isMoving =
-            currentSpeed > 0;
-        if (isAttacking1) {
-            currentSpeed *=
-                jumpMoveSpeedFactor;
-        }
-        if (!isAttacking1) {
-            if (isMoving) {
-                if (actions.dash) {
-                    setAction('dash');
-                }
-            } else {
-                if (actions.idle) {
-                    setAction('idle');
-                }
-            }
-        }
-        if (isMoving) {
-            const cameraForward =
-                new THREE.Vector3();
-            camera.getWorldDirection(
-                cameraForward
-            );
-            cameraForward.y = 0;
-            cameraForward.normalize();
-            const cameraRight =
-                new THREE.Vector3();
-            cameraRight.crossVectors(
-                cameraForward,
-                new THREE.Vector3(0, 1, 0)
-            ).normalize();
-            const moveDirection =
-                new THREE.Vector3();
-            moveDirection
-                .addScaledVector(
-                    cameraRight,
-                    moveX
-                )
-                .addScaledVector(
-                    cameraForward,
-                    -moveY
-                );
-            if (
-                moveDirection.lengthSq() > 0
-            ) {
-                moveDirection.normalize();
-            }
-
-            const moveDistance =
-                currentSpeed * delta;
-            const proposedX =
-                targetModel.position.x +
-                moveDirection.x * moveDistance;
-            const proposedZ =
-                targetModel.position.z +
-                moveDirection.z * moveDistance;
-            const groundHit =
-                probeGroundHeight(
-                    proposedX,
-                    proposedZ,
-                    targetModel.position.y
-                );
-
-            let canMove = true;
-            if (!groundHit) {
-                // 地面がない場所には進ませない
-                canMove = false;
-            } else if (isTooSteep(groundHit)) {
-                // 急斜面・壁には進ませない
-                canMove = false;
-            } else if (
-                Math.abs(
-                    groundHit.point.y -
-                    targetModel.position.y
-                ) > maxStepHeight
-            ) {
-                // 高すぎる段差・崖には進ませない
-                canMove = false;
-            }
-
-            if (canMove) {
-                targetModel.position.x =
-                    proposedX;
-                targetModel.position.z =
-                    proposedZ;
-            }
-
-            const targetAngle =
-                Math.atan2(
-                    moveDirection.x,
-                    moveDirection.z
-                );
-            const targetQuaternion =
-                new THREE.Quaternion();
-            targetQuaternion.setFromAxisAngle(
-                new THREE.Vector3(0, 1, 0),
-                targetAngle
-            );
-            targetModel.quaternion.slerp(
-                targetQuaternion,
-                rotationSpeed * delta
-            );
-        }
-    }
-    // ============================================================
-    // メインループ
-    // ============================================================
-    function animate() {
-        requestAnimationFrame(
-            animate
-        );
-        // WebGLコンテキストが失われている間は描画・更新を行わず、
-        // 復帰を待つだけにする（失われたコンテキストへの連続アクセスは
-        // 一部端末でクラッシュや無限エラーループの原因になる）
-        if (isRendererContextLost) {
-            return;
-        }
-        const delta =
-            clock.getDelta();
-        // ct1操作
-        updateModelMovement(
-            delta
-        );
-        // ct1ダッシュ
-        updateDash(
-            delta
-        );
-        // AT攻撃の前進ステップ（瞬間移動ではなく滑らかに移動）
-        updateAtForwardSteps(
-            delta
-        );
-        // パーティクル
-        updateParticles(
-            delta
-        );
-        // AT1斬撃エフェクト（右親指1から中央前へ）
-        updateAt1SlashEffect(
-            delta
-        );
-        // ========================================================
-        // ct1アニメーション
-        // ========================================================
-        if (mixer) {
-            mixer.update(
-                delta
-            );
-            if (
-                isAttacking1 &&
-                actions.at1
-            ) {
-                // ★ at1は1.5倍速なので、
-                //   timeの進行も1.5倍になる。
-                at1FrameCount =
-                    Math.floor(
-                        actions.at1.time *
-                        animationFPS
-                    );
-
-                // at1のヒット判定開始フレームで、その時点でct1が向いている方向へ滑らかに移動する。
-                if (
-                    !at1ForwardStepApplied &&
-                    at1FrameCount >= at1HitFrameStart
-                ) {
-                    startAtForwardStep(
-                        'at1',
-                        atAttackForwardStepDistance
-                    );
-                    at1ForwardStepApplied = true;
-                }
-                updateCt1At1Hit();
-            }
-        }
-        updateGroundCollision();
-        // カメラ
-        updateCameraPosition();
-        applyCameraShake(
-            delta
-        );
-        // カメラの向きが確定した後に、視界に入っていない背景パーツの
-        // 描画をスキップする（視錐台カリング）
-        updateBgFrustumCulling();
-        // 追加のWebGLポストプロセスは使わず、通常描画を1回だけ行う。
-        renderer.setRenderTarget(null);
-renderer.render(scene, camera);
-
-// 低解像度WebGLバッファを2D canvasへコピーしてポスタライズ
-if (posterizeCtx && posterizeCanvas) {
-    posterizeCtx.drawImage(renderer.domElement, 0, 0);
-
-    const imageData = posterizeCtx.getImageData(
-        0, 0, posterizeCanvas.width, posterizeCanvas.height
-    );
-    const data = imageData.data;
-    const levels = 6;
-    const step = 255 / (levels - 1);
-
-    for (let i = 0; i < data.length; i += 4) {
-        data[i]     = Math.round(Math.round(data[i]     / step) * step);
-        data[i + 1] = Math.round(Math.round(data[i + 1] / step) * step);
-        data[i + 2] = Math.round(Math.round(data[i + 2] / step) * step);
-    }
-
-    posterizeCtx.putImageData(imageData, 0, 0);
+  }
+  // ⑤ 装飾: 軒の蛇腹・土台・窓枠・扉枠・胸壁・柱・窓の凹み。箱(p.tb)と円柱(p.tc)は描画側でまとめて描く
+  const TB=p.tb=[],TC=p.tc=[],ROT={f:0,b:Math.PI,r:Math.PI/2,l:-Math.PI/2};
+  const tb=(u,y,v,sx,sy,sz)=>TB.push([u,y,v,sx,sy,sz]),tc=(u,y,v,r,h)=>TC.push([u,y,v,r,h]);
+  // 壁の1面に飾る。n=面の向き(f=+v,b=-v,r=+u,l=-u。室内側の面は内向きの法線)、pc=面の位置、[a0,a1]=面に沿った範囲、ylo〜yhi=高さ
+  const face=(n,pc,a0,a1,ylo,yhi,o={})=>{
+    const al=n==='f'||n==='b',sg=(n==='f'||n==='r')?1:-1,P=(a,q)=>al?[a,q]:[q,a],len=a1-a0,gaps=o.gaps||[];
+    const bx=(a,l,y,hh,out)=>{const[u,v]=P(a,pc+sg*out/2);al?tb(u,y+hh/2,v,l,hh,out):tb(u,y+hh/2,v,out,hh,l)};
+    const free=(a,hw)=>!gaps.some(g=>Math.abs(a-g[0])<g[1]/2+hw);
+    if(o.cornice!==false){bx((a0+a1)/2,len+.2,yhi-1.9,.45,.4);bx((a0+a1)/2,len+.2,yhi-1.45,.45,.6)}   // 軒の下の蛇腹（二段）
+    if(o.plinth){let cur=a0;for(const g of gaps.slice().sort((x,y)=>x[0]-y[0])){const e=g[0]-g[1]/2-.3;if(e>cur+.1)bx((cur+e)/2,e-cur,ylo,1,.45);cur=Math.max(cur,g[0]+g[1]/2+.3)}if(a1>cur+.1)bx((cur+a1)/2,a1-cur,ylo,1,.45)}   // 土台（扉の所は切る）
+    const nb=Math.max(1,Math.floor(len/6)),bl=len/nb;
+    for(const w of o.win||[]){for(let i=0;i<nb;i++){                       // 窓: 暗い尖頭アーチの凹み＋枠（両脇の柱・上の楣・下の窓台）
+      const a=a0+(i+.5)*bl;if(!free(a,w.sx/2+1))continue;
+      const[u,v]=P(a,pc+sg*.05);p.arcs.push([u,w.y,v,w.sx,w.sy,ROT[n]]);
+      for(const s2 of[-1,1])bx(a+s2*(w.sx/2+.35),.55,w.y-.3,w.sy+.8,.35);
+      bx(a,w.sx+1.5,w.y+w.sy+.05,.45,.5);bx(a,w.sx+1.2,w.y-.35,.35,.55);
+    }}
+    if(o.cols)for(let i=0;i<=nb;i++){const a=a0+i*bl;if(!free(a,.9))continue;   // 壁付きの柱（土台・柱身・柱頭）
+      const y0=ylo+(o.plinth?1:0),y1=yhi-2,[u,v]=P(a,pc+sg*.33);tc(u,(y0+y1)/2,v,.55,y1-y0);bx(a,1.4,y0,.6,1.05);bx(a,1.4,y1-.6,.6,1.05)}
+    for(const[a,w] of o.doors||[]){for(const s2 of[-1,1])bx(a+s2*(w/2+.35),.7,0,DR+.9,.6);bx(a,w+1.9,DR,.9,.6)}   // 扉枠
+    if(o.parapet){const nm=Math.max(1,Math.floor(len/2.6)),ml=len/nm;for(let i=0;i<nm;i++){const[u,v]=P(a0+(i+.5)*ml,pc-sg*.2);al?tb(u,yhi+1.35,v,1.5,1.1,.8):tb(u,yhi+1.35,v,.8,1.1,1.5)}}   // 屋根の縁の胸壁
+  };
+  const WG=(y,sx,sy)=>({y,sx,sy}),tall=[WG(1.6,2,5.2),WG(9,1.7,4.2)],low=[WG(1.5,1.9,5)],ext={cols:1,plinth:1,parapet:1};
+  // 外側: 本殿1段目（奥・左右の露出部・手前の棟より上）
+  face('b',VB,-hw/2,hw/2,0,h0,{...ext,win:tall});
+  for(const sd of[-1,1])face(sd>0?'r':'l',sd*hw/2,VB+d2+.4,hall.v1,0,h0,{...ext,win:tall});
+  {const y=bh+1.9,sy=h0-2.6-y;face('f',hall.v1,-hw/2,hw/2,bh+1.2,h0,{parapet:1,win:sy>=2.2?[WG(y,1.7,sy)]:[]})}
+  // 外側: 本殿の左右の建物(2)
+  for(const sd of[-1,1]){const lo=sd>0?hw/2:-(hw/2+w2),hi=sd>0?hw/2+w2:-hw/2,vf=VB+d2;
+    face('f',vf,lo,hi,0,h2,{...ext,win:low});face('b',VB,lo,hi,0,h2,{...ext,win:low});face(sd>0?'r':'l',sd*(hw/2+w2),VB,vf,0,h2,{...ext,win:low})}
+  // 外側: 広場に面した横長の棟（正面の扉に枠）・U字の脚
+  face('f',b1,-PLAZA,PLAZA,0,bh,{...ext,win:low,gaps:[[0,10]],doors:[[0,10]]});
+  for(const sd of[-1,1]){const lh=bh-.5;
+    face(sd>0?'r':'l',sd*BAR_W,b0,b1,0,bh,{...ext,win:low});face('b',b0,sd>0?hw/2:-BAR_W,sd>0?BAR_W:-hw/2,0,bh,{...ext,win:low});
+    face(sd>0?'r':'l',sd*BAR_W,b1,b1+LEG,0,lh,{...ext,win:low});face(sd>0?'l':'r',sd*PLAZA,b1,b1+LEG,0,lh,{...ext,win:low});   // 脚の外側・広場側
+    face('f',b1+LEG,sd>0?PLAZA:-BAR_W,sd>0?BAR_W:-PLAZA,0,lh,{...ext,win:low})}
+  // 横長の棟の前の列柱（屋根つきの回廊。中央は扉の前をあける）
+  {const pv=b1+3.4,top=DR+.3;
+    for(const sd of[-1,1])for(let j=0;j<5;j++){const x=sd*(7.4+4.2*j),[wx,wz]=palW(p,x,pv);
+      tc(x,top/2,pv,.6,top);tb(x,.3,pv,1.5,.6,1.5);tb(x,top-.3,pv,1.5,.6,1.5);p.circs.push([wx,wz,.6*k,TOWN_H+DH+top*k])}
+    tb(0,top-.25,pv,2*PLAZA,.5,.9);tb(0,top+.35,b1+1.95,2*PLAZA,.7,3.9);tb(0,top+.35,b1+3.9,2*PLAZA,.9,.5)}   // 梁・屋根の板・前縁
+  // 室内（吹き抜けの壁）: 1段目の内壁と、2段目以上の内壁・外壁
+  {const ih={cols:1,plinth:1,win:tall},iw=hw/2-T,gs=[[VB+d2/2,6]];
+    face('b',hall.v1-T,-iw,iw,0,h0,{...ih,gaps:[[0,10]]});face('f',VB+T,-iw,iw,0,h0,ih);
+    face('l',iw,VB+T,hall.v1-T,0,h0,{...ih,gaps:gs});face('r',-iw,VB+T,hall.v1-T,0,h0,{...ih,gaps:gs})}
+  for(let i=1;i<n;i++){const a=tiers[i],iw=a.w/2-T,id=a.d/2-T,yb=a.y0+.8,wi=[WG(a.y0+2.2,1.8,3.6)],wo=[WG(a.y0+2.3,1.8,3.4)];
+    for(const[nn,pcv,r0,r1] of[['b',vc+id,-iw,iw],['f',vc-id,-iw,iw],['l',iw,vc-id,vc+id],['r',-iw,vc-id,vc+id]])face(nn,pcv,r0,r1,yb,a.y1,{cols:1,win:wi});
+    for(const[nn,pcv,r0,r1] of[['f',vc+a.d/2,-a.w/2,a.w/2],['b',vc-a.d/2,-a.w/2,a.w/2],['r',a.w/2,vc-a.d/2,vc+a.d/2],['l',-a.w/2,vc-a.d/2,vc+a.d/2]])face(nn,pcv,r0,r1,yb,a.y1,{...ext,win:wo})}
+  return p;
 }
+// 壁: 外壁・内壁・宮殿の城壁を6mの小片に分け、チャンクごとに束ねる（小片=[x,z,長さ,厚さ,高さ,回転]、ミナレット=[x,z,高さ]）。門の所は小片を作らない。
+function buildWalls(t){
+  const HS=t.HS,B=new Map();
+  const bk=(x,z)=>{const key=Math.floor(x/CHUNK)+','+Math.floor(z/CHUNK);let b=B.get(key);if(!b){b={w:[],m:[],t:[]};B.set(key,b)}return b};
+  const gate=(x,z,gw)=>{const dx=Math.abs(x-t.x),dz=Math.abs(z-t.z);return (dx<gw&&dz>HS-8)||(dz<gw&&dx>HS-8)};
+  let jn=0;                                                                       // 隣り合う小片の高さ・厚みを少しずらす（重なり部分で面が重なってチラつくのを防ぐ）
+  const piece=(x,z,len,th,h,rot,gw)=>{if(!gate(x,z,gw||GW))bk(x,z).w.push([x,z,len,th,h,rot,undefined,(jn++)%3])};
+  const ring=(fr,h,th,gw,hn,bg,opt)=>{
+    let idx=0;
+    for(let a=0;a<Math.PI*2;){
+      const r1=fr(a),a2=a+6/r1,r2=fr(a2);
+      const x1=t.x+Math.cos(a)*r1,z1=t.z+Math.sin(a)*r1,x2=t.x+Math.cos(a2)*r2,z2=t.z+Math.sin(a2)*r2;
+      {const mx=(x1+x2)/2,mz=(z1+z2)/2,dx=Math.abs(mx-t.x),dz=Math.abs(mz-t.z),near=hn!==undefined&&((dx<16&&dz>HS-8)||(dz<16&&dx>HS-8));
+      piece(mx,mz,Math.hypot(x2-x1,z2-z1)+.4,th,near?hn:h,-Math.atan2(z2-z1,x2-x1),gw);
+      if(!opt&&idx++%5===2&&!((dx<bg&&dz>HS-8)||(dz<bg&&dx>HS-8))){const L=Math.hypot(mx-t.x,mz-t.z),bx=mx+(mx-t.x)/L*th/2,bz=mz+(mz-t.z)/L*th/2;bk(bx,bz).t.push([bx,bz,th*.55,h+3])}}   // 約30mおきに壁の外側へ半円の張り出し（半円塔）
+      a=a2;
     }
-    animate();
-    // ============================================================
-    // リサイズ
-    // ============================================================
-    window.addEventListener(
-        'resize',
-        () => {
-            updateForceRotateClass();
-            camera.aspect =
-                getLogicalWidth() /
-                getLogicalHeight();
-            camera.updateProjectionMatrix();
-            applyPixelatedRendererSize();
-        }
-    );
-    window.addEventListener(
-        'orientationchange',
-        () => {
-            updateForceRotateClass();
-            camera.aspect =
-                getLogicalWidth() /
-                getLogicalHeight();
-            camera.updateProjectionMatrix();
-            applyPixelatedRendererSize();
-        }
-    );
+    for(let q=0;q<4;q++){                                                           // 門の両脇の門塔
+      const a=q*Math.PI/2,r=fr(a);
+      for(const sg of[-1,1]){const to=opt?opt.toff:TOWER_OFF,x=t.x+Math.cos(a)*r-Math.sin(a)*sg*to,z=t.z+Math.sin(a)*r+Math.cos(a)*sg*to;bk(x,z).w.push([x,z,opt?opt.tw:6,opt?opt.tw:6,opt?opt.tH:15,0])}
+    }
+  };
+  ring(a=>townEdge(t,a)-5,16,10,RGATE,undefined,30);                                                     // 外壁
+  ring(a=>townEdge(t,a)*INNER_K,14,8,RGATE,9,20);
+  ring(a=>townEdge(t,a)+37,7,4,8.2,undefined,undefined,{toff:7.9,tw:5,tH:10});             // 外郭: 外壁の外に、もう一つの低い壁（門の前は道の幅だけ開ける）                                               // 内壁
+  {                                                                                  // 宮殿の四角い城壁: 門の開口(|s|<6.15)は下の土台で埋め、その外側を左右対称にすき間なく並べる（南北の壁は角の外面まで、東西の壁は角の内面まで）
+    const g0=6.15,seg=(e,cb)=>{const n=Math.max(1,Math.ceil((e-g0)/6)),pl=(e-g0)/n;for(const sd of[-1,1])for(let k=0;k<n;k++)cb(sd*(g0+pl*(k+.5)),pl+(k?.2:.1),(jn++)%3)};
+    seg(HS+1.5,(c,l,j)=>{for(const sg of[-1,1])bk(t.x+c,t.z+sg*HS).w.push([t.x+c,t.z+sg*HS,l,3,14+DH,0,undefined,j])});
+    seg(HS-1.5,(c,l,j)=>{for(const sg of[-1,1])bk(t.x+sg*HS,t.z+c).w.push([t.x+sg*HS,t.z+c,l,3,14+DH,Math.PI/2,undefined,j])});
+  }
+  for(const sg of[-1,1])for(const u of[-3.05,3.05]){                                // 宮殿の門の隙間: 橋の高さまでの土台（橋はこの上から宮殿へ入る）
+    bk(t.x+u,t.z+sg*HS).w.push([t.x+u,t.z+sg*HS,6.3,3.25,DH,0,true]);bk(t.x+sg*HS,t.z+u).w.push([t.x+sg*HS,t.z+u,6.3,3.25,DH,Math.PI/2,true]);
+  }
+  for(const sx of[-1,1])for(const sz of[-1,1])bk(t.x+sx*HS,t.z+sz*HS).m.push([t.x+sx*HS,t.z+sz*HS,36+DH]);   // 四隅のミナレット
+  for(const sg of[-1,1])for(const e of[-1,1]){                                      // 門の両脇のミナレット
+    bk(t.x+sg*(GW+3),t.z+e*HS).m.push([t.x+sg*(GW+3),t.z+e*HS,26+DH]);
+    bk(t.x+e*HS,t.z+sg*(GW+3)).m.push([t.x+e*HS,t.z+sg*(GW+3),26+DH]);
+  }
+  {                                                                                  // 宮殿を囲む追加の壁（青）: 宮殿の向きに合わせた四角。正面の中央だけ門にして、両脇にミナレット
+    const p=t.pal,K=p.k,sw=Math.abs(Math.sin(p.th))>.5,Hh=10+DH,TH=3,e=TH/2/K,rU=sw?Math.PI/2:0,rV=sw?0:Math.PI/2;
+    const run=(ua,va,ub,vb,alongU)=>{const L=Math.hypot(ub-ua,vb-va)*K,n=Math.max(1,Math.ceil(L/6)),len=L/n;
+      for(let i=0;i<n;i++){const f=(i+.5)/n,[x,z]=palW(p,ua+(ub-ua)*f,va+(vb-va)*f);bk(x,z).w.push([x,z,len+.2,TH,Hh,alongU?rU:rV,undefined,(jn++)%3])}};
+    const{u:BU,v0:B0,v1:B1,g}=BLUE;
+    run(-BU-e,B0,BU+e,B0,true);run(-BU-e,B1,-g,B1,true);run(g,B1,BU+e,B1,true);   // 奥・手前（手前は門の開口をあける）
+    run(-BU,B0+e,-BU,B1-e,false);run(BU,B0+e,BU,B1-e,false);                       // 左右
+    for(const sg of[-1,1]){const[x,z]=palW(p,sg*(g+2.6/K),B1);bk(x,z).m.push([x,z,20+DH])}
+  }
+  t.wallB=B;
+}
+function buildMoat(t){                                          // 水路の水面（外壁の外 41.5〜56.5m の帯）を8mごとの四角形で
+  const B=new Map(),P=(a,e,o)=>[t.x+Math.cos(a)*(e+o),t.z+Math.sin(a)*(e+o)];
+  for(let a=0;a<Math.PI*2;){
+    const e1=townEdge(t,a),a2=a+8/(e1+49),e2=townEdge(t,a2),p0=P(a,e1,41.5),p1=P(a,e1,56.5),p2=P(a2,e2,56.5),p3=P(a2,e2,41.5);
+    const k=Math.floor((p0[0]+p2[0])/2/CHUNK)+','+Math.floor((p0[1]+p2[1])/2/CHUNK);let b=B.get(k);if(!b){b=[];B.set(k,b)}
+    b.push([...p0,...p1,...p2,...p3]);a=a2;
+  }
+  t.moatB=B;
+}
+function bridgeAt(x,z){                                         // 水路にかかる橋の上か（面の高さはTOWN_H）
+  for(const t of nearTowns(x,z))for(const q of t.roads){
+    const zr=q.ax==='z';if(Math.abs((zr?x:z)-q.c)>=5)continue;
+    const s=q.sg*((zr?z:x)-(zr?t.z:t.x));if(s>=q.s1+35&&s<=q.s1+55)return true;
+  }
+  return false;
+}
+function buildDeck(t){                                          // 主要な道の橋: 宮殿側の傾斜路・平らな橋桁・欄干・橋脚、外壁の門楼（階段は門楼の中）
+  t.gates=[];t.stairs=[];
+  const B=new Map(),bk=(x,z)=>{const k=Math.floor(x/CHUNK)+','+Math.floor(z/CHUNK);let b=B.get(k);if(!b){b={box:[],pr:[],pc:[],gh:[]};B.set(k,b)}return b};
+  for(const q of t.roads){
+    const zr=q.ax==='z',ctr=zr?t.z:t.x,W=s=>ctr+q.sg*s,pos=(s,l)=>zr?[q.c+l,W(s)]:[W(s),q.c+l],YB=TOWN_H-8;
+    const sL=q.s1-16;                                           // 門楼の奥（城壁の中の16m）はこの手前から。橋は奥の壁(s1)で門楼の広間へ出る。橋桁はその手前まで
+    for(let s=q.sf;s<sL-1e-6;s+=16){
+      const s2=Math.min(sL,s+16),a0=s>q.sf+1e-6?s-.2:s,a1=s2<sL-1e-6?s2+.2:s2,len=a1-a0,mid=(a0+a1)/2,p=pos(mid,0),b=bk(p[0],p[1]);   // 橋桁どうしは0.2mだけ重ね、宮殿の城壁の土台・門楼とは重ねない（面が重なってチラつくため）
+      b.box.push([p[0],TOWN_H+DH-.7,p[1],zr?RW:len,1.4,zr?len:RW]);
+      for(const sd of[-1,1]){const pp=pos(mid,sd*(RW/2-.3));b.box.push([pp[0],TOWN_H+DH+.55,pp[1],zr?.6:len,1.1,zr?len:.6])}
+      for(const ss of s2>=sL-1e-6?[s,s2]:[s])for(const sd of[-1,1]){const pp=pos(ss,sd*5),bb=bk(pp[0],pp[1]);bb.box.push([pp[0],TOWN_H+(DH-1.4)/2,pp[1],2,DH-1.4,2]);bb.pc.push([pp[0],pp[1],1.2])}
+    }
+    const b0=q.s1+35,b1=q.s1+55;                                 // 水路の橋（門楼の前の道。外壁の外 39〜59m）
+    for(let s=b0;s<b1-1e-6;s+=10){
+      const s2=Math.min(b1,s+10),len=s2-s+.2,mid=(s+s2)/2,p=pos(mid,0),b=bk(p[0],p[1]);
+      b.box.push([p[0],TOWN_H-.46,p[1],zr?10:len,1,zr?len:10]);
+      for(const sd of[-1,1]){const pp=pos(mid,sd*4.7);b.box.push([pp[0],TOWN_H+.5,pp[1],zr?.6:len,1,zr?len:.6])}
+    }
+    for(const s of[b0+1.5,(b0+b1)/2,b1-1.5]){const p=pos(s,0),b=bk(p[0],p[1]);b.box.push([p[0],TOWN_H-3.1,p[1],zr?9:1.6,4.2,zr?1.6:9])}   // 橋脚
+    for(const sd of[-1,1]){const p=pos((b0+b1)/2,sd*4.7);t.gates.push({x:p[0],z:p[1],w:zr?.6:b1-b0,d:zr?b1-b0:.6,top:TOWN_H+1,bot:TOWN_H-.5,m:.1})}   // 橋の欄干
+    const sM=q.s1-2,gm=pos(sM,0);bk(gm[0],gm[1]).gh.push([zr,q.sg,gm[0],gm[1]]);    // 門楼: 局所座標 v=-14(街側)〜+22(壁の外)。奥の壁は v=2、広間は v=2〜22
+    const R=(u,v,w,d,top,bot,m)=>{const p=pos(sM+v,u),r={x:p[0],z:p[1],w:zr?w:d,d:zr?d:w,top:TOWN_H+top,m:m===undefined?.3:m};if(bot!==undefined)r.bot=TOWN_H+bot;return r};
+    t.gates.push(R(0,5.6,26,7.2,DH,DH-1.4),R(0,9.2,16,.4,DH+1.1,DH-.1));            // 広間の2階の床(下は通れる)と手すり
+    for(const sd of[-1,1]){
+      t.gates.push(R(sd*13,-6,18,16,DH),R(sd*14,-6,16,16,24,DH),R(sd*17.5,15.4,9,26.8,24),R(sd*13.25,29.4,17.5,1.2,24));   // 奥の壁(下の塊と上の塊)・広間の側壁
+      for(let i=0;i<40;i++)t.stairs.push(R(sd*10.5,22-(i+.5)*.32,5,.32,(i+1)*.3,undefined,.25));   // 広間の左右の階段
+    }
+  }
+  t.deckB=B;
+}
+const MOAT_M=new THREE.MeshLambertMaterial({color:0x3b7fa6,transparent:true,opacity:.82,side:THREE.DoubleSide});
+const SHOP_C=[0xb5483a,0x2f7f78,0xd9a441,0xe8dcc0,0x7a4d9a,0xc96f2e].map(c=>new THREE.Color(c)),SHOP_WOOD=new THREE.Color(0x6a4a2c);
+const towG=new THREE.CylinderGeometry(1,1,1,20),WIN_M=new THREE.MeshLambertMaterial({color:0x2b2118});
+const ballG=new THREE.SphereGeometry(1,16,12);
+function addGate(g,geos,zr,sg,gx,gz){                           // 門楼: 奥(街側)=城壁の中の塊に下の門(通路)と橋の門、手前=エントランスの広間。広間の左右に階段が上り、奥の2階の床から橋の門へ
+  const H=24,ex=(sh,d,z0)=>{const e=new THREE.ExtrudeGeometry(sh,{depth:d,bevelEnabled:false});e.translate(0,0,z0);geos.push(e);return e};
+  const bk=new THREE.Shape();bk.moveTo(-22,0);bk.lineTo(-4,0);bk.lineTo(-4,5.4);bk.quadraticCurveTo(-4,7.7,0,9);bk.quadraticCurveTo(4,7.7,4,5.4);bk.lineTo(4,0);bk.lineTo(22,0);bk.lineTo(22,H);bk.lineTo(-22,H);bk.closePath();
+  const ho=new THREE.Path();ho.moveTo(-6,DH);ho.lineTo(6,DH);ho.lineTo(6,DH+5);ho.quadraticCurveTo(6,DH+7.2,0,DH+8);ho.quadraticCurveTo(-6,DH+7.2,-6,DH+5);ho.closePath();bk.holes.push(ho);
+  const fr=new THREE.Shape();fr.moveTo(-22,0);fr.lineTo(-4.5,0);fr.lineTo(-4.5,6);fr.quadraticCurveTo(-4.5,8.6,0,10);fr.quadraticCurveTo(4.5,8.6,4.5,6);fr.lineTo(4.5,0);fr.lineTo(22,0);fr.lineTo(22,H);fr.lineTo(-22,H);fr.closePath();
+  const G=new THREE.Group();G.position.set(gx,TOWN_H,gz);G.rotation.y=zr?(sg>0?0:Math.PI):(sg>0?Math.PI/2:-Math.PI/2);g.add(G);
+  const add=m=>{m.castShadow=m.receiveShadow=true;G.add(m);return m};
+  add(new THREE.Mesh(ex(bk,16,-14),GATE_M));add(new THREE.Mesh(ex(fr,1.2,28.8),GATE_M));     // 奥の塊 / 正面の壁（小さな門）
+  const bx=(w,h,d,x,y,z)=>{const bg=new THREE.BoxGeometry(w,h,d),uv=bg.attributes.uv,dm=[[d,h],[d,h],[w,d],[w,d],[w,h],[w,h]];for(let i=0;i<uv.count;i++){const f=Math.floor(i/4);uv.setXY(i,uv.getX(i)*dm[f][0]/2,uv.getY(i)*dm[f][1]/2)}geos.push(bg);const m=add(new THREE.Mesh(bg,PAL_M));m.position.set(x,y,z)};
+  bx(26,2,26.8,0,23,15.4);bx(26,1.4,7.2,0,DH-.7,5.6);bx(16,1.1,.4,0,DH+.55,9.2);bx(44,8,44,0,-4.08,8);   // 広間の天井・2階の床・手すり・土台
+  for(const sd of[-1,1])bx(9,H,26.8,sd*17.5,H/2,15.4);   // 側壁
+  const tm=new THREE.InstancedMesh(boxG,PAL_M,80),dm=new THREE.Object3D();let n=0;
+  for(const sd of[-1,1])for(let i=0;i<40;i++){const top=(i+1)*.3;dm.position.set(sd*10.5,top/2,22-(i+.5)*.32);dm.rotation.set(0,0,0);dm.scale.set(5,top,.32);dm.updateMatrix();tm.setMatrixAt(n++,dm.matrix)}
+  tm.frustumCulled=false;tm.castShadow=tm.receiveShadow=true;G.add(tm);
+  {const cm=new THREE.InstancedMesh(boxG,PAL_M,64),d2=new THREE.Object3D();let c=0;       // 門楼の屋根の縁の胸壁
+    const put=(x,z,w,d)=>{if(c>=64)return;d2.position.set(x,H+1.65,z);d2.rotation.set(0,0,0);d2.scale.set(w,1.3,d);d2.updateMatrix();cm.setMatrixAt(c++,d2.matrix)};
+    for(let x=-21.6;x<=21.7;x+=3.2){put(x,29.5,1.7,.9);put(x,-13.5,1.7,.9)}
+    for(let z=-10.3;z<=26.4;z+=3.2){put(-22.5,z,.9,1.7);put(22.5,z,.9,1.7)}
+    cm.count=c;cm.frustumCulled=false;cm.castShadow=cm.receiveShadow=true;G.add(cm)}
+  {const FR=new THREE.InstancedMesh(boxG,PAL_M,100),WN=new THREE.InstancedMesh(boxG,WIN_M,100),d3=new THREE.Object3D();let nf=0;      // 門楼の外壁の小窓と縁取り
+    const win=(x,y,z,ax,w,h)=>{const fx=ax?.3:w+.8,fz=ax?w+.8:.3,wx=ax?.2:w,wz=ax?w:.2,dx=ax?Math.sign(x)*.12:0,dz=ax?0:Math.sign(z)*.12;
+      d3.rotation.set(0,0,0);d3.position.set(x,y,z);d3.scale.set(fx,h+.8,fz);d3.updateMatrix();FR.setMatrixAt(nf,d3.matrix);
+      d3.position.set(x+dx,y,z+dz);d3.scale.set(wx,h,wz);d3.updateMatrix();WN.setMatrixAt(nf,d3.matrix);nf++};
+    for(const y of[15,20])for(let x=-18;x<=18;x+=6)win(x,y,30.1,false,1.4,2.6);
+    for(const x of[-19,-14,-9,9,14,19])win(x,4.2,30.1,false,1.2,2);
+    for(const sd of[-1,1])for(const y of[7,14,20])for(let v=-8;v<=22;v+=6)win(sd*22.1,y,v,true,1.4,2.4);
+    FR.count=WN.count=nf;for(const m of[FR,WN]){m.frustumCulled=false;m.castShadow=m.receiveShadow=true;G.add(m)}}
+  bx(46,1,44,0,H+.5,8);bx(14,8,10,0,H+5,14);
+  const ball=add(new THREE.Mesh(ballG,CAP_M));ball.scale.set(5,6.2,5);ball.position.set(0,H+13.5,14);
+  const sp=add(new THREE.Mesh(capG,MIN_M));sp.scale.set(.9,2.4,.9);sp.position.set(0,H+22.2,14);
+}
+function prismGeo(a){
+  const[zr,w0,w1,p0,p1,yb,ya,yc]=a,P=(w,l,y)=>zr?[l,y,w]:[w,y,l];
+  const A=P(w0,p0,yb),B=P(w0,p1,yb),C=P(w1,p1,yb),D=P(w1,p0,yb),a1=P(w0,p0,ya),b1=P(w0,p1,ya),c1=P(w1,p1,yc),d1=P(w1,p0,yc),v=[];
+  for(const[q0,q1,q2,q3] of[[a1,b1,c1,d1],[A,D,C,B],[A,B,b1,a1],[D,C,c1,d1],[A,D,d1,a1],[B,C,c1,b1]])v.push(...q0,...q1,...q2,...q0,...q2,...q3);
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(v,3));g.computeVertexNormals();return g;
+}
+function rawH(x,z){return (fbm(x*0.006,z*0.006)-.5)*70+(fbm(x*0.03+50,z*0.03+50)-.5)*8}   // 街の平坦化前の地形
+function townOfCell(ix,iz){
+  const k=ix+','+iz;if(townCache.has(k))return townCache.get(k);
+  const r=mulberry(hash(ix,iz,SEED+101)*1e9|0);
+  let t=null;
+  if(r()<TOWN_P){
+    const R=400+r()*300,ctl=[];
+    let x=0,z=0,bs=1e9;
+    for(let n=0;n<8;n++){                                       // 候補地を8か所ためして、海が少なく平らな所を選ぶ
+      const cx=(ix+.35+r()*.3)*TCELL,cz=(iz+.35+r()*.3)*TCELL;
+      let wet=0,mn=1e9,mx=-1e9;
+      for(let i=0;i<9;i++){
+        const a=i*.785,d=i?R*.7:0,h=rawH(cx+Math.cos(a)*d,cz+Math.sin(a)*d);
+        if(h<WATER+2)wet++;if(h<mn)mn=h;if(h>mx)mx=h;
+      }
+      const s=wet*100+(mx-mn);
+      if(s<bs){bs=s;x=cx;z=cz}
+    }
+    for(let i=0;i<12;i++)ctl.push(.78+r()*.45);                 // 輪郭のでこぼこ（方位ごとの半径倍率）
+    t={x,z,R,ctl,lowP:.1+r()*.35,courtP:.08+r()*.14,landmarks:[]};
+    const HS=Math.round(.22*R),fv=[[0,1],[1,0],[-1,0],[0,-1]][Math.floor(r()*4)];   // HS=宮殿の城壁(四角)の半分の長さ。宮殿の正面は東西南北のどれか
+    t.HS=HS;t.pal=makePalace(t,fv[0],fv[1],HS/85);
+    const L2=1.5*R;                                             // 主要な道: 宮殿の城壁の門から東西南北へ（街の外まで）
+    t.roads=[{ax:'z',c:x,a0:z+HS,a1:z+L2},{ax:'z',c:x,a0:z-L2,a1:z-HS},{ax:'x',c:z,a0:x+HS,a1:x+L2},{ax:'x',c:z,a0:x-L2,a1:x-HS}];
+    for(const q of t.roads){const zr=q.ax==='z',sg=q.a0>(zr?z:x)?1:-1;q.sg=sg;q.s0=HS-1.5;q.sf=HS+1.5;q.s1=townEdge(t,zr?sg*Math.PI/2:(sg>0?0:Math.PI))+4}
+    buildWalls(t);buildDeck(t);buildMoat(t);
+    const n=3+Math.floor(R/70);                                 // 大モスク/マドラサ風の大建築（内壁と外壁のあいだの地区に散らす。道とは重ならない）
+    for(let i=0;i<n;i++){
+      const a=r()*Math.PI*2,e=townEdge(t,a),ri=e*INNER_K,rad=ri+35+r()*Math.max(10,e-ri-90),w=20+r()*8,d=16+r()*6,ht=14+Math.floor(r()*4)*2;
+      const lx=x+Math.cos(a)*rad,lz=z+Math.sin(a)*rad;
+      if(roadClip(t,lx,lz,Math.max(w,d)/2+3,Math.max(w,d)/2+3,true))continue;
+      const cols=[];for(let u=1.6;u<w/2-1;u+=3.2)cols.push([lx-u,lz+d/2+3],[lx+u,lz+d/2+3]);
+      t.landmarks.push({type:'b',x:lx,z:lz,w,d,ht,top:TOWN_H+ht,m:.45,mi:Math.floor(r()*5),grand:true,dome:true,min:true,uo:0,vo:0,stair:null,bridges:[],ready:true,arcade:true,cols,circs:cols.map(c=>[c[0],c[1],.35])});
+    }
+    for(let i=0,n2=2+Math.floor(R/150);i<n2;i++){                // 内壁の内側（宮殿と内壁のあいだ）にも大建築を置いて空き地を埋める
+      const a=r()*Math.PI*2,ri=townEdge(t,a)*INNER_K,lo=HS*1.45+25,hi=ri-30;if(hi<=lo)continue;
+      const rad=lo+r()*(hi-lo),w=20+r()*8,d=16+r()*6,ht=14+Math.floor(r()*4)*2,lx=x+Math.cos(a)*rad,lz=z+Math.sin(a)*rad;
+      if(roadClip(t,lx,lz,Math.max(w,d)/2+3,Math.max(w,d)/2+3,true)||t.landmarks.some(m=>Math.abs(lx-m.x)<(w+m.w)/2+4&&Math.abs(lz-m.z)<(d+m.d)/2+4))continue;
+      const cols=[];for(let u=1.6;u<w/2-1;u+=3.2)cols.push([lx-u,lz+d/2+3],[lx+u,lz+d/2+3]);
+      t.landmarks.push({type:'b',x:lx,z:lz,w,d,ht,top:TOWN_H+ht,m:.45,mi:Math.floor(r()*5),grand:true,dome:true,min:true,uo:0,vo:0,stair:null,bridges:[],ready:true,arcade:true,cols,circs:cols.map(c=>[c[0],c[1],.35])});
+    }
+  }
+  if(t){                                                      // 商店街: 幅6mの通り（格子線上）の両側に店が並ぶ。入り口の内側に4本＋地区に散らして2本
+    t.bz=[];
+    for(const q of t.roads){                                  // 4つの入り口それぞれの内側に、主要な道と並行して走る商店街（必ず）
+      const zr=q.ax==='z',e=q.s1-4,side=r()<.5?-1:1,p0=(zr?t.z:t.x)+q.sg*(e-22),p1=(zr?t.z:t.x)+q.sg*(e-22-160);
+      t.bz.push({ax:q.ax,k:Math.round((q.c+side*30)/L),a0:Math.min(p0,p1),a1:Math.max(p0,p1)});
+    }
+    for(let i=0;i<2;i++){
+      const ax=r()<.5?'x':'z',off=(r()<.5?-1:1)*(50+r()*t.R*.3),a0=t.R*(.55+r()*.1),len=140+r()*120,sg=r()<.5?-1:1,c0=ax==='x'?t.x:t.z,p0=c0+sg*a0,p1=c0+sg*(a0+len);
+      t.bz.push({ax,k:Math.round(((ax==='x'?t.z:t.x)+off)/L),a0:Math.min(p0,p1),a1:Math.max(p0,p1)});
+    }
+  }
+  townCache.set(k,t);return t;
+}
+function nearTowns(x,z){
+  const ix=Math.floor(x/TCELL),iz=Math.floor(z/TCELL),a=[];
+  for(let i=-1;i<=1;i++)for(let j=-1;j<=1;j++){const t=townOfCell(ix+i,iz+j);if(t)a.push(t)}
+  return a;
+}
+function townEdge(t,ang){                                        // 方位angでの街の端までの距離
+  const u=(((ang/(2*Math.PI))%1)+1)%1*12,i=Math.floor(u),f=u-i,sm=f*f*(3-2*f);
+  return t.R*(t.ctl[i]*(1-sm)+t.ctl[(i+1)%12]*sm);
+}
+function townIn(x,z,margin){                                     // (x,z)が街の内側（端からmargin以上）ならその街
+  for(const t of nearTowns(x,z)){
+    const dx=x-t.x,dz=z-t.z;
+    if(Math.hypot(dx,dz)<=townEdge(t,Math.atan2(dz,dx))-margin)return t;
+  }
+  return null;
+}
+const FLATX=64;                                                 // 外壁の外 FLATX m までは平ら（低い外郭の壁・水路・門前の道のため）
+let moatLast=0,platLast=0;                                                  // townWが同時に計算した水路の深さ（heightAtが使う）
+function townW(x,z){                                             // 街の平坦化の重み(街の中=1、外側TBLENDでなめらかに0)
+  let best=0,mo=0,pl=0;
+  for(const t of nearTowns(x,z)){
+    const dx=x-t.x,dz=z-t.z,d=Math.hypot(dx,dz),q=d-townEdge(t,Math.atan2(dz,dx)),pm=Math.max(Math.abs(dx),Math.abs(dz));
+    if(pm<t.HS+1.5){const u=Math.min(1,(t.HS+1.5-pm)/3);pl=Math.max(pl,DH*u*u*(3-2*u))}     // 宮殿の城壁の内側は橋の高さ（壁の厚みの中でなめらかに立ち上げる）
+    if(q>=FLATX+TBLEND)continue;
+    let w=q<=FLATX?1:1-(q-FLATX)/TBLEND;w=w*w*(3-2*w);
+    if(w>best)best=w;
+    const a=Math.abs(q-49);                                      // 水路: 外壁の外 41〜57m（底は幅10m、両岸4mの斜面、深さ4m）
+    if(a<9){const u=a<=5?1:(9-a)/4,m=4*u*u*(3-2*u);if(m>mo)mo=m}
+  }
+  moatLast=mo;platLast=pl;return best;
+}
+function heightAt(x,z){
+  const raw=rawH(x,z),w=townW(x,z);                // 大地形＋起伏 → 街で平坦化 → 水路を掘る
+  return raw+(TOWN_H-raw)*w-moatLast+platLast;
+}
+function mulberry(a){return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+
+// ---------- 旧市街の区画（道は建物のすき間として自然にできる）----------
+const lotCache=new Map();
+function shopSpec(t,lx,lz,x0,z0,rr){                            // 通りに面した区画なら、店（通りに店先を向けた低めの建物）
+  for(const s of t.bz){
+    const ax=s.ax==='x',a=ax?x0:z0,row=ax?lz:lx;
+    if(a<s.a0||a>s.a1||(row!==s.k-1&&row!==s.k))continue;
+    const face=row===s.k?-1:1,c=s.k*L-face*7,ht=rr()<.5?4.5:7.8;       // 通りの中心から店先まで3m、奥行き8m
+    return{type:'b',x:ax?x0:c,z:ax?c:z0,w:ax?12.6:8,d:ax?8:12.6,ht,top:TOWN_H+ht,m:.45,mi:Math.floor(rr()*5),dome:false,min:false,uo:rr(),vo:rr(),grand:false,ready:false,town:t,shop:{ax:s.ax,face}};
+  }
+  return null;
+}
+function lotBase(lx,lz){
+  if(lotCache.size>40000)lotCache.clear();
+  const key=lx+','+lz;if(lotCache.has(key))return lotCache.get(key);
+  const x0=(lx+.5)*L,z0=(lz+.5)*L,rr=mulberry(hash(lx,lz,SEED+7)*1e9|0);
+  let o=null,sp=null;
+  const t=townIn(x0,z0,20);
+  if(t){
+    const dx=x0-t.x,dz=z0-t.z,Ri=townEdge(t,Math.atan2(dz,dx))*INNER_K;          // Ri=その方角の内壁の半径
+    if(Math.abs(dx)<t.HS+9&&Math.abs(dz)<t.HS+9)o=null;                           // 宮殿の城壁の内側とその周り
+    else if(Math.abs(Math.hypot(dx,dz)-Ri)<16)o=null;                             // 厚い内壁の帯
+    else if(t.landmarks.some(m=>Math.abs(x0-m.x)<m.w/2+L/2+1&&Math.abs(z0-m.z)<m.d/2+L/2+1))o=null; // 大建築の敷地・前庭
+    else if(sp=shopSpec(t,lx,lz,x0,z0,rr))o=sp;                                   // 商店街の店
+    else if(rr()<t.courtP){                                                       // 回廊つきの中庭（柱の二重列＋屋根の輪＋噴水）
+      const cols=[],circs=[],add=(x,z)=>{cols.push([x0+x,z0+z]);circs.push([x0+x,z0+z,.3])};
+      for(let i=0;i<5;i++){add(-5+2.5*i,-5);add(-5+2.5*i,5)}
+      for(let i=1;i<4;i++){add(-5,-5+2.5*i);add(5,-5+2.5*i)}
+      for(const a of[-2.8,0,2.8])for(const b of[-2.8,0,2.8])if(a||b)add(a,b);
+      circs.push([x0,z0,1.35]);
+      o={type:'court',x0,z0,cols,circs};
+    }else{                                                                        // 建物: 区画内で大きさと位置がばらつく→路地の幅が2〜6mで変化
+      const w=9+rr()*3,d=9+rr()*3,mx=(L-w)/2-1,mz=(L-d)/2-1,ht=rr()<t.lowP?4.5+Math.floor(rr()*2)*2.2:3.3*(3+Math.floor(rr()*5));
+      o={type:'b',x:x0+(rr()*2-1)*mx,z:z0+(rr()*2-1)*mz,w,d,ht,top:TOWN_H+ht,m:.45,mi:Math.floor(rr()*5),dome:rr()<.12,min:rr()<.07,uo:rr(),vo:rr(),grand:false,ready:false,town:t};
+    }
+    if(o){                                                                        // 主要な道（幅RW）にかかる建物・中庭・ヤシは作らない
+      const cx=o.type==='court'?o.x0:o.type==='plaza'?o.palms[0][0]:o.x,cz=o.type==='court'?o.z0:o.type==='plaza'?o.palms[0][1]:o.z;
+      const ex=o.type==='b'?o.w/2+o.m:o.type==='court'?7:2.5,ez=o.type==='b'?o.d/2+o.m:o.type==='court'?7:2.5;
+      if(roadClip(t,cx,cz,ex,ez))o=null;
+      else if(underDeck(t,cx,cz,ex,ez)&&o.type==='b'){o.ht=Math.min(o.ht,8.4);o.top=TOWN_H+o.ht;o.dome=o.min=false}   // 橋桁の下は低く（橋にめり込まない）
+    }
+  }
+  lotCache.set(key,o);return o;
+}
+// 外階段: 低い建物の壁沿いに屋上まで上がる（路地をふさがないよう、向かいの建物と1m以上あく面だけ）
+function stairOf(o,lx,lz){
+  if(o.stairDone)return o.stair;o.stairDone=true;o.stair=null;
+  if(o.shop||(lx+lz)&1||o.ht>6.8)return null;
+  const rr=mulberry(hash(lx,lz,SEED+13)*1e9|0);
+  if(rr()<.45)return null;
+  const n=Math.round(o.ht/.3),rise=o.ht/n,Lr=n*.32,f0=Math.floor(rr()*4),dir=rr()<.5?-1:1;
+  for(let k=0;k<4;k++){
+    const f=(f0+k)%4,sgn=f%2?-1:1,alongX=f<2;
+    const sx=alongX?o.x:o.x+sgn*(o.w/2+.8),sz=alongX?o.z+sgn*(o.d/2+.8):o.z;
+    const hx=alongX?Lr/2:.8,hz=alongX?.8:Lr/2;
+    let ok=true;
+    for(const b of[...o.town.landmarks,...[-1,0,1].flatMap(a=>[-1,0,1].map(c=>lotBase(lx+a,lz+c)))]){
+      if(!b||b===o||b.type!=='b')continue;
+      if(Math.abs(sx-b.x)<hx+b.w/2+1&&Math.abs(sz-b.z)<hz+b.d/2+1){ok=false;break}
+    }
+    if(!ok)continue;
+    const treads=[];
+    for(let i=0;i<n;i++){
+      const t=-Lr/2+(i+.5)*.32;
+      treads.push({x:alongX?o.x+dir*t:sx,z:alongX?sz:o.z+dir*t,w:alongX?.32:1.6,d:alongX?1.6:.32,top:TOWN_H+(i+1)*rise,m:.25});
+    }
+    return o.stair={treads};
+  }
+  return null;
+}
+// サバート: 隣り合う建物の間（幅1.2〜7.5m）に架かる屋根付き通路。下は通れ、低い建物の屋上同士なら上も歩ける
+function bridgesOf(o,lx,lz){
+  const out=[],rr=mulberry(hash(lx,lz,SEED+11)*1e9|0);
+  for(const[dx,dz] of[[1,0],[0,1]]){
+    const p=rr(),B=lotBase(lx+dx,lz+dz);
+    if(p>.4||!B||B.type!=='b')continue;
+    const ax=dx===1;
+    const gap=ax?(B.x-B.w/2)-(o.x+o.w/2):(B.z-B.d/2)-(o.z+o.d/2);
+    const lo=ax?Math.max(o.z-o.d/2,B.z-B.d/2)+.8:Math.max(o.x-o.w/2,B.x-B.w/2)+.8;
+    const hi=ax?Math.min(o.z+o.d/2,B.z+B.d/2)-.8:Math.min(o.x+o.w/2,B.x+B.w/2)-.8;
+    if(gap<1.2||gap>7.5||hi-lo<2)continue;
+    const wd=Math.min(hi-lo,4),mid=(lo+hi)/2;
+    const e=ax?{x:(o.x+o.w/2+B.x-B.w/2)/2,z:mid,w:gap+.4,d:wd}:{x:mid,z:(o.z+o.d/2+B.z-B.d/2)/2,w:wd,d:gap+.4};
+    let clash=false;
+    for(const S of[stairOf(o,lx,lz),stairOf(B,lx+dx,lz+dz)])if(S)for(const t of S.treads)
+      if(Math.abs(e.x-t.x)<e.w/2+t.w/2&&Math.abs(e.z-t.z)<e.d/2+t.d/2){clash=true;break}
+    if(clash)continue;
+    const kmax=Math.min(2,Math.floor((Math.min(o.ht,B.ht)-4.5)/3.3));
+    e.top=TOWN_H+4.5+3.3*Math.floor(rr()*(kmax+1));e.walk=true;e.m=0;out.push(e);
+  }
+  return out;
+}
+function lotAt(lx,lz){
+  const o=lotBase(lx,lz);
+  if(o&&o.type==='b'&&!o.ready){o.ready=true;o.stair=stairOf(o,lx,lz);o.bridges=bridgesOf(o,lx,lz)}
+  return o;
+}
+
+// ---------- three.js ----------// ---------- three.js ----------
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0xd5d0bd);
+scene.fog=new THREE.Fog(0xd5d0bd,40,170);
+const camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,0.1,400);
+camera.rotation.order='YXZ';
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+document.body.appendChild(renderer.domElement);
+renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+scene.add(new THREE.HemisphereLight(0xfff4dc,0x8a7050,0.55));
+const sun=new THREE.DirectionalLight(0xffe2a8,1.0);scene.add(sun,sun.target);
+const SUN_OFF={x:45,y:85,z:30};                       // 太陽の向き（仰角およそ56度）
+sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);
+const sc=sun.shadow.camera;sc.left=sc.bottom=-60;sc.right=sc.top=60;sc.near=1;sc.far=260;
+sun.shadow.bias=-.0006;sun.shadow.normalBias=.05;
+
+const WATER=-6;
+const water=new THREE.Mesh(new THREE.PlaneGeometry(1000,1000),new THREE.MeshLambertMaterial({color:0x2b6fa8,transparent:true,opacity:.75}));
+water.rotation.x=-Math.PI/2;water.position.y=WATER;scene.add(water);
+
+// ---------- チャンク生成 ----------
+const CHUNK=32,SEG=20,RADIUS=4;
+const chunks=new Map();
+const trunkG=new THREE.CylinderGeometry(.18,.3,6,6),leafG=new THREE.ConeGeometry(2.6,1.2,8),rockG=new THREE.DodecahedronGeometry(1,0);
+// レンガ模様（色にもバンプにも使う）: 目地が凹み、レンガ1個ずつが少し違う明るさ
+function makeBrickTex(){
+  const c=document.createElement('canvas');c.width=c.height=128;const x=c.getContext('2d');
+  x.fillStyle='#7a7a7a';x.fillRect(0,0,128,128);
+  for(let r=0;r<8;r++)for(let i=-1;i<5;i++){
+    const v=200+Math.floor(Math.random()*45),off=(r%2)*16;
+    x.fillStyle=`rgb(${v},${v},${v})`;x.fillRect(i*32+off+1.5,r*16+1.5,29,13);
+  }
+  const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.anisotropy=4;return t;
+}
+const brickTex=makeBrickTex();
+const BUILD_MATS=[0xc9a56e,0xd2b27c,0xbf9a64,0xb8935c,0xd9bf8c].map(c=>new THREE.MeshPhongMaterial({color:c,map:brickTex,bumpMap:brickTex,bumpScale:3,shininess:2,specular:0x111111}));
+const DOME_M=new THREE.MeshLambertMaterial({color:0xdcd2b4}),CAP_M=new THREE.MeshLambertMaterial({color:0x2f7f86});
+const boxG=new THREE.BoxGeometry(1,1,1),domeG=new THREE.SphereGeometry(1,14,8,0,Math.PI*2,0,Math.PI/2),minG=new THREE.CylinderGeometry(.8,1,1,8),capG=new THREE.ConeGeometry(1.2,2.4,8);
+const trunkM=new THREE.MeshLambertMaterial({color:0x6b4a2b}),leafM=new THREE.MeshLambertMaterial({color:0x58802f,side:THREE.DoubleSide}),rockM=new THREE.MeshLambertMaterial({color:0x8a8070});
+// 尖頭アーチ（壁面に貼る暗い凹み）。幅1・高さ1の形を拡大して使う
+const archShape=new THREE.Shape();
+archShape.moveTo(-.5,0);archShape.lineTo(-.5,.6);archShape.quadraticCurveTo(-.5,.85,0,1);archShape.quadraticCurveTo(.5,.85,.5,.6);archShape.lineTo(.5,0);
+const archG=new THREE.ShapeGeometry(archShape),archM=new THREE.MeshBasicMaterial({color:0x45301c});
+// アーチ枠（壁から張り出す立体）。内側の尖頭アーチと外側の枠を1つの輪郭でつなぐ
+const frameShape=new THREE.Shape();
+frameShape.moveTo(-.65,0);frameShape.lineTo(-.65,.62);frameShape.quadraticCurveTo(-.65,.95,0,1.15);frameShape.quadraticCurveTo(.65,.95,.65,.62);frameShape.lineTo(.65,0);
+frameShape.lineTo(.5,0);frameShape.lineTo(.5,.6);frameShape.quadraticCurveTo(.5,.85,0,1);frameShape.quadraticCurveTo(-.5,.85,-.5,.6);frameShape.lineTo(-.5,0);frameShape.closePath();
+const frameG=new THREE.ExtrudeGeometry(frameShape,{depth:.25,bevelEnabled:false});
+const frameM=new THREE.MeshLambertMaterial({color:0xffffff}),detailM=new THREE.MeshLambertMaterial({color:0xffffff});
+const MIN_M=new THREE.MeshLambertMaterial({color:0xcdb07a}),ringG=new THREE.CylinderGeometry(1.6,1.6,.35,10);
+const colG=new THREE.CylinderGeometry(1,1,1,8),colM=new THREE.MeshLambertMaterial({color:0xd4b985});
+const fountainG=new THREE.CylinderGeometry(1.3,1.4,.5,12),fountainM=new THREE.MeshLambertMaterial({color:0xbdae90});
+const waterG=new THREE.CircleGeometry(1.1,12);waterG.rotateX(-Math.PI/2);const waterM=new THREE.MeshLambertMaterial({color:0x3a7ca5});
+function addPalm(g,x,y,z,s){
+  const t=new THREE.Mesh(trunkG,trunkM);t.position.set(x,y+3*s,z);t.scale.setScalar(s);
+  const l=new THREE.Mesh(leafG,leafM);l.position.set(x,y+6*s,z);l.scale.setScalar(s);l.rotation.x=Math.PI;
+  g.add(t,l);
+}
+// 宮殿（写真のような黄砂岩の大宮殿）: 中心に、段数ランダムの吹き抜けの本殿（最上段に大ドーム）、その左右に鏡写しの翼棟・端の塔・裏棟、前庭に生け垣
+const TRIM_M=new THREE.MeshPhongMaterial({color:0xf0e0bb,shininess:4,specular:0x151515});   // 縁取り・柱・窓枠（明るい石）
+const PAL_M=new THREE.MeshPhongMaterial({color:0xe3b777,map:brickTex,bumpMap:brickTex,bumpScale:3,shininess:2,specular:0x111111});
+function addPalace(g,p,geos){
+  const pg=new THREE.Group();pg.position.set(p.x,TOWN_H+DH,p.z);pg.rotation.y=p.th;pg.scale.setScalar(p.k);g.add(pg);
+  const box=(w,h,d,x,y,z)=>{                              // 石の壁（レンガ模様の大きさを面積に合わせる）
+    const bg=new THREE.BoxGeometry(w,h,d),uv=bg.attributes.uv,dims=[[d,h],[d,h],[w,d],[w,d],[w,h],[w,h]];
+    for(let i=0;i<uv.count;i++){const f=Math.floor(i/4);uv.setXY(i,uv.getX(i)*dims[f][0]/2,uv.getY(i)*dims[f][1]/2)}
+    geos.push(bg);const m=new THREE.Mesh(bg,PAL_M);m.position.set(x,y,z);m.castShadow=m.receiveShadow=true;pg.add(m);
+  };
+  for(const[u,v,w,d,y0,y1] of p.bx)box(w,y1-y0,d,u,(y0+y1)/2,v);                                 // 壁・楣・塔
+  for(const[u,v,w,d,h,cor] of p.roofs){box(w+.8,.8,d+.8,u,h+.4,v);if(cor)box(w+.5,.5,d+.5,u,h-.25,v)}   // 屋根の板（下面が室内の天井）と軒
+  for(const c of p.dc){const[kd,x,y,z,a,b]=c;
+    if(kd==='D'){const m=new THREE.Mesh(minG,PAL_M);m.position.set(x,y+b/2,z);m.scale.set(a,b,a);m.castShadow=true;pg.add(m)}
+    else if(kd==='M'){const m=new THREE.Mesh(domeG,DOME_M);m.position.set(x,y,z);m.scale.set(a,b,a);m.castShadow=true;pg.add(m)}
+    else{const m=new THREE.Mesh(capG,MIN_M);m.position.set(x,y+1.2*a,z);m.scale.set(.5*a,a,.5*a);pg.add(m)}}
+  const dm=new THREE.Object3D();
+  if(p.arcs.length){const im=new THREE.InstancedMesh(archG,archM,p.arcs.length);   // 正面の尖頭アーチ（暗い凹み）
+    p.arcs.forEach((a,i)=>{dm.position.set(a[0],a[1],a[2]);dm.rotation.set(0,a[5]||0,0);dm.scale.set(a[3],a[4],1);dm.updateMatrix();im.setMatrixAt(i,dm.matrix)});
+    im.frustumCulled=false;pg.add(im)}
+  if(p.tb.length){const im=new THREE.InstancedMesh(boxG,TRIM_M,p.tb.length);   // 縁取り・窓枠・柱の土台と頭・胸壁（箱）
+    p.tb.forEach((a,i)=>{dm.position.set(a[0],a[1],a[2]);dm.rotation.set(0,0,0);dm.scale.set(a[3],a[4],a[5]);dm.updateMatrix();im.setMatrixAt(i,dm.matrix)});
+    im.frustumCulled=false;im.receiveShadow=true;pg.add(im)}
+  if(p.tc.length){const im=new THREE.InstancedMesh(towG,TRIM_M,p.tc.length);   // 柱（円柱）
+    p.tc.forEach((a,i)=>{dm.position.set(a[0],a[1],a[2]);dm.rotation.set(0,0,0);dm.scale.set(a[3],a[4],a[3]);dm.updateMatrix();im.setMatrixAt(i,dm.matrix)});
+    im.frustumCulled=false;im.receiveShadow=true;pg.add(im)}
+}
+const GATE_M=(()=>{const t=brickTex.clone();t.repeat.set(.5,.5);t.needsUpdate=true;return new THREE.MeshPhongMaterial({color:0xe3b777,map:t,bumpMap:t,bumpScale:3,shininess:2,specular:0x111111})})();
+const DECK_M=new THREE.MeshLambertMaterial({color:0xd6b27c,side:THREE.DoubleSide});
+const WALL_M=new THREE.MeshPhongMaterial({color:0xd8b27a,map:brickTex,shininess:2,specular:0x111111});
+const palaces=new Map();                                  // 宮殿は巨大なので、チャンクではなくプレイヤーとの距離で出し入れする
+function clearPalaces(){for(const g of palaces.values()){scene.remove(g);g.userData.geos.forEach(x=>x.dispose())}palaces.clear()}
+function updatePalaces(){
+  const keep=new Set();
+  for(const t of nearTowns(player.x,player.z)){
+    const p=t.pal,key=t.x+','+t.z,d=Math.hypot(p.x-player.x,p.z-player.z);
+    if(d<320||(d<400&&palaces.has(key))){
+      keep.add(key);
+      if(!palaces.has(key)){const g=new THREE.Group(),geos=[];addPalace(g,p,geos);g.userData.geos=geos;scene.add(g);palaces.set(key,g)}
+    }
+  }
+  for(const[k,g] of palaces)if(!keep.has(k)){scene.remove(g);g.userData.geos.forEach(x=>x.dispose());palaces.delete(k)}
+}
+function colorFor(h,slope,x,z){
+  const t=townIn(x,z,0);
+  if(t){                                                  // 街の地面: 路地=明るい砂、建物の敷地=土
+    const dx=x-t.x,dz=z-t.z;
+    if(Math.abs(dx)<t.HS&&Math.abs(dz)<t.HS){                                                         // 宮殿の城壁の内側
+      const pl=palL(t.pal,x,z);
+      if(t.pal.wings.some(w=>Math.abs(pl[0]-w[0])<w[2]/2&&Math.abs(pl[1]-w[1])<w[3]/2))return[.74,.68,.55];   // 棟の中の石の床
+      if(Math.abs(pl[0])<BLUE.u&&pl[1]>BLUE.v0&&pl[1]<BLUE.v1)return[.82,.75,.6];                     // 青い壁の中: 石畳の広場・中庭
+      if(Math.abs(pl[0])<6||Math.abs(pl[1])<6)return[.8,.73,.58];                                      // 城壁の門から青い壁へ伸びる参道
+      return[.27,.46,.2];                                                                               // 青い壁と城壁のあいだの芝
+      return[.82,.75,.6];                                                                             // 石畳の中庭
+    }
+    for(const q of t.roads){const zr=q.ax==='z',pp=zr?x:z,al=zr?z:x;if(Math.abs(pp-q.c)<RW/2&&al>q.a0&&al<q.a1)return[.8,.73,.58]}   // 主要な道
+    for(const b of t.bz)if(b.ax==='x'?(Math.abs(z-b.k*L)<3.3&&x>b.a0&&x<b.a1):(Math.abs(x-b.k*L)<3.3&&z>b.a0&&z<b.a1))return[.84,.78,.64]   // 商店街の石畳
+    const o=lotAt(Math.floor(x/L),Math.floor(z/L));
+    const inB=(o&&o.type==='b'&&Math.abs(x-o.x)<o.w/2&&Math.abs(z-o.z)<o.d/2)||t.landmarks.some(m=>Math.abs(x-m.x)<m.w/2&&Math.abs(z-m.z)<m.d/2);
+    return inB?[.62,.52,.38]:(o&&o.type==='court'?[.66,.57,.42]:[.7,.62,.46]);
+  }
+  for(const t2 of nearTowns(x,z)){                       // 外壁の外: 水路の底と岸、門の前の道（橋のむこうへ続く）
+    const dx=x-t2.x,dz=z-t2.z,q=Math.hypot(dx,dz)-townEdge(t2,Math.atan2(dz,dx));
+    if(q<=0||q>=FLATX+TBLEND)continue;
+    if(q>40&&q<58)return[.55,.5,.36];
+    for(const r of t2.roads){const zr=r.ax==='z',pp=zr?x:z,al=zr?z:x;if(Math.abs(pp-r.c)<RW/2&&al>r.a0&&al<r.a1)return[.8,.73,.58]}
+    if(q<FLATX)return[.76,.68,.5];
+  }
+  if(h<WATER+1.5)return[.78,.7,.52];        // 岸辺の砂
+  if(slope>.55)return[.5,.42,.35];          // 岩肌
+  if(h>20)return[.62,.55,.48];
+  const g=Math.min(1,Math.max(0,(h-WATER-1.5)/8));   // 水辺はオアシス風に緑、離れると乾いた土
+  return[.5+.22*g,.58+.04*g,.3+.12*g];
+}
+function disposeChunk(c){c.userData.geo.dispose();c.userData.mat.dispose();(c.userData.geos||[]).forEach(x=>x.dispose())}
+function makeChunk(cx,cz){
+  const g=new THREE.Group();
+  const geo=new THREE.PlaneGeometry(CHUNK,CHUNK,SEG,SEG);geo.rotateX(-Math.PI/2);
+  const p=geo.attributes.position,cols=[];
+  for(let i=0;i<p.count;i++){
+    const wx=p.getX(i)+cx*CHUNK+CHUNK/2,wz=p.getZ(i)+cz*CHUNK+CHUNK/2;
+    const h=heightAt(wx,wz);p.setY(i,h);
+    const slope=Math.abs(heightAt(wx+1,wz)-h)+Math.abs(heightAt(wx,wz+1)-h);
+    cols.push(...colorFor(h,slope,wx,wz));
+  }
+  geo.setAttribute('color',new THREE.Float32BufferAttribute(cols,3));
+  geo.computeVertexNormals();
+  const terrain=new THREE.Mesh(geo,new THREE.MeshLambertMaterial({vertexColors:true}));terrain.receiveShadow=true;
+  terrain.position.set(cx*CHUNK+CHUNK/2,0,cz*CHUNK+CHUNK/2);
+  g.add(terrain);
+  // 旧市街: 区画ごとにレンガ壁の建物（lotAtと共通）。張り出す柱/縁/アーチ枠・ドーム・ミナレット
+  const arches=[],det=[],geos=[],circ=[],pillars=[];
+  const pushArch=(x,y,z,ry,sw,sh,col)=>arches.push([x,y,z,ry,sw,sh,col]);
+  const addBuilding=B=>{
+    const bx=B.x,bz=B.z,w=B.w,d=B.d,ht=B.ht,grand=B.grand,mat=BUILD_MATS[B.mi];
+    const bg=new THREE.BoxGeometry(w,ht,d),uv=bg.attributes.uv;
+    const dims=[[d,ht],[d,ht],[w,d],[w,d],[w,ht],[w,ht]];
+    for(let i=0;i<uv.count;i++){const f=Math.floor(i/4);uv.setXY(i,uv.getX(i)*dims[f][0]/2+B.uo,uv.getY(i)*dims[f][1]/2+B.vo)}
+    geos.push(bg);
+    const b=new THREE.Mesh(bg,mat);b.position.set(bx,TOWN_H+ht/2,bz);b.castShadow=b.receiveShadow=true;g.add(b);
+    const dc=mat.color.clone().multiplyScalar(1.05),fc=mat.color.clone().multiplyScalar(1.14),kc=mat.color.clone().multiplyScalar(.2);
+    det.push([bx,TOWN_H+ht+.05,bz,w+.5,.1,d+.5,dc]);
+    det.push([bx,TOWN_H+.45,bz,w+.5,.9,d+.5,fc]);                                  // 土台
+    for(const sz of[-1,1]){det.push([bx,TOWN_H+ht+.55,bz+sz*d/2,w+.5,.9,.35,fc]);det.push([bx+sz*w/2,TOWN_H+ht+.55,bz,.35,.9,d+.5,fc])}   // 屋上の低い縁（パラペット）
+    for(const sx of[-1,1])for(const sz of[-1,1])det.push([bx+sx*w/2,TOWN_H+ht/2,bz+sz*d/2,.9,ht,.9,dc]);
+    const nf=Math.max(1,Math.round(ht/3.3)),oc=dc.clone().multiplyScalar(.9);
+    for(let f=1;f<nf;f++)det.push([bx,TOWN_H+3.3*f-.15,bz,w+.3,.3,d+.3,dc]);   // 階の境目の帯
+    if(B.dome){
+      const R=Math.min(w,d)*(grand?.3:.28);
+      const dm=new THREE.Mesh(domeG,DOME_M);dm.position.set(bx,TOWN_H+ht+.6,bz);dm.scale.set(R,R*1.1,R);g.add(dm);
+    }
+    if(B.min){
+      const corners=grand?[[1,1],[-1,1]]:[[1,1]];
+      for(const[sx,sz] of corners){
+        const mh=ht+(grand?12:8),mx=bx+sx*(w/2-1.2),mz=bz+sz*(d/2-1.2);
+        const m=new THREE.Mesh(minG,MIN_M);m.position.set(mx,TOWN_H+mh/2,mz);m.scale.set(1,mh,1);m.castShadow=true;g.add(m);
+        const rg=new THREE.Mesh(ringG,MIN_M);rg.position.set(mx,TOWN_H+mh*.8,mz);g.add(rg);
+        const c=new THREE.Mesh(capG,CAP_M);c.position.set(mx,TOWN_H+mh+1.2,mz);g.add(c);
+      }
+    }
+    const doorW=grand?4.5:2.2,doorH=grand?9:3.4;
+    const faces=[[0,1,w],[Math.PI,-1,w],[Math.PI/2,1,d],[-Math.PI/2,-1,d]];
+    let dtl=null;
+    for(let fi=0;fi<4;fi++){const[ry,sgn,span]=faces[fi];
+      const alongX=(ry===0||ry===Math.PI);
+      const px=(o,n)=>alongX?bx+o:bx+sgn*(w/2+n), pz=(o,n)=>alongX?bz+sgn*(d/2+n):bz+o;
+      dtl=(o,y,ww,hh,dep,off,col)=>det.push([px(o,off),y,pz(o,off),alongX?ww:dep,hh,alongX?dep:ww,col]);
+      dtl(0,TOWN_H+(doorH+.5)/2,doorW+.9,doorH+.5,.22,.11,fc);pushArch(px(0,.24),TOWN_H,pz(0,.24),ry,doorW,doorH,dc);   // 入口（縁取り付き）
+      if(span>=6)for(const sx of[-1,1]){const o=sx*(doorW/2+1.6);if(Math.abs(o)<span/2-.8){dtl(o,TOWN_H+1.9,.8,1.1,.16,.08,kc);dtl(o,TOWN_H+1.25,1.2,.18,.3,.15,fc)}}   // 入口の脇の小窓
+      const nw=Math.max(1,Math.floor(span/3.4));
+      for(let f=1;f<nf;f++)for(let i=0;i<nw;i++){            // 各階の尖頭アーチ窓
+        const o=(i-(nw-1)/2)*span/nw;
+        if(grand&&f<=2&&Math.abs(o)<3.6)continue;
+        dtl(o,TOWN_H+3.3*f+1.7,1.5,2.3,.22,.11,fc);pushArch(px(o,.24),TOWN_H+3.3*f+.8,pz(o,.24),ry,1,1.8,dc);   // 縁取り付きの窓
+      }
+      for(let f=1;f<nf;f++){                                 // 小窓（アーチ窓のあいだ・脇）と窓台
+        const os=nw>1?Array.from({length:nw-1},(_,i)=>(i-(nw-2)/2)*span/nw):(span>=5?[-span*.32,span*.32]:[]);
+        for(const o of os){dtl(o,TOWN_H+3.3*f+1.3,.7,.95,.16,.08,kc);dtl(o,TOWN_H+3.3*f+.75,1.1,.16,.3,.15,fc)}
+      }
+      for(let f=2;f<nf;f++)if((Math.floor(B.uo*997)+f*5+fi*3)%3===0){   // 張り出し窓（出窓）
+        const o2=((fi+f)%3-1)*span*.22;
+        det.push([px(o2,.45),TOWN_H+3.3*f+1.3,pz(o2,.45),alongX?2.6:.9,2.2,alongX?.9:2.6,oc]);
+      }
+    }
+    if(B.shop){                                                                  // 商店の店先: 間口を4つに割り、日よけ・入口・カウンター・商品の箱
+      const sh=B.shop,ax=sh.ax==='x',fx=ax?0:sh.face,fz=ax?sh.face:0,nb=4,bw=(ax?w:d)/nb;
+      for(let i=0;i<nb;i++){
+        const o=(i-(nb-1)/2)*bw,put=(a,off,y,wid,hh,dep,col)=>det.push([ax?bx+o+a:bx+fx*(w/2+off),TOWN_H+y,ax?bz+fz*(d/2+off):bz+o+a,ax?wid:dep,hh,ax?dep:wid,col]);
+        put(0,.9,3.1,bw*.9,.14,1.8,SHOP_C[(i+Math.floor(B.uo*5))%6]);           // 日よけ
+        put(0,.07,1.15,2.2,2.3,.14,kc);put(0,.4,.5,2.4,1,.6,SHOP_WOOD);          // 入口（暗い開口）とカウンター
+        put(-.8,1.3,.3,.6,.6,.6,SHOP_C[(i+3)%6]);put(.8,1.3,.28,.55,.55,.55,SHOP_C[(i+1)%6]);   // 店先の商品
+      }
+    }
+    if(B.arcade){                                      // 正面の回廊（柱＋屋根）
+      for(const q of B.cols)pillars.push([q[0],q[1],.35,4]);
+      det.push([bx,TOWN_H+4.25,bz+d/2+1.6,w,.5,3.2,dc]);
+    }
+    if(B.stair)for(const t of B.stair.treads)det.push([t.x,(TOWN_H+t.top)/2,t.z,t.w,t.top-TOWN_H,t.d,dc]);   // 外階段
+    for(const br of B.bridges)det.push([br.x,br.top-.75,br.z,br.w,1.5,br.d,dc]);                            // サバート
+  };
+  const addCourt=o=>{                                  // 回廊つきの中庭
+    for(const[x,z] of o.cols)pillars.push([x,z,.3,3.6]);
+    const dc=BUILD_MATS[0].color.clone().multiplyScalar(1.05);
+    for(const sg of[-1,1]){
+      det.push([o.x0,TOWN_H+3.85,o.z0+sg*3.9,10.4,.5,2.6,dc]);
+      det.push([o.x0+sg*3.9,TOWN_H+3.85,o.z0,2.6,.5,5.2,dc]);
+    }
+    const f=new THREE.Mesh(fountainG,fountainM);f.position.set(o.x0,TOWN_H+.25,o.z0);g.add(f);
+    const w=new THREE.Mesh(waterG,waterM);w.position.set(o.x0,TOWN_H+.52,o.z0);g.add(w);
+  };
+  for(let lx=Math.floor(cx*CHUNK/L)-1;lx<=Math.ceil((cx+1)*CHUNK/L)+1;lx++)
+  for(let lz=Math.floor(cz*CHUNK/L)-1;lz<=Math.ceil((cz+1)*CHUNK/L)+1;lz++){
+    const x0=(lx+.5)*L,z0=(lz+.5)*L;
+    if(Math.floor(x0/CHUNK)!==cx||Math.floor(z0/CHUNK)!==cz)continue;
+    const o=lotAt(lx,lz);if(!o)continue;
+    if(o.type==='b')addBuilding(o);
+    else if(o.type==='court')addCourt(o);
+    else for(const[px,pz,ps] of o.palms)addPalm(g,px,TOWN_H,pz,ps);
+  }
+  for(const t of nearTowns(cx*CHUNK,cz*CHUNK))for(const m of t.landmarks)if(Math.floor(m.x/CHUNK)===cx&&Math.floor(m.z/CHUNK)===cz)addBuilding(m);
+  const wd=new THREE.Object3D();
+  for(const t of nearTowns(cx*CHUNK,cz*CHUNK)){                                  // 壁（外壁・内壁・宮殿の城壁）・ミナレット・主要な道のヤシ並木
+    const bk=t.wallB.get(cx+','+cz);
+    if(bk){
+      if(bk.w.length){
+        const wm=new THREE.InstancedMesh(boxG,WALL_M,bk.w.length*5);let wn=0;
+        bk.w.forEach((a,i)=>{
+          const jj=a[7]||0,hh=a[4]+jj*.07,tt=a[3]+jj*.05;wd.position.set(a[0],TOWN_H+hh/2,a[1]);wd.rotation.set(0,a[5],0);wd.scale.set(a[2],hh,tt);wd.updateMatrix();wm.setMatrixAt(wn++,wd.matrix);
+          if(!a[6])for(const sx of[-1.6,1.6])for(const sz of[-1,1]){                    // 胸壁（凸凹）: 壁の上の両縁に歯形のブロック
+            const lz=sz*(a[3]/2-.45),c=Math.cos(a[5]),sn=Math.sin(a[5]);
+            wd.position.set(a[0]+c*sx+sn*lz,TOWN_H+a[4]+.65,a[1]-sn*sx+c*lz);wd.rotation.set(0,a[5],0);wd.scale.set(1.7,1.3,.9);wd.updateMatrix();wm.setMatrixAt(wn++,wd.matrix);
+          }
+          {const th=a[3]>6&&a[3]<9||a[3]>9;for(const j of th?[-2,0,2]:[-2.4,0,2.4])for(const k of th?[-a[3]/2+1.9,0,a[3]/2-1.9]:[0])circ.push([a[0]+Math.cos(a[5])*j+Math.sin(a[5])*k,a[1]-Math.sin(a[5])*j+Math.cos(a[5])*k,th?1.9:a[3]>4?a[3]*.55:1.8,TOWN_H+a[4]])}   // 壁の当たり判定（円を並べる）
+        });
+        wm.count=wn;wm.frustumCulled=false;wm.castShadow=wm.receiveShadow=true;g.add(wm);
+      }
+      if(bk.t.length){                                                          // 半円塔（円柱＋上縁の胸壁）
+        const tm=new THREE.InstancedMesh(towG,WALL_M,bk.t.length),mm=new THREE.InstancedMesh(boxG,WALL_M,bk.t.length*10);let mn=0;
+        bk.t.forEach((a,i)=>{
+          wd.position.set(a[0],TOWN_H+a[3]/2,a[1]);wd.rotation.set(0,0,0);wd.scale.set(a[2],a[3],a[2]);wd.updateMatrix();tm.setMatrixAt(i,wd.matrix);
+          for(let k=0;k<10;k++){const an=k/10*Math.PI*2;wd.position.set(a[0]+Math.cos(an)*(a[2]-.45),TOWN_H+a[3]+.65,a[1]+Math.sin(an)*(a[2]-.45));wd.rotation.set(0,-(an+Math.PI/2),0);wd.scale.set(1.7,1.3,.9);wd.updateMatrix();mm.setMatrixAt(mn++,wd.matrix)}
+          circ.push([a[0],a[1],a[2]]);
+        });
+        for(const m of[tm,mm]){m.frustumCulled=false;m.castShadow=m.receiveShadow=true;g.add(m)}
+      }
+      for(const[mx,mz,mh] of bk.m){                                              // ミナレット（塔身・輪・尖り屋根）
+        const sh=new THREE.Mesh(minG,MIN_M);sh.position.set(mx,TOWN_H+mh/2,mz);sh.scale.set(2.3,mh,2.3);sh.castShadow=true;g.add(sh);
+        const rg=new THREE.Mesh(ringG,MIN_M);rg.position.set(mx,TOWN_H+mh*.8,mz);rg.scale.set(1.9,1.2,1.9);g.add(rg);
+        const cp=new THREE.Mesh(capG,CAP_M);cp.position.set(mx,TOWN_H+mh+2.4,mz);cp.scale.set(2,2,2);g.add(cp);
+        circ.push([mx,mz,2.8]);
+      }
+    }
+    const mq=t.moatB.get(cx+','+cz);                                             // 水路の水面
+    if(mq){const v=[],Y=TOWN_H-1.4;for(const q of mq)v.push(q[0],Y,q[1],q[2],Y,q[3],q[4],Y,q[5],q[0],Y,q[1],q[4],Y,q[5],q[6],Y,q[7]);
+      const mg=new THREE.BufferGeometry();mg.setAttribute('position',new THREE.Float32BufferAttribute(v,3));mg.computeVertexNormals();geos.push(mg);g.add(new THREE.Mesh(mg,MOAT_M))}
+    const dk=t.deckB.get(cx+','+cz);                                             // 橋（傾斜路・橋桁・欄干・橋脚）
+    if(dk){
+      if(dk.box.length){const dmk=new THREE.InstancedMesh(boxG,DECK_M,dk.box.length);dk.box.forEach((a,i)=>{wd.position.set(a[0],a[1],a[2]);wd.rotation.set(0,0,0);wd.scale.set(a[3],a[4],a[5]);wd.updateMatrix();dmk.setMatrixAt(i,wd.matrix)});dmk.frustumCulled=false;dmk.castShadow=dmk.receiveShadow=true;g.add(dmk)}
+      for(const a of dk.pr){const pg=prismGeo(a);geos.push(pg);const m=new THREE.Mesh(pg,DECK_M);m.castShadow=m.receiveShadow=true;g.add(m)}
+      for(const c of dk.pc)circ.push(c);
+      for(const a of dk.gh)addGate(g,geos,a[0],a[1],a[2],a[3]);
+    }
+  }
+  const dummy=new THREE.Object3D();
+  if(arches.length){
+    const im=new THREE.InstancedMesh(archG,archM,arches.length),fm=new THREE.InstancedMesh(frameG,frameM,arches.length);
+    arches.forEach((a,i)=>{dummy.position.set(a[0],a[1],a[2]);dummy.rotation.set(0,a[3],0);dummy.scale.set(a[4],a[5],1);dummy.updateMatrix();im.setMatrixAt(i,dummy.matrix);fm.setMatrixAt(i,dummy.matrix);fm.setColorAt(i,a[6])});
+    im.frustumCulled=fm.frustumCulled=false;fm.receiveShadow=true;g.add(im,fm);
+  }
+  if(det.length){
+    const dm2=new THREE.InstancedMesh(boxG,detailM,det.length);
+    det.forEach((a,i)=>{dummy.position.set(a[0],a[1],a[2]);dummy.rotation.set(0,0,0);dummy.scale.set(a[3],a[4],a[5]);dummy.updateMatrix();dm2.setMatrixAt(i,dummy.matrix);dm2.setColorAt(i,a[6])});
+    dm2.frustumCulled=false;dm2.castShadow=dm2.receiveShadow=true;g.add(dm2);
+  }
+  if(pillars.length){
+    const cm=new THREE.InstancedMesh(colG,colM,pillars.length);
+    pillars.forEach((a,i)=>{dummy.position.set(a[0],TOWN_H+a[3]/2,a[1]);dummy.rotation.set(0,0,0);dummy.scale.set(a[2],a[3],a[2]);dummy.updateMatrix();cm.setMatrixAt(i,dummy.matrix)});
+    cm.frustumCulled=false;cm.castShadow=cm.receiveShadow=true;g.add(cm);
+  }
+  // 木・岩（チャンク座標から決定的に配置）
+  const r=mulberry(hash(cx,cz,SEED)*1e9|0);
+  for(let i=0;i<28;i++){
+    const x=cx*CHUNK+r()*CHUNK,z=cz*CHUNK+r()*CHUNK,h=heightAt(x,z);
+    const slope=Math.abs(heightAt(x+1,z)-h)+Math.abs(heightAt(x,z+1)-h);
+    if(h<WATER+1.5||h>16||slope>.5||townW(x,z)>0)continue;
+    const s=.8+r()*.9;
+    if(h<WATER+10&&r()<.85){
+      addPalm(g,x,h,z,s);circ.push([x,z,.45]);
+    }else{
+      const k=new THREE.Mesh(rockG,rockM);k.position.set(x,h+.3*s,z);
+      k.scale.set(s,s*.7,s);k.rotation.y=r()*6;g.add(k);circ.push([x,z,s*.9]);
+    }
+  }
+  g.userData.geo=geo;g.userData.geos=geos;g.userData.circ=circ;g.userData.mat=terrain.material;
+  scene.add(g);return g;
+}
+function updateChunks(){
+  updatePalaces();
+  const pcx=Math.floor(player.x/CHUNK),pcz=Math.floor(player.z/CHUNK);
+  for(let dx=-RADIUS;dx<=RADIUS;dx++)for(let dz=-RADIUS;dz<=RADIUS;dz++){
+    if(dx*dx+dz*dz>RADIUS*RADIUS+1)continue;
+    const k=(pcx+dx)+','+(pcz+dz);
+    if(!chunks.has(k))chunks.set(k,makeChunk(pcx+dx,pcz+dz));
+  }
+  for(const [k,c] of chunks){
+    const[x,z]=k.split(',').map(Number);
+    if(Math.abs(x-pcx)>RADIUS+1||Math.abs(z-pcz)>RADIUS+1){
+      scene.remove(c);disposeChunk(c);chunks.delete(k);
+    }
+  }
+}
+function resetWorld(){
+  lotCache.clear();townCache.clear();clearPalaces();
+  for(const c of chunks.values()){scene.remove(c);disposeChunk(c)}
+  chunks.clear();
+  const sr=mulberry((SEED^0x5bd1e995)|0);                 // ワールド内のランダムな地点から、街の外の陸地を探してスポーン（街は別の場所にある）
+  const bx=(sr()-.5)*8000,bz=(sr()-.5)*8000,ba=sr()*6.283;
+  player.x=bx;player.z=bz;
+  const townGap=(x,z)=>{                                  // 最寄りの街の端までの距離
+    let g=1e9;
+    for(const t of nearTowns(x,z)){const dx=x-t.x,dz=z-t.z;g=Math.min(g,Math.hypot(dx,dz)-townEdge(t,Math.atan2(dz,dx)))}
+    return g;
+  };
+  let found=false;
+  for(let k=0;k<1500&&!found;k++){                        // 街から120〜1400m離れた陸地を優先
+    const a=ba+k*2.4,r=k*6,x=bx+Math.cos(a)*r,z=bz+Math.sin(a)*r,h=heightAt(x,z),gp=townGap(x,z);
+    if(townW(x,z)===0&&h>WATER+3&&h<22&&gp>120&&gp<1400){player.x=x;player.z=z;found=true}
+  }
+  for(let k=0;k<800&&!found;k++){                         // 見つからなければ、街の外の陸地ならどこでも
+    const a=ba+k*2.4,r=k*5,x=bx+Math.cos(a)*r,z=bz+Math.sin(a)*r;
+    if(townW(x,z)===0&&heightAt(x,z)>WATER+3&&heightAt(x,z)<22){player.x=x;player.z=z;found=true}
+  }
+  player.yaw=sr()*6.283;player.pitch=0;
+  player.gy=Math.max(heightAt(player.x,player.z),WATER-.5);player.y=player.gy+1.7;
+}
+
+// ---------- プレイヤー（一人称） ----------
+const player={x:0,y:0,z:0,gy:0,yaw:0,pitch:0};
+const keys={};let joy={x:0,y:0};
+addEventListener('keydown',e=>keys[e.code]=true);
+addEventListener('keyup',e=>keys[e.code]=false);
+renderer.domElement.addEventListener('click',()=>{if(!('ontouchstart' in window))renderer.domElement.requestPointerLock()});
+addEventListener('mousemove',e=>{
+  if(document.pointerLockElement){player.yaw-=e.movementX*.0022;player.pitch=Math.max(-1.5,Math.min(1.5,player.pitch-e.movementY*.0022))}
+});
+// タッチ: 左半分=移動スティック / 右半分=視点
+const stick=document.getElementById('stick'),knob=document.getElementById('knob');
+let moveId=null,lookId=null,mo={x:0,y:0},lp={x:0,y:0};
+if('ontouchstart' in window)stick.style.display='block';
+addEventListener('touchstart',e=>{
+  for(const t of e.changedTouches){
+    if(e.target.tagName==='BUTTON')return;
+    if(t.clientX<innerWidth/2&&moveId===null){moveId=t.identifier;mo={x:t.clientX,y:t.clientY}}
+    else if(lookId===null){lookId=t.identifier;lp={x:t.clientX,y:t.clientY}}
+  }
+},{passive:false});
+addEventListener('touchmove',e=>{
+  e.preventDefault();
+  for(const t of e.changedTouches){
+    if(t.identifier===moveId){
+      let dx=(t.clientX-mo.x)/50,dy=(t.clientY-mo.y)/50;const l=Math.hypot(dx,dy);if(l>1){dx/=l;dy/=l}
+      joy={x:dx,y:dy};knob.style.transform=`translate(${dx*35}px,${dy*35}px)`;
+    }else if(t.identifier===lookId){
+      player.yaw-=(t.clientX-lp.x)*.005;player.pitch=Math.max(-1.5,Math.min(1.5,player.pitch-(t.clientY-lp.y)*.005));
+      lp={x:t.clientX,y:t.clientY};
+    }
+  }
+},{passive:false});
+addEventListener('touchend',e=>{
+  for(const t of e.changedTouches){
+    if(t.identifier===moveId){moveId=null;joy={x:0,y:0};knob.style.transform=''}
+    if(t.identifier===lookId)lookId=null;
+  }
+});
+
+// ---------- 当たり判定と地面の高さ ----------
+// 建物・階段=矩形、柱・ヤシ・岩=円。押し出し方式なので壁沿いに滑る。
+// 足元より0.55m高い所までは登れる（階段の段、屋上へ移る時など）。それ以上高い物は壁として扱う。
+const STEP=.55,PR=.45;
+function collide(){
+  const lx=Math.floor(player.x/L),lz=Math.floor(player.z/L),cx=Math.floor(player.x/CHUNK),cz=Math.floor(player.z/CHUNK);
+  const rects=[],circs=[];
+  for(const t of nearTowns(player.x,player.z)){
+    for(const m of t.landmarks)
+      if(Math.abs(m.x-player.x)<80&&Math.abs(m.z-player.z)<80){rects.push(m);for(const q of m.circs)circs.push(q)}
+    for(const o of t.gates.concat(t.stairs))if(Math.abs(o.x-player.x)<80&&Math.abs(o.z-player.z)<80)rects.push(o);   // 門楼・階段
+    const p=t.pal;
+    if(Math.hypot(p.x-player.x,p.z-player.z)<260){for(const o of p.rects)rects.push(o);for(const q of p.circs)circs.push(q)}   // 宮殿の壁・塔・生け垣・列柱
+  }
+  for(let dx=-1;dx<=1;dx++)for(let dz=-1;dz<=1;dz++){
+    const c=chunks.get((cx+dx)+','+(cz+dz));if(c)for(const q of c.userData.circ)circs.push(q);
+    const o=lotAt(lx+dx,lz+dz);if(!o)continue;
+    if(o.circs)for(const q of o.circs)circs.push(q);
+    if(o.type==='b'){rects.push(o);if(o.stair)for(const t of o.stair.treads)rects.push(t);for(const b of o.bridges)rects.push(b)}
+  }
+  const ground=()=>{
+    let gy=Math.max(heightAt(player.x,player.z),WATER-.5);
+    for(const o of rects)if(o.top>gy&&o.top<=player.gy+STEP+.01&&Math.abs(player.x-o.x)<o.w/2&&Math.abs(player.z-o.z)<o.d/2)gy=o.top;
+    if(TOWN_H>gy&&TOWN_H<=player.gy+STEP+.01&&bridgeAt(player.x,player.z))gy=TOWN_H;   // 水路の橋の上（水路の底からは登れない）
+    const di=deckInfo(player.x,player.z);                                       // 橋の上面（足元+STEPまでなら登れる）
+    if(di&&di.h>.01&&TOWN_H+di.h>gy&&TOWN_H+di.h<=player.gy+STEP+.01)gy=TOWN_H+di.h;
+    player.gy=gy;
+  };
+  ground();
+  const di=deckInfo(player.x,player.z),onDeck=di&&di.h>.8&&player.gy>=TOWN_H+di.h-STEP-.01;
+  if(onDeck){                                                                   // 橋の上: 欄干で両脇を止める（下の建物・柱とは当たらない）
+    const v=di.zr?player.x:player.z,lim=RW/2-.55,u=Math.max(di.c-lim,Math.min(di.c+lim,v));
+    if(di.zr)player.x=u;else player.z=u;
+    return;
+  }
+  if(di&&di.ramp&&TOWN_H+di.h>player.gy+STEP){                                  // 傾斜路の脇や高い側から入ったら横へ押し出す（傾斜路は中身の詰まった土台）
+    const v=di.zr?player.x:player.z,u=di.c+(v<di.c?-1:1)*(RW/2+PR+.05);
+    if(di.zr)player.x=u;else player.z=u;
+  }
+  for(let it=0;it<3;it++){
+    for(const o of rects){
+      if(o.walk||player.gy>=o.top-STEP||(o.bot!==undefined&&player.gy+1.8<=o.bot))continue;
+      const hx=o.w/2+o.m,hz=o.d/2+o.m,dx=player.x-o.x,dz=player.z-o.z;
+      if(Math.abs(dx)<hx&&Math.abs(dz)<hz){
+        const px=hx-Math.abs(dx),pz=hz-Math.abs(dz);
+        if(px<pz)player.x+=(dx<0?-1:1)*px;else player.z+=(dz<0?-1:1)*pz;
+      }
+    }
+    for(const[qx,qz,qr,qh] of circs){
+      if(qh!==undefined&&player.gy>=qh-STEP)continue;      // 壁・橋の土台の上に立っているときは、その壁には当たらない
+      const dx=player.x-qx,dz=player.z-qz,d=Math.hypot(dx,dz),m=qr+PR;
+      if(d<m){if(d>1e-4){player.x+=dx/d*(m-d);player.z+=dz/d*(m-d)}else player.x+=m}
+    }
+  }
+  ground();
+}
+
+// ---------- 最寄りの街の方角表示 ----------
+const navEl=document.getElementById('nav');
+function updateNav(){
+  const ix=Math.floor(player.x/TCELL),iz=Math.floor(player.z/TCELL);
+  let best=null,bd=1e9;
+  for(let a=-4;a<=4;a++)for(let b=-4;b<=4;b++){
+    const t=townOfCell(ix+a,iz+b);if(!t)continue;
+    const d=Math.hypot(t.x-player.x,t.z-player.z);if(d<bd){bd=d;best=t}
+  }
+  if(!best){navEl.textContent='';return}
+  if(townIn(player.x,player.z,0)){navEl.textContent='街の中';return}
+  const dx=best.x-player.x,dz=best.z-player.z,sy=Math.sin(player.yaw),cy=Math.cos(player.yaw);
+  const rel=Math.atan2(dx*cy-dz*sy,-dx*sy-dz*cy);
+  navEl.innerHTML=`<span style="display:inline-block;transform:rotate(${rel}rad)">↑</span> 最寄りの街の中心まで約${Math.round(bd)}m`;
+}
+
+// ---------- ループ ----------
+const info=document.getElementById('info');
+document.getElementById('regen').onclick=()=>{SEED=Math.floor(Math.random()*1e9);resetWorld()};
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+resetWorld();
+let last=performance.now(),frame=0;
+function loop(now){
+  const dt=Math.min(.05,(now-last)/1000);last=now;
+  let fx=(keys.KeyD?1:0)-(keys.KeyA?1:0)+joy.x,fz=(keys.KeyS?1:0)-(keys.KeyW?1:0)+joy.y;
+  const l=Math.hypot(fx,fz);if(l>1){fx/=l;fz/=l}
+  const speed=(keys.ShiftLeft?14:7)*dt,s=Math.sin(player.yaw),c=Math.cos(player.yaw);
+  const mx=(fx*c+fz*s)*speed,mz=(-fx*s+fz*c)*speed,ns=Math.max(1,Math.ceil(Math.hypot(mx,mz)/.1));   // 1回に0.1mより大きく動かさない（階段・壁のすり抜け防止）
+  for(let i=0;i<ns;i++){player.x+=mx/ns;player.z+=mz/ns;collide()}
+  player.y+=(player.gy+1.7-player.y)*Math.min(1,dt*12);
+  camera.position.set(player.x,player.y,player.z);
+  camera.rotation.set(player.pitch,player.yaw,0);
+  water.position.x=player.x;water.position.z=player.z;
+  if(frame++%10===0){updateChunks();info.textContent=`seed:${SEED}  chunks:${chunks.size}`;updateNav()}
+  const tx=Math.round(player.x/.0586)*.0586,tz=Math.round(player.z/.0586)*.0586;   // 影のちらつき防止（テクセルにスナップ）
+  sun.target.position.set(tx,0,tz);sun.position.set(tx+SUN_OFF.x,SUN_OFF.y,tz+SUN_OFF.z);
+  renderer.render(scene,camera);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
 </script>
 </body>
 </html>
