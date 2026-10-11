@@ -6,15 +6,19 @@
 <title>プロシージャルマップ</title>
 <style>
   html,body{margin:0;height:100%;overflow:hidden;background:#9cc7e8;touch-action:none;font-family:sans-serif}
-  canvas{display:block}
+  canvas{display:block;width:100%;height:100%;image-rendering:pixelated;image-rendering:-moz-crisp-edges}
   #ui{position:fixed;top:calc(env(safe-area-inset-top,0px) + 8px);left:8px;color:#fff;font-size:12px;text-shadow:0 1px 3px #000}
   button{margin-top:6px;padding:8px 12px;border:0;border-radius:8px;background:rgba(0,0,0,.5);color:#fff;font-size:13px}
   #stick{position:fixed;left:24px;bottom:calc(env(safe-area-inset-bottom,0px) + 24px);width:110px;height:110px;border-radius:50%;background:rgba(255,255,255,.15);display:none}
+  #dbg{display:none;max-width:78vw;margin-top:4px;padding:6px 8px 8px;border-radius:8px;background:rgba(0,0,0,.55)}
+  #dbg .h{margin-top:6px;font-size:11px;opacity:.8}
+  #dbg button{margin:3px 3px 0 0;padding:6px 8px;font-size:12px;background:rgba(255,255,255,.22)}
+  #dbg #dbgmsg{margin-top:6px;font-size:11px;min-height:1em}
   #knob{position:absolute;left:35px;top:35px;width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.5)}
 </style>
 </head>
 <body>
-<div id="ui"><div id="info"></div><div id="nav" style="font-size:13px"></div><button id="regen">新しいマップ</button><div>PC: クリックで操作 / WASD+Shift　スマホ: 左=移動 右=視点</div></div>
+<div id="ui"><div id="info"></div><div id="nav" style="font-size:13px"></div><button id="regen">新しいマップ</button> <button id="dbgBtn">デバッグ</button><div id="dbg"></div><div>PC: クリックで操作 / WASD+Shift　スマホ: 左=移動 右=視点</div></div>
 <div id="stick"><div id="knob"></div></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
@@ -79,7 +83,7 @@ function makePalace(t,fx,fz,k){                                   // 宮殿（�
   const W=(u0,u1,v0,v1,h)=>({u0,u1,v0,v1,h,skip:{},doors:{l:[],r:[],f:[],b:[]}});
   const sdome=(x,y,z,s)=>p.dc.push(['D',x,y+.8,z,s,1.8*s],['M',x,y+.8+1.8*s,z,1.18*s,1.45*s],['F',x,y+.8+1.8*s+1.45*s,z,.36*s]);   // 小ドーム（y=屋根の下面の高さ）
   // ① 本殿: 奥(v=-55)に接して置く、n段の階段状の塔。各段は壁で囲み、屋根は縁の輪だけ（中央はあけて）、全段ぶち抜きの吹き抜け
-  const hw=56+r()*10,hd=34+r()*6,n=HALL_TIERS[0]+Math.floor(r()*(HALL_TIERS[1]-HALL_TIERS[0]+1)),VB=-55,vc=VB+hd/2;
+  const hw=56+r()*10,hd=34+r()*6,n=HALL_TIERS[0]+Math.floor(r()*(HALL_TIERS[1]-HALL_TIERS[0]+1)),VB=-55,vc=VB+hd/2;p.hv=vc;   // p.hv=本殿の中心のv（デバッグのワープ用）
   const h0=17+r()*3,th=8.5+r()*2.5,inset=Math.min(5,(Math.min(hw,hd)/2-7)/(n-1));
   const tiers=[];for(let i=0;i<n;i++){const y0=i?h0+(i-1)*th:0;tiers.push({w:hw-2*inset*i,d:hd-2*inset*i,y0,y1:i?y0+th:h0})}
   const hall=W(-hw/2,hw/2,VB,VB+hd,h0),all=[hall],H=tiers[n-1].y1;
@@ -244,21 +248,21 @@ function bridgeAt(x,z){                                         // 水路にか�
 }
 function buildDeck(t){                                          // 主要な道の橋: 宮殿側の傾斜路・平らな橋桁・欄干・橋脚、外壁の門楼（階段は門楼の中）
   t.gates=[];t.stairs=[];
-  const B=new Map(),bk=(x,z)=>{const k=Math.floor(x/CHUNK)+','+Math.floor(z/CHUNK);let b=B.get(k);if(!b){b={box:[],pr:[],pc:[],gh:[]};B.set(k,b)}return b};
+  const B=new Map(),bk=(x,z)=>{const k=Math.floor(x/CHUNK)+','+Math.floor(z/CHUNK);let b=B.get(k);if(!b){b={box:[],pr:[],pc:[],gh:[],fz:[]};B.set(k,b)}return b};
   for(const q of t.roads){
     const zr=q.ax==='z',ctr=zr?t.z:t.x,W=s=>ctr+q.sg*s,pos=(s,l)=>zr?[q.c+l,W(s)]:[W(s),q.c+l],YB=TOWN_H-8;
     const sL=q.s1-16;                                           // 門楼の奥（城壁の中の16m）はこの手前から。橋は奥の壁(s1)で門楼の広間へ出る。橋桁はその手前まで
     for(let s=q.sf;s<sL-1e-6;s+=16){
       const s2=Math.min(sL,s+16),a0=s>q.sf+1e-6?s-.2:s,a1=s2<sL-1e-6?s2+.2:s2,len=a1-a0,mid=(a0+a1)/2,p=pos(mid,0),b=bk(p[0],p[1]);   // 橋桁どうしは0.2mだけ重ね、宮殿の城壁の土台・門楼とは重ねない（面が重なってチラつくため）
       b.box.push([p[0],TOWN_H+DH-.7,p[1],zr?RW:len,1.4,zr?len:RW]);
-      for(const sd of[-1,1]){const pp=pos(mid,sd*(RW/2-.3));b.box.push([pp[0],TOWN_H+DH+.55,pp[1],zr?.6:len,1.1,zr?len:.6])}
+      for(const sd of[-1,1]){const pp=pos(mid,sd*(RW/2-.4));b.fz.push([pp[0],TOWN_H+DH+.5,pp[1],zr?.8:len,1,zr?len:.8,FZ_C]);b.box.push([pp[0],TOWN_H+DH+1.1,pp[1],zr?1:len,.2,zr?len:1])}
       for(const ss of s2>=sL-1e-6?[s,s2]:[s])for(const sd of[-1,1]){const pp=pos(ss,sd*5),bb=bk(pp[0],pp[1]);bb.box.push([pp[0],TOWN_H+(DH-1.4)/2,pp[1],2,DH-1.4,2]);bb.pc.push([pp[0],pp[1],1.2])}
     }
     const b0=q.s1+35,b1=q.s1+55;                                 // 水路の橋（門楼の前の道。外壁の外 39〜59m）
     for(let s=b0;s<b1-1e-6;s+=10){
       const s2=Math.min(b1,s+10),len=s2-s+.2,mid=(s+s2)/2,p=pos(mid,0),b=bk(p[0],p[1]);
       b.box.push([p[0],TOWN_H-.46,p[1],zr?10:len,1,zr?len:10]);
-      for(const sd of[-1,1]){const pp=pos(mid,sd*4.7);b.box.push([pp[0],TOWN_H+.5,pp[1],zr?.6:len,1,zr?len:.6])}
+      for(const sd of[-1,1]){const pp=pos(mid,sd*4.6);b.fz.push([pp[0],TOWN_H+.5,pp[1],zr?.8:len,1,zr?len:.8,FZ_C]);b.box.push([pp[0],TOWN_H+1.1,pp[1],zr?1:len,.2,zr?len:1])}
     }
     for(const s of[b0+1.5,(b0+b1)/2,b1-1.5]){const p=pos(s,0),b=bk(p[0],p[1]);b.box.push([p[0],TOWN_H-3.1,p[1],zr?9:1.6,4.2,zr?1.6:9])}   // 橋脚
     for(const sd of[-1,1]){const p=pos((b0+b1)/2,sd*4.7);t.gates.push({x:p[0],z:p[1],w:zr?.6:b1-b0,d:zr?b1-b0:.6,top:TOWN_H+1,bot:TOWN_H-.5,m:.1})}   // 橋の欄干
@@ -274,8 +278,8 @@ function buildDeck(t){                                          // 主要な道�
 }
 const MOAT_M=new THREE.MeshLambertMaterial({color:0x3b7fa6,transparent:true,opacity:.82,side:THREE.DoubleSide});
 const SHOP_C=[0xb5483a,0x2f7f78,0xd9a441,0xe8dcc0,0x7a4d9a,0xc96f2e].map(c=>new THREE.Color(c)),SHOP_WOOD=new THREE.Color(0x6a4a2c);
-const towG=new THREE.CylinderGeometry(1,1,1,20),WIN_M=new THREE.MeshLambertMaterial({color:0x2b2118});
-const ballG=new THREE.SphereGeometry(1,16,12);
+const towG=new THREE.CylinderGeometry(1,1,1,10),WIN_M=new THREE.MeshLambertMaterial({color:0x2b2118});
+const ballG=new THREE.SphereGeometry(1,8,6);
 function addGate(g,geos,zr,sg,gx,gz){                           // 門楼: 奥(街側)=城壁の中の塊に下の門(通路)と橋の門、手前=エントランスの広間。広間の左右に階段が上り、奥の2階の床から橋の門へ
   const H=24,ex=(sh,d,z0)=>{const e=new THREE.ExtrudeGeometry(sh,{depth:d,bevelEnabled:false});e.translate(0,0,z0);geos.push(e);return e};
   const bk=new THREE.Shape();bk.moveTo(-22,0);bk.lineTo(-4,0);bk.lineTo(-4,5.4);bk.quadraticCurveTo(-4,7.7,0,9);bk.quadraticCurveTo(4,7.7,4,5.4);bk.lineTo(4,0);bk.lineTo(22,0);bk.lineTo(22,H);bk.lineTo(-22,H);bk.closePath();
@@ -313,7 +317,29 @@ function prismGeo(a){
   for(const[q0,q1,q2,q3] of[[a1,b1,c1,d1],[A,D,C,B],[A,B,b1,a1],[D,C,c1,d1],[A,D,d1,a1],[B,C,c1,b1]])v.push(...q0,...q1,...q2,...q0,...q2,...q3);
   const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(v,3));g.computeVertexNormals();return g;
 }
-function rawH(x,z){return (fbm(x*0.006,z*0.006)-.5)*70+(fbm(x*0.03+50,z*0.03+50)-.5)*8}   // 街の平坦化前の地形
+// ---------- 気候帯とバイオーム ----------
+// 気温tと湿度mの低周波ノイズ2枚で4つの気候帯（熱帯・乾燥帯・温帯・冷帯）を決め、中周波ノイズvで帯の中の植生（草原/森/ジャングルなど）を分ける。境目はなめらかに混ざる。
+//  乾燥帯: 奥=砂漠、他の帯との境目=サバンナ / 温帯: 乾燥帯側=ステップ、草原、広葉樹林 / 熱帯: 草原・森・ジャングル / 冷帯: 奥=雪原、縁=針葉樹林と草原（雪はまだらに積もる）
+const CLIM_F=.0003;                                              // 気候帯の細かさ（小さいほど広い。約3km周期で、植生の切り替わりはおよそ1kmに1回）
+const sm01=(a,b,x)=>{const t=Math.min(1,Math.max(0,(x-a)/(b-a)));return t*t*(3-2*t)};
+const CV={de:0,sv:0,st:0,gr:0,bf:0,tg:0,tf:0,jg:0,cg:0,ta:0,tu:0,sn:0,A:0,T:0,M:0,C:0};   // climateAtの結果（使い回すので、呼んだらすぐ読むこと。11種の植生の重みの合計は1）
+const nz3=(x,z,f,ox,oz)=>(vnoise(x*f+ox,z*f+oz)+.35*vnoise(x*f*2.3-ox*.3,z*f*2.3+oz*.7)+.1*vnoise(x*f*5.1+ox*.1,z*f*5.1-oz*.2))/1.45;   // 細かい成分は弱く（境界がぎざぎざにならないように）
+function climateAt(x,z){
+  const m=nz3(x,z,CLIM_F,300,-200),t=nz3(x,z,CLIM_F*.85,-700,450),v=(vnoise(x*.001+500,z*.001-300)+.5*vnoise(x*.0024-90,z*.0024+60))/1.5;
+  const A=1-sm01(.37,.49,m),nA=1-A,C=nA*(1-sm01(.34,.48,t)),T=nA*sm01(.52,.66,t),M=nA-C-T;
+  const de=A*(1-sm01(.33,.43,m));CV.de=de;CV.sv=A-de;                                            // 乾燥帯
+  const st=M*(1-sm01(.44,.58,m)),rm=M-st,bf=rm*sm01(.42,.58,v);CV.st=st;CV.bf=bf;CV.gr=rm-bf;    // 温帯
+  const vj=v+(m-.5)*.6,tg=T*(1-sm01(.30,.46,vj)),jg=T*sm01(.46,.62,vj);CV.tg=tg;CV.jg=jg;CV.tf=T-tg-jg;   // 熱帯（湿度が高いほどジャングル）
+  const tu=C*(1-sm01(.24,.40,t)),rc=C-tu,ta=rc*sm01(.41,.57,v);CV.tu=tu;CV.ta=ta;CV.cg=rc-ta;     // 冷帯
+  CV.sn=tu+rc*sm01(.5,.75,vnoise(x*.004+17,z*.004-9));                                            // 雪の積もり具合（雪原=1、縁はまだら）
+  CV.A=A;CV.T=T;CV.M=M;CV.C=C;return CV;
+}
+function canopyRaw(x,z){return vnoise(x*.03+11,z*.03+5)*.65+vnoise(x*.08-4,z*.08+9)*.35}   // 森の密度むら(0〜1)。高いほど木が密で暗い
+function rawH(x,z){                                              // 街の平坦化前の地形。砂漠・ステップ・サバンナは起伏がゆるく広い（砂漠は砂丘）、冷帯はやや山がち
+  const c=climateAt(x,z),de=c.de,st=c.st,sv=c.sv,cold=c.C;       // CVはすぐ読む（townOfCellからも呼ばれる）
+  const big=(fbm(x*0.006,z*0.006)-.5)*70,small=(fbm(x*0.03+50,z*0.03+50)-.5)*8,dune=(vnoise(x*.011+90,z*.019-40)-.5)*6;
+  return big*(1-.5*de-.6*st-.25*sv+.25*cold)+small*(1-.6*de-.6*st-.3*sv)+dune*de;
+}
 function townOfCell(ix,iz){
   const k=ix+','+iz;if(townCache.has(k))return townCache.get(k);
   const r=mulberry(hash(ix,iz,SEED+101)*1e9|0);
@@ -321,8 +347,11 @@ function townOfCell(ix,iz){
   if(r()<TOWN_P){
     const R=400+r()*300,ctl=[];
     let x=0,z=0,bs=1e9;
-    for(let n=0;n<8;n++){                                       // 候補地を8か所ためして、海が少なく平らな所を選ぶ
+    for(let n=0;n<14;n++){                                      // 候補地を14か所ためして、砂漠の中で海が少なく平らな所を選ぶ（砂漠以外にはかからない所だけ）
       const cx=(ix+.35+r()*.3)*TCELL,cz=(iz+.35+r()*.3)*TCELL;
+      let dm=climateAt(cx,cz).de;                               // 中心と、街の外周（半径の1.15倍）8方向がすべて砂漠か
+      for(let i=0;i<8&&dm>=.6;i++)dm=Math.min(dm,climateAt(cx+Math.cos(i*.785)*R*1.15,cz+Math.sin(i*.785)*R*1.15).de);
+      if(dm<.6)continue;
       let wet=0,mn=1e9,mx=-1e9;
       for(let i=0;i<9;i++){
         const a=i*.785,d=i?R*.7:0,h=rawH(cx+Math.cos(a)*d,cz+Math.sin(a)*d);
@@ -331,6 +360,7 @@ function townOfCell(ix,iz){
       const s=wet*100+(mx-mn);
       if(s<bs){bs=s;x=cx;z=cz}
     }
+    if(bs>=1e9){townCache.set(k,null);return null}              // この区画に砂漠の候補地が無ければ、街は作らない
     for(let i=0;i<12;i++)ctl.push(.78+r()*.45);                 // 輪郭のでこぼこ（方位ごとの半径倍率）
     t={x,z,R,ctl,lowP:.1+r()*.35,courtP:.08+r()*.14,landmarks:[]};
     const HS=Math.round(.22*R),fv=[[0,1],[1,0],[-1,0],[0,-1]][Math.floor(r()*4)];   // HS=宮殿の城壁(四角)の半分の長さ。宮殿の正面は東西南北のどれか
@@ -504,21 +534,53 @@ function lotAt(lx,lz){
 
 // ---------- three.js ----------// ---------- three.js ----------
 const scene=new THREE.Scene();
-scene.background=new THREE.Color(0xd5d0bd);
-scene.fog=new THREE.Fog(0xd5d0bd,40,170);
+const skyC=document.createElement('canvas');skyC.width=2;skyC.height=128;const skyX=skyC.getContext('2d'),skyTex=new THREE.CanvasTexture(skyC);scene.background=skyTex;   // 空はバイオームに合わせて描き直す（updateEnv）
+scene.fog=new THREE.Fog(0xcdbb98,40,170);
 const camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,0.1,400);
 camera.rotation.order='YXZ';
-const renderer=new THREE.WebGLRenderer({antialias:true});
-renderer.setPixelRatio(Math.min(devicePixelRatio,2));
-renderer.setSize(innerWidth,innerHeight);
+const renderer=new THREE.WebGLRenderer({antialias:false});
+const PIXH=270;                                                  // 描画の縦ピクセル数（小さいほど粗いドット）。画面いっぱいに拡大して表示
+const fitRes=()=>{renderer.setPixelRatio(Math.min(1,PIXH/innerHeight));renderer.setSize(innerWidth,innerHeight)};
+fitRes();
 document.body.appendChild(renderer.domElement);
-renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
-scene.add(new THREE.HemisphereLight(0xfff4dc,0x8a7050,0.55));
+renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFShadowMap;
+const hemi=new THREE.HemisphereLight(0xfff4dc,0x8a7050,0.55);scene.add(hemi);
 const sun=new THREE.DirectionalLight(0xffe2a8,1.0);scene.add(sun,sun.target);
 const SUN_OFF={x:45,y:85,z:30};                       // 太陽の向き（仰角およそ56度）
-sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);
+sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);
 const sc=sun.shadow.camera;sc.left=sc.bottom=-60;sc.right=sc.top=60;sc.near=1;sc.far=260;
 sun.shadow.bias=-.0006;sun.shadow.normalBias=.05;
+
+// ---------- 気候帯ごとの空・霧・光 ----------
+const ENV={
+  a:{top:0xa2896b,mid:0xc5af8d,hor:0xd9c7a2,fog:0xcdbb98,near:40,far:170,sun:0xffe2a8,si:1.0,hi:.55},    // 乾燥帯: 茶灰色のもや・遠くまで見える
+  t:{top:0x3f8fd0,mid:0x7fc0e0,hor:0xcfe8e8,fog:0xbfdcd8,near:40,far:160,sun:0xfff2d0,si:1.05,hi:.62},   // 熱帯: 濃い青空・湿った空気
+  j:{top:0x2f6e6a,mid:0x5f9a86,hor:0x9cc0a8,fog:0x7fa68c,near:10,far:80,sun:0xd5ecb0,si:.85,hi:.48},     // ジャングル: 緑がかった濃い霧・見通しが悪い
+  m:{top:0x5f9bd6,mid:0x9cc7e8,hor:0xd3e7f3,fog:0xc9e0ec,near:50,far:190,sun:0xfff0d0,si:1.0,hi:.6},     // 温帯: 青空
+  c:{top:0x8aa4bd,mid:0xb6c8d6,hor:0xe3ecf2,fog:0xdbe6ee,near:25,far:140,sun:0xe6eeff,si:.95,hi:.65}     // 冷帯: 淡い灰青の空・雪の白い照り返し
+};
+for(const k in ENV)for(const n of['top','mid','hor','fog','sun'])ENV[k][n]=new THREE.Color(ENV[k][n]);
+const envW={a:1,t:0,j:0,m:0,c:0,pk:0},_eTop=new THREE.Color(),_eMid=new THREE.Color(),_eHor=new THREE.Color();let envT=0;   // pk=森の密な所の暗さ(0〜1)
+const envMix=(o,n)=>{o.setRGB(0,0,0);for(const k of'atjmc'){const c=ENV[k][n],w=envW[k];o.r+=c.r*w;o.g+=c.g*w;o.b+=c.b*w}return o};
+const envNum=n=>{let v=0;for(const k of'atjmc')v+=envW[k]*ENV[k][n];return v};
+function drawSky(){
+  const gr=skyX.createLinearGradient(0,0,0,128);
+  gr.addColorStop(0,'#'+envMix(_eTop,'top').getHexString());gr.addColorStop(.55,'#'+envMix(_eMid,'mid').getHexString());gr.addColorStop(1,'#'+envMix(_eHor,'hor').getHexString());
+  skyX.fillStyle=gr;skyX.fillRect(0,0,2,128);skyTex.needsUpdate=true;
+}
+function updateEnv(dt,force){
+  const c=climateAt(player.x,player.z),cA=c.A,cJ=c.jg,cT=c.T-c.jg,cM=c.M,cC=c.C,cc=c.jg+.5*c.tf+.3*c.bf+.45*c.ta;   // 先に値を控える（townWが街を計算する時にCVを上書きするので）
+  const tw=townW(player.x,player.z);                               // 街の中は砂岩の街並みなので、乾燥帯の空に寄せる
+  const a=force?1:Math.min(1,dt*1.5),pk=cc*(1-tw)*sm01(.55,.75,canopyRaw(player.x,player.z));
+  const tg={a:cA+(1-cA)*tw,t:cT*(1-tw),j:cJ*(1-tw),m:cM*(1-tw),c:cC*(1-tw),pk};
+  for(const k in tg)envW[k]+=(tg[k]-envW[k])*a;
+  const pk2=envW.pk;
+  envMix(scene.fog.color,'fog').multiplyScalar(1-.3*pk2);scene.fog.near=envNum('near')*(1-.3*pk2);scene.fog.far=envNum('far')*(1-.35*pk2);
+  envMix(sun.color,'sun');sun.intensity=envNum('si')*(1-.65*pk2);hemi.intensity=envNum('hi')*(1-.3*pk2);   // 密な森の中は光が届かず暗い
+  envT+=dt;if(force||envT>.3){envT=0;drawSky()}
+}
+const COVER_NAMES=[['de','砂漠'],['sv','サバンナ'],['st','ステップ'],['gr','草原'],['bf','広葉樹林'],['tg','熱帯草原'],['tf','熱帯林'],['jg','ジャングル'],['cg','寒帯の草原'],['ta','針葉樹林'],['tu','雪原']],ZONE_NAMES=[['A','乾燥帯'],['T','熱帯'],['M','温帯'],['C','冷帯']];
+const biomeName=()=>{const c=climateAt(player.x,player.z);let bn='',bv=-1,zn='',zv=-1;for(const[k,n]of COVER_NAMES)if(c[k]>bv){bv=c[k];bn=n}for(const[k,n]of ZONE_NAMES)if(c[k]>zv){zv=c[k];zn=n}return zn+'・'+bn};
 
 const WATER=-6;
 const water=new THREE.Mesh(new THREE.PlaneGeometry(1000,1000),new THREE.MeshLambertMaterial({color:0x2b6fa8,transparent:true,opacity:.75}));
@@ -528,20 +590,133 @@ water.rotation.x=-Math.PI/2;water.position.y=WATER;scene.add(water);
 const CHUNK=32,SEG=20,RADIUS=4;
 const chunks=new Map();
 const trunkG=new THREE.CylinderGeometry(.18,.3,6,6),leafG=new THREE.ConeGeometry(2.6,1.2,8),rockG=new THREE.DodecahedronGeometry(1,0);
-// レンガ模様（色にもバンプにも使う）: 目地が凹み、レンガ1個ずつが少し違う明るさ
-function makeBrickTex(){
-  const c=document.createElement('canvas');c.width=c.height=128;const x=c.getContext('2d');
-  x.fillStyle='#7a7a7a';x.fillRect(0,0,128,128);
-  for(let r=0;r<8;r++)for(let i=-1;i<5;i++){
-    const v=200+Math.floor(Math.random()*45),off=(r%2)*16;
-    x.fillStyle=`rgb(${v},${v},${v})`;x.fillRect(i*32+off+1.5,r*16+1.5,29,13);
+// 石積みの模様: 128px。単色や黒い線は使わず、石ごとの色むら・場所ごとの濃淡・縁のやわらかい陰影・苔・シミ・薄いひび割れをピクセル単位で描く
+const halfCanvas=c=>{const h=document.createElement('canvas');h.width=c.width>>1;h.height=c.height>>1;const x=h.getContext('2d');x.imageSmoothingEnabled=true;x.drawImage(c,0,0,h.width,h.height);return h};   // テクスチャを縦横半分に縮小
+function makeStoneTex(o){o=o||{};
+  const N=128,sm=t=>t*t*(3-2*t),rnd=(a,z)=>a+Math.random()*(z-a);
+  const vn=G=>{const g=Array.from({length:G*G},()=>Math.random());return(x,y)=>{const fx=x/N*G,fy=y/N*G,ix=Math.floor(fx),iy=Math.floor(fy),tx=sm(fx-ix),ty=sm(fy-iy),a=g[iy%G*G+ix%G],b=g[iy%G*G+(ix+1)%G],c=g[(iy+1)%G*G+ix%G],d=g[(iy+1)%G*G+(ix+1)%G];return(a*(1-tx)+b*tx)*(1-ty)+(c*(1-tx)+d*tx)*ty}};
+  const nA=vn(5),nB=vn(12),nM=vn(9),nS=vn(4);
+  const PAL=[[236,227,209],[226,219,206],[239,231,213],[221,209,191],[229,215,197],[215,206,193],[233,222,203]],RED=[236,206,185];
+  const id=new Int16Array(N*N),blocks=[];let y=0;
+  for(const rh of o.rows||[16,20,18,14,22,20,18]){
+    const w0=o.w0||24,w1=o.w1||50,ws=[];let tot=0;while(tot<N-w0-2){const w=Math.floor(rnd(w0,w1));ws.push(w);tot+=w}
+    const last=N-tot;if(last<w0*.6)ws[ws.length-1]+=last;else ws.push(last);
+    let x=0;
+    for(const w of ws){
+      const base=Math.random()<.07?RED:PAL[Math.floor(Math.random()*PAL.length)],k=rnd(.93,1.05);
+      const bl={x0:x,y0:y,x1:x+w,y1:y+rh,col:base.map(v=>Math.min(255,v*k+rnd(-5,5))),crack:Math.random()<(o.crack||.13),stain:Math.random()<.18,sx:Math.floor(rnd(.2,.8)*w)};
+      blocks.push(bl);
+      for(let yy=y;yy<y+rh;yy++)for(let xx=x;xx<x+w;xx++)id[yy*N+xx]=blocks.length-1;
+      x+=w;
+    }
+    y+=rh;
   }
-  const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.anisotropy=4;return t;
+  const c=document.createElement('canvas');c.width=c.height=N;const ctx=c.getContext('2d'),im=ctx.createImageData(N,N),d=im.data,at=(x,y)=>((y+N)%N*N+(x+N)%N)*4;
+  for(let yy=0;yy<N;yy++)for(let xx=0;xx<N;xx++){
+    const b=blocks[id[yy*N+xx]],dx=xx-b.x0,dy=yy-b.y0,ex=b.x1-1-xx,ey=b.y1-1-yy,k=at(xx,yy);
+    let r,g,bb;
+    const broad=.82+.2*nA(xx,yy)+.1*nB(xx,yy)+rnd(-.075,.075),hue=rnd(-.04,.04);
+    if(dx===0||dy===0){                                         // 目地: 黒ではなく、少し暗い砂色のざらつき
+      const m=.7+.12*nB(xx,yy)+rnd(-.06,.06);r=176*m;g=164*m;bb=146*m;
+      if(o.joints&&nM(xx,yy)>.5){const t=Math.min(1,(nM(xx,yy)-.5)/.1);r=r*(1-t)+112*t;g=g*(1-t)+146*t;bb=bb*(1-t)+74*t}   // 目地ぎわの苔・草
+    }else{
+      let sh=1;
+      if(dy<4)sh+=(4-dy)/4*.12;if(dx<4)sh+=(4-dx)/4*.07;if(ey<4)sh-=(4-ey)/4*.17;if(ex<4)sh-=(4-ex)/4*.1;   // 縁のやわらかい陰影
+      const f=broad*sh;r=b.col[0]*f*(1+hue);g=b.col[1]*f;bb=b.col[2]*f*(1-.03*nS(xx,yy))*(1-hue);
+      if(b.stain&&Math.abs(xx-b.x0-b.sx)<3+2*nB(xx,yy)*2){const s=.88-.05*nB(xx+7,yy);r*=s;g*=s*.99;bb*=s*.96}   // 雨だれのシミ
+      const low=1-ey/(b.y1-b.y0),mk=nM(xx,yy)*(.55+.7*low);                                              // 苔: 石の下側・目地ぎわに
+      if(mk>(o.moss||.66)){const t=Math.min(1,(mk-(o.moss||.66))/.14)*.85,mr=150+rnd(-10,10),mg=178+rnd(-10,10),mb=108+rnd(-8,8);r=r*(1-t)+mr*t*f;g=g*(1-t)+mg*t*f;bb=bb*(1-t)+mb*t*f}
+    }
+    d[k]=r;d[k+1]=g;d[k+2]=bb;d[k+3]=255;
+  }
+  const dark=(x,y,f)=>{const k=at(x,y);d[k]*=f;d[k+1]*=f;d[k+2]*=f};
+  for(const b of blocks)if(b.crack){                             // 薄いひび割れ（黒ではなく暗い茶。まわりを少しだけ暗く）
+    let cx=Math.floor(rnd(b.x0+4,b.x1-4)),cy=b.y0+1;const len=(b.y1-b.y0)*rnd(.7,1);
+    for(let k=0;k<len;k++){dark(cx,cy,.66);dark(cx-1,cy,.9);dark(cx+1,cy,.9);cy++;if(Math.random()<.4)cx+=Math.random()<.5?-1:1;if(cx<b.x0+2||cx>b.x1-3)break}
+  }
+  ctx.putImageData(im,0,0);
+  const t=new THREE.CanvasTexture(halfCanvas(c));t.wrapS=t.wrapT=THREE.RepeatWrapping;t.anisotropy=4;t.magFilter=THREE.NearestFilter;
+  return{map:t,bump:t};
 }
-const brickTex=makeBrickTex();
-const BUILD_MATS=[0xc9a56e,0xd2b27c,0xbf9a64,0xb8935c,0xd9bf8c].map(c=>new THREE.MeshPhongMaterial({color:c,map:brickTex,bumpMap:brickTex,bumpScale:3,shininess:2,specular:0x111111}));
-const DOME_M=new THREE.MeshLambertMaterial({color:0xdcd2b4}),CAP_M=new THREE.MeshLambertMaterial({color:0x2f7f86});
-const boxG=new THREE.BoxGeometry(1,1,1),domeG=new THREE.SphereGeometry(1,14,8,0,Math.PI*2,0,Math.PI/2),minG=new THREE.CylinderGeometry(.8,1,1,8),capG=new THREE.ConeGeometry(1.2,2.4,8);
+const _stone=makeStoneTex(),brickTex=_stone.map,brickBump=_stone.bump;
+const paveTex=makeStoneTex({rows:[32,36,28,32],w0:40,w1:84,crack:.08,moss:.6,joints:true}).map;   // 橋の敷石: 大きな板石と、目地に生える苔
+// 砂のざらつき（小石と細かい波模様）。地面にかける
+function makeSandTex(){
+  const c=document.createElement('canvas');c.width=c.height=128;const x=c.getContext('2d');
+  x.fillStyle='rgb(236,236,236)';x.fillRect(0,0,128,128);
+  for(let k=0;k<260;k++){const v=Math.floor(222+Math.random()*30);x.fillStyle=`rgb(${v},${v},${v})`;x.fillRect(Math.floor(Math.random()*128),Math.floor(Math.random()*128),1+(Math.random()<.3),1)}
+  for(let k=0;k<10;k++){const v=Math.floor(195+Math.random()*25);x.fillStyle=`rgb(${v},${v},${v})`;x.fillRect(3+Math.floor(Math.random()*120),3+Math.floor(Math.random()*120),2+Math.floor(Math.random()*2),2)}
+  for(let r=0;r<8;r++){const yy=r*16+Math.floor(Math.random()*8);for(let i=0;i<128;i++){if(Math.random()<.55){x.fillStyle='rgba(0,0,0,.05)';x.fillRect(i,(yy+Math.round(Math.sin(i/9+r)*1.4)+128)%128,1,1)}}}
+  const t=new THREE.CanvasTexture(halfCanvas(c));t.wrapS=t.wrapT=THREE.RepeatWrapping;t.anisotropy=4;return t;
+}
+const sandTex=makeSandTex();
+// ドームや屋根のうろこ状の釉薬タイル
+function makeScaleTex(){
+  const c=document.createElement('canvas');c.width=c.height=128;const x=c.getContext('2d');
+  x.fillStyle='rgb(238,238,238)';x.fillRect(0,0,128,128);
+  for(let r=0;r<8;r++)for(let i=-1;i<8;i++){
+    const cx=i*16+(r%2)*8+8,cy=r*16+8;
+    x.fillStyle=`rgb(${Math.floor(222+Math.random()*30)},${Math.floor(222+Math.random()*30)},${Math.floor(222+Math.random()*30)})`;x.beginPath();x.arc(cx,cy,8,0,Math.PI);x.lineTo(cx-8,cy-8);x.lineTo(cx+8,cy-8);x.fill();
+    x.strokeStyle='rgba(60,50,40,.14)';x.lineWidth=1.2;x.beginPath();x.arc(cx,cy,8,0,Math.PI);x.stroke();
+  }
+  const t=new THREE.CanvasTexture(halfCanvas(c));t.wrapS=t.wrapT=THREE.RepeatWrapping;t.anisotropy=4;return t;
+}
+const scaleTex=makeScaleTex();
+// 低周波の明暗むら用ノイズ（64px・つなぎ目なし）。全材質で共有するので重くならない
+function makeNoiseTex(){
+  const N=64,G=8,g=Array.from({length:G*G},()=>Math.random()),c=document.createElement('canvas');c.width=c.height=N;const x=c.getContext('2d'),im=x.createImageData(N,N),sm=t=>t*t*(3-2*t);
+  for(let j=0;j<N;j++)for(let i=0;i<N;i++){
+    const fx=i/N*G,fy=j/N*G,ix=Math.floor(fx),iy=Math.floor(fy),tx=sm(fx-ix),ty=sm(fy-iy),a=g[iy%G*G+ix%G],b=g[iy%G*G+(ix+1)%G],cc=g[(iy+1)%G*G+ix%G],d=g[(iy+1)%G*G+(ix+1)%G];
+    const v=Math.floor(255*((a*(1-tx)+b*tx)*(1-ty)+(cc*(1-tx)+d*tx)*ty)),k=(j*N+i)*4;im.data[k]=im.data[k+1]=im.data[k+2]=v;im.data[k+3]=255;
+  }
+  x.putImageData(im,0,0);const t=new THREE.CanvasTexture(halfCanvas(c));t.wrapS=t.wrapT=THREE.RepeatWrapping;return t;
+}
+const noiseTex=makeNoiseTex();
+function pixTex(w,h,fn,nearest){w>>=1;h>>=1;const c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d'),im=x.createImageData(w,h);
+  for(let j=0;j<h;j++)for(let i=0;i<w;i++){const k=(j*w+i)*4,v=fn(i*2,j*2);im.data[k]=v[0];im.data[k+1]=v[1];im.data[k+2]=v[2];im.data[k+3]=255}
+  x.putImageData(im,0,0);const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.anisotropy=4;t.magFilter=nearest?THREE.NearestFilter:THREE.LinearFilter;return t}
+const MEANDER=['XXXXXXX.','X.....X.','X.XXX.X.','X.X.X.X.','X.X.XXX.','X.X.....','X.XXXXXX','........'];
+const meanderTex=pixTex(64,64,(i,j)=>{const on=MEANDER[j>>3][i>>3]==='X',n=(Math.random()-.5)*16;return on?[100+n,74+n,52+n]:[232+n,219+n,194+n]},true);          // ギリシャ雷文（1m角）
+const latticeTex=pixTex(32,32,(i,j)=>{const on=(i+j)%8<2||(i-j+64)%8<2,n=(Math.random()-.5)*14;return on?[152+n,106+n,70+n]:[44+n*.4,31+n*.4,23+n*.4]},true);   // 木の格子
+const glassTex=(()=>{const t=pixTex(32,64,(i,j)=>{const n=(Math.random()-.5)*12,u=j/64,mull=(i>=15&&i<=16)||(j>=24&&j<=25)||i<2||i>29||j<2;
+  if(mull)return[70+n,50+n,38+n];const hl=(i+j*.5>34&&i+j*.5<40)?18:0;return[104-u*38+n+hl,134-u*36+n+hl,154-u*34+n+hl]},true);t.wrapS=THREE.ClampToEdgeWrapping;t.offset.set(.5,0);return t})();   // 青灰色のガラスと桟
+const archGlassM=new THREE.MeshBasicMaterial({map:glassTex});
+function unitBoxMat(tex,tile){                                  // 単位箱(1×1×1)をスケールした箱の各面に、面の実寸(m)でタイルを貼る
+  const m=new THREE.MeshPhongMaterial({map:tex,color:0xffffff,shininess:2,specular:0x111111});
+  m.onBeforeCompile=sh=>{
+    sh.uniforms.ubTile={value:1/tile};
+    sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nvarying vec3 vLP;varying vec3 vLN;varying vec3 vSc;')
+      .replace('#include <begin_vertex>','#include <begin_vertex>\nvLP=position;vLN=normal;vSc=vec3(1.0);\n#ifdef USE_INSTANCING\nvSc=vec3(length(instanceMatrix[0].xyz),length(instanceMatrix[1].xyz),length(instanceMatrix[2].xyz));\n#endif');
+    sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\nvarying vec3 vLP;varying vec3 vLN;varying vec3 vSc;uniform float ubTile;')
+      .replace('#include <map_fragment>','#ifdef USE_MAP\nvec3 an=abs(vLN);vec2 q=an.z>.5?vec2(vLP.x*vSc.x,vLP.y*vSc.y):(an.x>.5?vec2(vLP.z*vSc.z,vLP.y*vSc.y):vec2(vLP.x*vSc.x,vLP.z*vSc.z));\ndiffuseColor*=texture2D(map,q*ubTile+.5);\n#endif');
+  };
+  m.customProgramCacheKey=()=>'unitbox';return m;
+}
+const FRIEZE_M=unitBoxMat(meanderTex,1),LATTICE_M=unitBoxMat(latticeTex,.55),FZ_C=new THREE.Color(0xe6d6b4);
+// 世界座標で三方向から貼るテクスチャ。tile=タイル1枚のメートル数 / macro=明暗・色むらの強さ(0〜1) / grime=足元ほど暗く汚れる強さ(0〜1)
+function triplanar(mat,tile,macro,grime){
+  mat.onBeforeCompile=sh=>{
+    sh.uniforms.tpScale={value:1/tile};sh.uniforms.tpMacro={value:macro===undefined?1:macro};sh.uniforms.tpGrime={value:grime||0};sh.uniforms.tpNoise={value:noiseTex};
+    sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nvarying vec3 vWP;varying vec3 vWN;')
+      .replace('#include <begin_vertex>','#include <begin_vertex>\nvec4 wp4=vec4(transformed,1.0);vec3 wn3=objectNormal;\n#ifdef USE_INSTANCING\nwp4=instanceMatrix*wp4;wn3=mat3(instanceMatrix)*wn3;\n#endif\nwp4=modelMatrix*wp4;vWP=wp4.xyz;vWN=normalize(mat3(modelMatrix)*wn3);');
+    sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\nvarying vec3 vWP;varying vec3 vWN;uniform float tpScale;uniform float tpMacro;uniform float tpGrime;uniform sampler2D tpNoise;')
+      .replace('#include <map_fragment>',`#ifdef USE_MAP
+vec3 bn=pow(abs(normalize(vWN)),vec3(8.0));bn/=(bn.x+bn.y+bn.z);
+vec4 tx=texture2D(map,vWP.zy*tpScale)*bn.x+texture2D(map,vWP.xz*tpScale)*bn.y+texture2D(map,vWP.xy*tpScale)*bn.z;
+vec2 np=vWP.xz+vec2(vWP.y*.6,-vWP.y*.4);
+float n1=texture2D(tpNoise,np*.031).r,n2=texture2D(tpNoise,np*.097+.37).r;
+vec3 tone=vec3(mix(.78,1.16,n1*.6+n2*.4))*mix(vec3(1.05,1.0,.92),vec3(.95,.99,1.04),n2);
+tx.rgb*=mix(vec3(1.0),tone,tpMacro);
+tx.rgb*=mix(1.0,.7+.3*n1,(1.0-smoothstep(3.0,10.0,vWP.y))*tpGrime);
+diffuseColor*=tx;
+#endif`);
+  };
+  mat.customProgramCacheKey=()=>'triplanar';
+  return mat;
+}
+const BUILD_MATS=[0xc9a56e,0xd2b27c,0xbf9a64,0xb8935c,0xd9bf8c].map(c=>triplanar(new THREE.MeshPhongMaterial({color:c,map:brickTex,shininess:2,specular:0x111111}),3.7,.9,.8));
+const DOME_M=triplanar(new THREE.MeshLambertMaterial({color:0xb9bfba,map:brickTex}),2.6,.8,0),CAP_M=triplanar(new THREE.MeshLambertMaterial({color:0x2e66a6,map:scaleTex}),3,.3,0);
+const boxG=new THREE.BoxGeometry(1,1,1),domeG=new THREE.SphereGeometry(1,8,4,0,Math.PI*2,0,Math.PI/2),minG=new THREE.CylinderGeometry(.8,1,1,8),capG=new THREE.ConeGeometry(1.2,2.4,8);
 const trunkM=new THREE.MeshLambertMaterial({color:0x6b4a2b}),leafM=new THREE.MeshLambertMaterial({color:0x58802f,side:THREE.DoubleSide}),rockM=new THREE.MeshLambertMaterial({color:0x8a8070});
 // 尖頭アーチ（壁面に貼る暗い凹み）。幅1・高さ1の形を拡大して使う
 const archShape=new THREE.Shape();
@@ -553,7 +728,7 @@ frameShape.moveTo(-.65,0);frameShape.lineTo(-.65,.62);frameShape.quadraticCurveT
 frameShape.lineTo(.5,0);frameShape.lineTo(.5,.6);frameShape.quadraticCurveTo(.5,.85,0,1);frameShape.quadraticCurveTo(-.5,.85,-.5,.6);frameShape.lineTo(-.5,0);frameShape.closePath();
 const frameG=new THREE.ExtrudeGeometry(frameShape,{depth:.25,bevelEnabled:false});
 const frameM=new THREE.MeshLambertMaterial({color:0xffffff}),detailM=new THREE.MeshLambertMaterial({color:0xffffff});
-const MIN_M=new THREE.MeshLambertMaterial({color:0xcdb07a}),ringG=new THREE.CylinderGeometry(1.6,1.6,.35,10);
+const MIN_M=triplanar(new THREE.MeshLambertMaterial({color:0xd2b88a,map:brickTex}),2.2,.8,.4),ringG=new THREE.CylinderGeometry(1.6,1.6,.35,10);
 const colG=new THREE.CylinderGeometry(1,1,1,8),colM=new THREE.MeshLambertMaterial({color:0xd4b985});
 const fountainG=new THREE.CylinderGeometry(1.3,1.4,.5,12),fountainM=new THREE.MeshLambertMaterial({color:0xbdae90});
 const waterG=new THREE.CircleGeometry(1.1,12);waterG.rotateX(-Math.PI/2);const waterM=new THREE.MeshLambertMaterial({color:0x3a7ca5});
@@ -562,9 +737,38 @@ function addPalm(g,x,y,z,s){
   const l=new THREE.Mesh(leafG,leafM);l.position.set(x,y+6*s,z);l.scale.setScalar(s);l.rotation.x=Math.PI;
   g.add(t,l);
 }
+
+// ---------- バイオームの植生（チャンクごとにインスタンス描画）----------
+function mergeParts(parts){                                      // [{g:ジオメトリ,c:[r,g,b]}] を、面ごとの法線と頂点色つきの1つにまとめる（ローポリ）
+  const pos=[],nor=[],col=[];
+  for(const{g,c}of parts){
+    const f=g.toNonIndexed();f.computeVertexNormals();
+    const p=f.attributes.position.array,n=f.attributes.normal.array;
+    for(let i=0;i<p.length;i++){pos.push(p[i]);nor.push(n[i])}
+    for(let i=0;i<p.length/3;i++)col.push(c[0],c[1],c[2]);
+    f.dispose();g.dispose();
+  }
+  const m=new THREE.BufferGeometry();
+  m.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));m.setAttribute('normal',new THREE.Float32BufferAttribute(nor,3));m.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
+  return m;
+}
+const VEG=(()=>{
+  const cyl=(a,b,h,seg,y,c)=>({g:new THREE.CylinderGeometry(a,b,h,seg).translate(0,y,0),c});
+  const cone=(r,h,seg,y,c,flip)=>{const g=new THREE.ConeGeometry(r,h,seg);if(flip)g.rotateX(Math.PI);return{g:g.translate(0,y,0),c}};
+  const ball=(r,sy,x,y,z,c)=>{const g=new THREE.IcosahedronGeometry(r,0);g.scale(1,sy,1);return{g:g.translate(x,y,z),c}};
+  return{
+    palm:mergeParts([cyl(.18,.3,6,6,3,[.42,.29,.17]),cone(2.6,1.2,8,6,[.35,.5,.18],true)]),                                     // ヤシ🌴（砂漠の水辺・熱帯）
+    tree:mergeParts([cyl(.2,.32,3.2,6,1.6,[.4,.28,.17]),ball(2.1,.85,0,4.6,0,[.3,.55,.2]),ball(1.4,.85,.9,3.9,.4,[.36,.62,.24])]),   // 広葉樹🌳（温帯）
+    pine:mergeParts([cyl(.22,.42,13,5,6.5,[.3,.2,.12]),cone(3.4,6,7,6.5,[.12,.3,.16]),cone(2.6,5.5,7,9.7,[.15,.35,.18]),cone(1.7,5,7,13,[.18,.4,.2])]),   // 針葉樹🌲（冷帯・約15m）
+    pineS:mergeParts([cyl(.22,.42,13,5,6.5,[.3,.2,.12]),cone(3.4,6,7,6.5,[.62,.74,.7]),cone(2.6,5.5,7,9.7,[.74,.84,.82]),cone(1.7,5,7,13,[.9,.95,.97])]),   // 雪をかぶった針葉樹
+    jungle:mergeParts([cyl(.35,.6,18,6,9,[.28,.2,.13]),ball(4.6,.7,0,19,0,[.08,.27,.09]),ball(3.2,.8,2.2,16,1,[.11,.33,.1]),ball(3,.8,-2,15.5,-1.2,[.1,.3,.09])]),   // ジャングルの背の高い木（約22m）
+    acacia:mergeParts([cyl(.2,.32,4.4,5,2.2,[.42,.3,.2]),ball(3.3,.3,0,4.7,0,[.46,.52,.2]),ball(2,.3,1.8,3.9,.6,[.5,.56,.22])])   // サバンナの傘形の木
+  };
+})();
+const vegM=new THREE.MeshLambertMaterial({vertexColors:true}),rockV=new THREE.MeshLambertMaterial({color:0xffffff});
 // 宮殿（写真のような黄砂岩の大宮殿）: 中心に、段数ランダムの吹き抜けの本殿（最上段に大ドーム）、その左右に鏡写しの翼棟・端の塔・裏棟、前庭に生け垣
 const TRIM_M=new THREE.MeshPhongMaterial({color:0xf0e0bb,shininess:4,specular:0x151515});   // 縁取り・柱・窓枠（明るい石）
-const PAL_M=new THREE.MeshPhongMaterial({color:0xe3b777,map:brickTex,bumpMap:brickTex,bumpScale:3,shininess:2,specular:0x111111});
+const PAL_M=triplanar(new THREE.MeshPhongMaterial({color:0xe3b777,map:brickTex,shininess:2,specular:0x111111}),4.6,.9,.7);
 function addPalace(g,p,geos){
   const pg=new THREE.Group();pg.position.set(p.x,TOWN_H+DH,p.z);pg.rotation.y=p.th;pg.scale.setScalar(p.k);g.add(pg);
   const box=(w,h,d,x,y,z)=>{                              // 石の壁（レンガ模様の大きさを面積に合わせる）
@@ -589,9 +793,9 @@ function addPalace(g,p,geos){
     p.tc.forEach((a,i)=>{dm.position.set(a[0],a[1],a[2]);dm.rotation.set(0,0,0);dm.scale.set(a[3],a[4],a[3]);dm.updateMatrix();im.setMatrixAt(i,dm.matrix)});
     im.frustumCulled=false;im.receiveShadow=true;pg.add(im)}
 }
-const GATE_M=(()=>{const t=brickTex.clone();t.repeat.set(.5,.5);t.needsUpdate=true;return new THREE.MeshPhongMaterial({color:0xe3b777,map:t,bumpMap:t,bumpScale:3,shininess:2,specular:0x111111})})();
-const DECK_M=new THREE.MeshLambertMaterial({color:0xd6b27c,side:THREE.DoubleSide});
-const WALL_M=new THREE.MeshPhongMaterial({color:0xd8b27a,map:brickTex,shininess:2,specular:0x111111});
+const GATE_M=triplanar(new THREE.MeshPhongMaterial({color:0xe3b777,map:brickTex,shininess:2,specular:0x111111}),5.3,1,.8);
+const DECK_M=triplanar(new THREE.MeshPhongMaterial({color:0xd6b27c,map:paveTex,side:THREE.DoubleSide,shininess:2,specular:0x111111}),3.6,.9,.5);
+const WALL_M=triplanar(new THREE.MeshPhongMaterial({color:0xd8b27a,map:brickTex,shininess:2,specular:0x111111}),5,1,1);
 const palaces=new Map();                                  // 宮殿は巨大なので、チャンクではなくプレイヤーとの距離で出し入れする
 function clearPalaces(){for(const g of palaces.values()){scene.remove(g);g.userData.geos.forEach(x=>x.dispose())}palaces.clear()}
 function updatePalaces(){
@@ -630,16 +834,37 @@ function colorFor(h,slope,x,z){
     for(const r of t2.roads){const zr=r.ax==='z',pp=zr?x:z,al=zr?z:x;if(Math.abs(pp-r.c)<RW/2&&al>r.a0&&al<r.a1)return[.8,.73,.58]}
     if(q<FLATX)return[.76,.68,.5];
   }
-  if(h<WATER+1.5)return[.78,.7,.52];        // 岸辺の砂
-  if(slope>.55)return[.5,.42,.35];          // 岩肌
-  if(h>20)return[.62,.55,.48];
-  const g=Math.min(1,Math.max(0,(h-WATER-1.5)/8));   // 水辺はオアシス風に緑、離れると乾いた土
-  return[.5+.22*g,.58+.04*g,.3+.12*g];
+  const c=climateAt(x,z),de=c.de,sv=c.sv,st=c.st,gr=c.gr,bf=c.bf,tg=c.tg,tf=c.tf,jg=c.jg,cg=c.cg,ta=c.ta,tu=c.tu,sn=c.sn,cold=c.C;   // すぐ読む
+  if(h<WATER+1.5)return[.78-.2*cold,.7-.06*cold,.52+.1*cold];            // 岸辺の砂（冷帯は灰色の砂利）
+  if(slope>.55)return[.5+.02*cold,.42+.12*cold,.35+.23*cold];            // 岩肌
+  if(h>20)return[.62+.3*cold,.55+.4*cold,.48+.5*cold];                   // 高い所（冷帯は雪の峰）
+  const g=Math.min(1,Math.max(0,(h-WATER-1.5)/8)),n=vnoise(x*.09+5,z*.09-8)-.5,n2=vnoise(x*.35,z*.35)-.5;
+  const k=Math.min(1,g*1.6),dv=1+.2*n+.04*n2;
+  const ps=sm01(.55,.75,canopyRaw(x,z)),lit=sm01(.58,.68,vnoise(x*.15,z*.15));   // 森の密な所の暗さ / 落ち葉
+  const col=[0,0,0],add=(w,r,gg,b)=>{if(w>.001){col[0]+=r*w;col[1]+=gg*w;col[2]+=b*w}};
+  add(de,(.5+.36*k)*dv,(.58+.16*k)*dv,(.3+.2*k)*dv);                       // 砂漠: 水辺はオアシス風に緑、離れると砂色（砂丘のむら）
+  add(sv,.66*(1+.25*n)+.03*n2,.6*(1+.2*n),.3*(1+.1*n));                    // サバンナ: 乾いた黄緑の草
+  add(st,.62*(1+.15*n),.64*(1+.12*n),.34*(1+.1*n));                        // ステップ: 淡い黄緑の広い草原
+  const gv=1+.35*n+.12*n2;add(gr,.42*gv,.62*gv,.25*gv);                    // 草原: 明るい緑
+  const bv=(1+.3*n+.08*n2)*(1-.35*ps);add(bf,(.24+.06*lit)*bv,(.46-.1*lit)*bv,(.18-.02*lit)*bv);   // 広葉樹林: 落ち着いた緑と落ち葉
+  const tv=1+.3*n+.1*n2;add(tg,.34*tv,.62*tv,.17*tv);                      // 熱帯草原: 鮮やかな緑
+  add(tf,.16*tv,.4*tv,.12*tv);                                             // 熱帯林
+  const jv=(1+.25*n)*(1-.55*ps);add(jg,.1*jv,.28*jv,.09*jv);               // ジャングル: 濃い緑（密な所はさらに暗い）
+  add(cg,.5*(1+.2*n),.58*(1+.15*n),.38*(1+.1*n));                          // 寒帯の草原: くすんだ淡い緑
+  const av=(1+.25*n)*(1-.4*ps);add(ta,(.2+.1*lit)*av,(.32-.07*lit)*av,(.2-.05*lit)*av);   // 針葉樹林: 暗い青緑と針葉の茶色
+  add(tu,.6,.66,.62);                                                      // 雪原の下地
+  const sw=sm01(.35,.65,sn+.3*n2);                                         // 雪: 雪原は一面、縁はまだら
+  return[col[0]+(.93-col[0])*sw,col[1]+(.96-col[1])*sw,col[2]+(1-col[2])*sw];
 }
 function disposeChunk(c){c.userData.geo.dispose();c.userData.mat.dispose();(c.userData.geos||[]).forEach(x=>x.dispose())}
+function lowPoly(geo){                                            // 頂点共有をやめ、三角形ごとに法線と色を1つにして、面のはっきりしたローポリにする
+  const f=geo.toNonIndexed();geo.dispose();const c=f.attributes.color;
+  for(let i=0;i<c.count;i+=3){const r=(c.getX(i)+c.getX(i+1)+c.getX(i+2))/3,g=(c.getY(i)+c.getY(i+1)+c.getY(i+2))/3,b=(c.getZ(i)+c.getZ(i+1)+c.getZ(i+2))/3;for(let k=0;k<3;k++)c.setXYZ(i+k,r,g,b)}
+  f.computeVertexNormals();return f;
+}
 function makeChunk(cx,cz){
   const g=new THREE.Group();
-  const geo=new THREE.PlaneGeometry(CHUNK,CHUNK,SEG,SEG);geo.rotateX(-Math.PI/2);
+  let geo=new THREE.PlaneGeometry(CHUNK,CHUNK,SEG,SEG);geo.rotateX(-Math.PI/2);
   const p=geo.attributes.position,cols=[];
   for(let i=0;i<p.count;i++){
     const wx=p.getX(i)+cx*CHUNK+CHUNK/2,wz=p.getZ(i)+cz*CHUNK+CHUNK/2;
@@ -648,12 +873,12 @@ function makeChunk(cx,cz){
     cols.push(...colorFor(h,slope,wx,wz));
   }
   geo.setAttribute('color',new THREE.Float32BufferAttribute(cols,3));
-  geo.computeVertexNormals();
-  const terrain=new THREE.Mesh(geo,new THREE.MeshLambertMaterial({vertexColors:true}));terrain.receiveShadow=true;
+  geo=lowPoly(geo);
+  const terrain=new THREE.Mesh(geo,triplanar(new THREE.MeshLambertMaterial({vertexColors:true,map:sandTex}),8,.35,0));terrain.receiveShadow=true;
   terrain.position.set(cx*CHUNK+CHUNK/2,0,cz*CHUNK+CHUNK/2);
   g.add(terrain);
   // 旧市街: 区画ごとにレンガ壁の建物（lotAtと共通）。張り出す柱/縁/アーチ枠・ドーム・ミナレット
-  const arches=[],det=[],geos=[],circ=[],pillars=[];
+  const arches=[],det=[],geos=[],circ=[],pillars=[],fz=[],lat=[];
   const pushArch=(x,y,z,ry,sw,sh,col)=>arches.push([x,y,z,ry,sw,sh,col]);
   const addBuilding=B=>{
     const bx=B.x,bz=B.z,w=B.w,d=B.d,ht=B.ht,grand=B.grand,mat=BUILD_MATS[B.mi];
@@ -667,6 +892,11 @@ function makeChunk(cx,cz){
     det.push([bx,TOWN_H+.45,bz,w+.5,.9,d+.5,fc]);                                  // 土台
     for(const sz of[-1,1]){det.push([bx,TOWN_H+ht+.55,bz+sz*d/2,w+.5,.9,.35,fc]);det.push([bx+sz*w/2,TOWN_H+ht+.55,bz,.35,.9,d+.5,fc])}   // 屋上の低い縁（パラペット）
     for(const sx of[-1,1])for(const sz of[-1,1])det.push([bx+sx*w/2,TOWN_H+ht/2,bz+sz*d/2,.9,ht,.9,dc]);
+    if(ht>=6.5){                                                                // 2階建て以上: 軒下の雷文の帯と、角ぎわの縦の雷文帯
+      const yb=TOWN_H+ht-.75,hh=ht-1.6;
+      for(const sz of[-1,1]){fz.push([bx,yb,bz+sz*(d/2+.06),w-1.8,1,.12,FZ_C]);fz.push([bx+sz*(w/2+.06),yb,bz,.12,1,d-1.8,FZ_C])}
+      for(const sx of[-1,1])for(const sz of[-1,1]){fz.push([bx+sx*(w/2-1.35),TOWN_H+hh/2+.9,bz+sz*(d/2+.06),1,hh,.12,FZ_C]);fz.push([bx+sx*(w/2+.06),TOWN_H+hh/2+.9,bz+sz*(d/2-1.35),.12,hh,1,FZ_C])}
+    }
     const nf=Math.max(1,Math.round(ht/3.3)),oc=dc.clone().multiplyScalar(.9);
     for(let f=1;f<nf;f++)det.push([bx,TOWN_H+3.3*f-.15,bz,w+.3,.3,d+.3,dc]);   // 階の境目の帯
     if(B.dome){
@@ -703,7 +933,7 @@ function makeChunk(cx,cz){
       }
       for(let f=2;f<nf;f++)if((Math.floor(B.uo*997)+f*5+fi*3)%3===0){   // 張り出し窓（出窓）
         const o2=((fi+f)%3-1)*span*.22;
-        det.push([px(o2,.45),TOWN_H+3.3*f+1.3,pz(o2,.45),alongX?2.6:.9,2.2,alongX?.9:2.6,oc]);
+        lat.push([px(o2,.45),TOWN_H+3.3*f+1.3,pz(o2,.45),alongX?2.6:.9,2.2,alongX?.9:2.6,FZ_C]);
       }
     }
     if(B.shop){                                                                  // 商店の店先: 間口を4つに割り、日よけ・入口・カウンター・商品の箱
@@ -780,6 +1010,7 @@ function makeChunk(cx,cz){
     const dk=t.deckB.get(cx+','+cz);                                             // 橋（傾斜路・橋桁・欄干・橋脚）
     if(dk){
       if(dk.box.length){const dmk=new THREE.InstancedMesh(boxG,DECK_M,dk.box.length);dk.box.forEach((a,i)=>{wd.position.set(a[0],a[1],a[2]);wd.rotation.set(0,0,0);wd.scale.set(a[3],a[4],a[5]);wd.updateMatrix();dmk.setMatrixAt(i,wd.matrix)});dmk.frustumCulled=false;dmk.castShadow=dmk.receiveShadow=true;g.add(dmk)}
+      if(dk.fz.length){const fmz=new THREE.InstancedMesh(boxG,FRIEZE_M,dk.fz.length);dk.fz.forEach((a,i)=>{wd.position.set(a[0],a[1],a[2]);wd.rotation.set(0,0,0);wd.scale.set(a[3],a[4],a[5]);wd.updateMatrix();fmz.setMatrixAt(i,wd.matrix);fmz.setColorAt(i,a[6])});fmz.frustumCulled=false;fmz.castShadow=fmz.receiveShadow=true;g.add(fmz)}
       for(const a of dk.pr){const pg=prismGeo(a);geos.push(pg);const m=new THREE.Mesh(pg,DECK_M);m.castShadow=m.receiveShadow=true;g.add(m)}
       for(const c of dk.pc)circ.push(c);
       for(const a of dk.gh)addGate(g,geos,a[0],a[1],a[2],a[3]);
@@ -787,9 +1018,18 @@ function makeChunk(cx,cz){
   }
   const dummy=new THREE.Object3D();
   if(arches.length){
-    const im=new THREE.InstancedMesh(archG,archM,arches.length),fm=new THREE.InstancedMesh(frameG,frameM,arches.length);
-    arches.forEach((a,i)=>{dummy.position.set(a[0],a[1],a[2]);dummy.rotation.set(0,a[3],0);dummy.scale.set(a[4],a[5],1);dummy.updateMatrix();im.setMatrixAt(i,dummy.matrix);fm.setMatrixAt(i,dummy.matrix);fm.setColorAt(i,a[6])});
-    im.frustumCulled=fm.frustumCulled=false;fm.receiveShadow=true;g.add(im,fm);
+    const fm=new THREE.InstancedMesh(frameG,frameM,arches.length),isW=a=>a[4]===1&&a[5]===1.8,mk=(list,mat,tint)=>{
+      if(!list.length)return;const im=new THREE.InstancedMesh(archG,mat,list.length);
+      list.forEach((a,i)=>{dummy.position.set(a[0],a[1],a[2]);dummy.rotation.set(0,a[3],0);dummy.scale.set(a[4],a[5],1);dummy.updateMatrix();im.setMatrixAt(i,dummy.matrix);if(tint)im.setColorAt(i,new THREE.Color().setScalar(.84+((Math.abs(a[0]*7+a[2]*13)%5)/5)*.26))});
+      im.frustumCulled=false;g.add(im)};
+    arches.forEach((a,i)=>{dummy.position.set(a[0],a[1],a[2]);dummy.rotation.set(0,a[3],0);dummy.scale.set(a[4],a[5],1);dummy.updateMatrix();fm.setMatrixAt(i,dummy.matrix);fm.setColorAt(i,a[6])});
+    fm.frustumCulled=false;fm.receiveShadow=true;g.add(fm);
+    mk(arches.filter(isW),archGlassM,true);mk(arches.filter(a=>!isW(a)),archM,false);
+  }
+  for(const[list,mat] of[[fz,FRIEZE_M],[lat,LATTICE_M]])if(list.length){                                   // 雷文の帯・木の格子の出窓
+    const m=new THREE.InstancedMesh(boxG,mat,list.length);
+    list.forEach((a,i)=>{dummy.position.set(a[0],a[1],a[2]);dummy.rotation.set(0,0,0);dummy.scale.set(a[3],a[4],a[5]);dummy.updateMatrix();m.setMatrixAt(i,dummy.matrix);m.setColorAt(i,a[6])});
+    m.frustumCulled=false;m.castShadow=m.receiveShadow=true;g.add(m);
   }
   if(det.length){
     const dm2=new THREE.InstancedMesh(boxG,detailM,det.length);
@@ -801,20 +1041,48 @@ function makeChunk(cx,cz){
     pillars.forEach((a,i)=>{dummy.position.set(a[0],TOWN_H+a[3]/2,a[1]);dummy.rotation.set(0,0,0);dummy.scale.set(a[2],a[3],a[2]);dummy.updateMatrix();cm.setMatrixAt(i,dummy.matrix)});
     cm.frustumCulled=false;cm.castShadow=cm.receiveShadow=true;g.add(cm);
   }
-  // 木・岩（チャンク座標から決定的に配置）
+  // 木・岩（チャンク座標から決定的に配置）: 気候帯・植生ごとに種類と密度が変わる
+  //  砂漠=ほぼ何も無い(水辺にヤシ) / サバンナ=傘形の木がぽつぽつ / ステップ=ほぼ草だけ / 草原=広葉樹がまばら / 広葉樹林=広葉樹が密
+  //  熱帯=ヤシとやや高い木、ジャングル=背の高い木が密集 / 冷帯=針葉樹林（雪をかぶる）、雪原は小さな針葉樹がまばら
   const r=mulberry(hash(cx,cz,SEED)*1e9|0);
-  for(let i=0;i<28;i++){
-    const x=cx*CHUNK+r()*CHUNK,z=cz*CHUNK+r()*CHUNK,h=heightAt(x,z);
+  const Lpine=[],LpineS=[],Ltree=[],Ljung=[],Lacac=[],Lpalm=[],Lrock=[],tcol=(v,w)=>new THREE.Color(v,v*(.94+.12*w),v);
+  for(let i=0;i<96;i++){
+    const x=cx*CHUNK+r()*CHUNK,z=cz*CHUNK+r()*CHUNK,q=r(),s0=r(),s1=r(),ry=r()*6.283,tn=r();   // 乱数は先に全部引く（分岐しても他の木の位置が変わらないように）
+    const c=climateAt(x,z),de=c.de,sv=c.sv,st=c.st,gr=c.gr,bf=c.bf,tg=c.tg,tf=c.tf,jg=c.jg,cg=c.cg,ta=c.ta,tu=c.tu,sn=c.sn,cn=sm01(.35,.7,canopyRaw(x,z));   // すぐ読む
+    const pPine=ta*(.24+.52*cn)+cg*(.02+.06*cn*cn)+tu*.025,
+      pTree=bf*(.2+.4*cn)+gr*(.03+.1*cn*cn)+tg*(.015+.04*cn)+st*.002,
+      pJung=jg*(.22+.45*cn)+tf*(.12+.28*cn),
+      pAca=sv*(.012+.03*cn*cn),
+      pPalmMax=de*.06+tg*.03+tf*.012+jg*.008,
+      pRock=de*.01+sv*.02+st*.015+gr*.035+bf*.02+tg*.015+tf*.015+jg*.01+cg*.04+ta*.025+tu*.045;
+    if(q>=pPine+pTree+pJung+pAca+pPalmMax+pRock)continue;
+    const h=heightAt(x,z);
+    if(h<WATER+1.5||h>16||townW(x,z)>0)continue;
+    const pPalm=de*(h<WATER+4?.06:.006)+tg*.03+tf*.012+jg*.008,
+      c1=pPine,c2=c1+pTree,c3=c2+pJung,c4=c3+pAca,c5=c4+pPalm,c6=c5+pRock,
+      kind=q<c1?0:q<c2?1:q<c3?2:q<c4?3:q<c5?4:q<c6?5:-1;
+    if(kind<0)continue;
     const slope=Math.abs(heightAt(x+1,z)-h)+Math.abs(heightAt(x,z+1)-h);
-    if(h<WATER+1.5||h>16||slope>.5||townW(x,z)>0)continue;
-    const s=.8+r()*.9;
-    if(h<WATER+10&&r()<.85){
-      addPalm(g,x,h,z,s);circ.push([x,z,.45]);
-    }else{
-      const k=new THREE.Mesh(rockG,rockM);k.position.set(x,h+.3*s,z);
-      k.scale.set(s,s*.7,s);k.rotation.y=r()*6;g.add(k);circ.push([x,z,s*.9]);
+    if(slope>(kind===5?1:.5))continue;
+    if(kind===0){const s=(.85+.45*s0)*(1-.25*tu);(sn>.5?LpineS:Lpine).push([x,h-.2,z,s,ry,s*(.95+.2*s1),tcol(.8+.3*tn,s1)]);circ.push([x,z,.55*s]);}
+    else if(kind===1){const s=bf>gr?.95+.65*s0:.8+.5*s0;Ltree.push([x,h-.1,z,s,ry,s,tcol(.82+.28*tn,s1)]);circ.push([x,z,.5*s]);}
+    else if(kind===2){const s=.58+.4*s0+.5*jg/(jg+tf+1e-6);Ljung.push([x,h-.2,z,s,ry,s*(.95+.15*s1),tcol(.8+.3*tn,s1)]);circ.push([x,z,.6*s]);}
+    else if(kind===3){const s=.8+.5*s0;Lacac.push([x,h-.1,z,s,ry,s,tcol(.85+.25*tn,s1)]);circ.push([x,z,.35*s]);}
+    else if(kind===4){const s=.8+.9*s0;Lpalm.push([x,h,z,s,ry,s,tcol(.9+.15*tn,s1)]);circ.push([x,z,.45]);}
+    else{
+      const s=.7+s0*(.9+de*1.4),m=.85+.3*tn,wn=sv+st+gr,wf=bf+tg+tf,wc=cg+ta;      // 砂漠の岩は大きめの砂岩、草原は灰色、森は苔むした色、冷帯は青灰色、雪原は白っぽい
+      Lrock.push([x,h+.3*s,z,s,ry,s*.7,new THREE.Color((.8*de+.65*wn+.5*wf+.38*jg+.6*wc+.72*tu)*m,(.68*de+.6*wn+.52*wf+.46*jg+.63*wc+.76*tu)*m,(.48*de+.5*wn+.45*wf+.36*jg+.68*wc+.82*tu)*m)]);circ.push([x,z,s*.9]);
     }
   }
+  const vctr=new THREE.Vector3(cx*CHUNK+CHUNK/2,5,cz*CHUNK+CHUNK/2);
+  const mkInst=(geo,mat,list,shadow)=>{
+    if(!list.length)return;
+    const gg=geo.clone();gg.boundingSphere=new THREE.Sphere(vctr,64);geos.push(gg);          // チャンクの範囲を指定して、画面外のチャンクの木は描かない（背の高い木の分、大きめ）
+    const m=new THREE.InstancedMesh(gg,mat,list.length);
+    list.forEach((a,i)=>{dummy.position.set(a[0],a[1],a[2]);dummy.rotation.set(0,a[4],0);dummy.scale.set(a[3],a[5],a[3]);dummy.updateMatrix();m.setMatrixAt(i,dummy.matrix);m.setColorAt(i,a[6])});
+    m.castShadow=shadow;m.receiveShadow=true;g.add(m);
+  };
+  mkInst(VEG.pine,vegM,Lpine,true);mkInst(VEG.pineS,vegM,LpineS,true);mkInst(VEG.tree,vegM,Ltree,true);mkInst(VEG.jungle,vegM,Ljung,true);mkInst(VEG.acacia,vegM,Lacac,true);mkInst(VEG.palm,vegM,Lpalm,true);mkInst(rockG,rockV,Lrock,true);
   g.userData.geo=geo;g.userData.geos=geos;g.userData.circ=circ;g.userData.mat=terrain.material;
   scene.add(g);return g;
 }
@@ -856,6 +1124,7 @@ function resetWorld(){
   }
   player.yaw=sr()*6.283;player.pitch=0;
   player.gy=Math.max(heightAt(player.x,player.z),WATER-.5);player.y=player.gy+1.7;
+  updateEnv(0,true);
 }
 
 // ---------- プレイヤー（一人称） ----------
@@ -928,7 +1197,7 @@ function collide(){
   ground();
   const di=deckInfo(player.x,player.z),onDeck=di&&di.h>.8&&player.gy>=TOWN_H+di.h-STEP-.01;
   if(onDeck){                                                                   // 橋の上: 欄干で両脇を止める（下の建物・柱とは当たらない）
-    const v=di.zr?player.x:player.z,lim=RW/2-.55,u=Math.max(di.c-lim,Math.min(di.c+lim,v));
+    const v=di.zr?player.x:player.z,lim=RW/2-.95,u=Math.max(di.c-lim,Math.min(di.c+lim,v));
     if(di.zr)player.x=u;else player.z=u;
     return;
   }
@@ -970,10 +1239,79 @@ function updateNav(){
   navEl.innerHTML=`<span style="display:inline-block;transform:rotate(${rel}rad)">↑</span> 最寄りの街の中心まで約${Math.round(bd)}m`;
 }
 
+// ---------- デバッグ: バイオーム・建物へワープ ----------
+// 「デバッグ」ボタン（PCはPキーでも開閉）でパネルを開く。バイオームは今いる所から近い順に探し、同じ所にいる時は800m以上離れた別の場所へ飛ぶ。
+// 建物は近い街から順に、押すたびに次の場所へ（街の宮殿（広場・本殿の中・背面・正面）・大建築・外壁の門・橋・商店街）。
+const dbgBox=document.getElementById('dbg'),dbgVisited={};let dbgMsg=null,dbgOpen=false;
+function warpTo(x,z,yaw,gy){
+  player.x=x;player.z=z;player.yaw=yaw;player.pitch=0;
+  player.gy=gy===undefined?Math.max(heightAt(x,z),WATER-.5):gy;player.y=player.gy+1.7;   // 橋の上などは高さを指定（足元+STEPまでの面にしか乗れないため）
+  updateChunks();updateEnv(0,true);collide();player.y=player.gy+1.7;
+}
+function warpBiome(key,name){
+  const px=player.x,pz=player.z,here=climateAt(px,pz)[key];
+  let found=null,best=null,bw=0;
+  for(let r=here>.85?800:60;r<=40000&&!found;r+=r<2000?120:300){
+    const step=r<2000?120:300,n=Math.max(8,Math.ceil(6.2832*r/step)),off=Math.random()*6.2832;   // 毎回違う向きから探す
+    for(let i=0;i<n;i++){
+      const a=off+i/n*6.2832,x=px+Math.cos(a)*r,z=pz+Math.sin(a)*r,w=climateAt(x,z)[key];
+      if(w<.85&&w<=bw)continue;
+      const h=heightAt(x,z);if(h<WATER+2||h>16||townW(x,z)>0)continue;       // 陸で、街の近くでない所
+      if(w>=.85){found=[x,z];break}
+      bw=w;best=[x,z];
+    }
+  }
+  const p=found||(bw>.4?best:null);
+  if(!p){dbgMsg.textContent=name+': 見つかりません（半径40km以内）';return}
+  warpTo(p[0],p[1],Math.random()*6.2832);
+  dbgMsg.textContent=`${name}へ移動（${biomeName()}${found?'':'・境目付近'}）`;
+}
+function dbgTowns(){                                              // 近い順の街（3つ以上見つかるまで外側へ広げる。最大±9区画）
+  const cx=Math.floor(player.x/TCELL),cz=Math.floor(player.z/TCELL),out=[];
+  for(let ring=0;ring<=9;ring++){
+    for(let a=-ring;a<=ring;a++)for(let b=-ring;b<=ring;b++){if(Math.max(Math.abs(a),Math.abs(b))!==ring)continue;const t=townOfCell(cx+a,cz+b);if(t)out.push(t)}
+    if(out.length>=3&&ring>=2)break;
+  }
+  return out.sort((p,q)=>Math.hypot(p.x-player.x,p.z-player.z)-Math.hypot(q.x-player.x,q.z-player.z));
+}
+const yawTo=(dx,dz)=>Math.atan2(-dx,-dz);                          // (dx,dz)の方を向くyaw（前=(-sin yaw,-cos yaw)）
+const DBG_B=[
+  ['plaza','宮殿・広場',t=>{const p=t.pal,[x,z]=palW(p,0,20);return[{x,z,yaw:p.th}]}],                 // 本殿に向かって、U字の建物に囲まれた広場
+  ['hall','宮殿・本殿の中',t=>{const p=t.pal,[x,z]=palW(p,0,p.hv+4);return[{x,z,yaw:p.th}]}],           // 吹き抜けの真ん中から奥の壁を向く
+  ['back','宮殿・背面',t=>{const p=t.pal,[x,z]=palW(p,0,-72);return[{x,z,yaw:p.th+Math.PI}]}],            // 青い壁の奥の外から、本殿の背面を見上げる
+  ['front','宮殿・正面',t=>{const p=t.pal,[x,z]=palW(p,0,72);return[{x,z,yaw:p.th}]}],                // 青い壁の正門の前
+  ['grand','大建築',t=>t.landmarks.filter(m=>m.grand).map(m=>({x:m.x,z:m.z+m.d/2+7,yaw:0}))],         // 大モスク風の建物の正面
+  ['gate','外壁の門',t=>t.roads.map(q=>{const zr=q.ax==='z',s=q.s1+12;return{x:zr?q.c:t.x+q.sg*s,z:zr?t.z+q.sg*s:q.c,yaw:zr?yawTo(0,-q.sg):yawTo(-q.sg,0)}})],   // 壁の外から街の中を向く
+  ['bridge','橋の上',t=>t.roads.map(q=>{const zr=q.ax==='z',s=(q.sf+q.s1-16)/2;return{x:zr?q.c:t.x+q.sg*s,z:zr?t.z+q.sg*s:q.c,yaw:zr?yawTo(0,q.sg):yawTo(q.sg,0),gy:TOWN_H+DH}})],   // 宮殿から外壁へ伸びる主要な道の橋
+  ['shop','商店街',t=>t.bz.map(b=>{const m=(b.a0+b.a1)/2,ax=b.ax==='x';return{x:ax?m:b.k*L,z:ax?b.k*L:m,yaw:ax?yawTo(1,0):yawTo(0,1)}})]
+];
+function warpBuilding(type,name,fn){
+  const ts=dbgTowns();
+  if(!ts.length){dbgMsg.textContent=name+': 近くに街がありません';return}
+  const list=[];
+  for(const t of ts){const d0=Math.hypot(t.x-player.x,t.z-player.z);for(const c of fn(t))list.push({c,d:d0+Math.hypot(c.x-t.x,c.z-t.z)*.001})}    // 街の近い順（同じ街の中では順不同）
+  if(!list.length){dbgMsg.textContent=name+': この付近の街には無い';return}
+  const vis=dbgVisited[type]||(dbgVisited[type]=new Set()),key=o=>Math.round(o.c.x)+','+Math.round(o.c.z);
+  let pick=list.find(o=>!vis.has(key(o)));if(!pick){vis.clear();pick=list[0]}
+  vis.add(key(pick));
+  const c=pick.c;warpTo(c.x,c.z,c.yaw,c.gy);
+  dbgMsg.textContent=`${name}へ移動（${vis.size}/${list.length}か所目・街まで約${Math.round(pick.d)}m）`;
+}
+{
+  const H=t=>{const d=document.createElement('div');d.className='h';d.textContent=t;dbgBox.appendChild(d)};
+  const B=(label,fn)=>{const b=document.createElement('button');b.textContent=label;b.onclick=fn;dbgBox.appendChild(b)};
+  H('バイオームへワープ');for(const[k,n] of COVER_NAMES)B(n,()=>warpBiome(k,n));
+  H('建物へワープ');for(const[k,n,f] of DBG_B)B(n,()=>warpBuilding(k,n,f));
+  dbgMsg=document.createElement('div');dbgMsg.id='dbgmsg';dbgBox.appendChild(dbgMsg);
+  const toggle=()=>{dbgOpen=!dbgOpen;dbgBox.style.display=dbgOpen?'block':'none';if(dbgOpen&&document.exitPointerLock)document.exitPointerLock()};   // PCはポインタを解放してクリックできるように
+  document.getElementById('dbgBtn').onclick=toggle;
+  addEventListener('keydown',e=>{if(e.code==='KeyP')toggle()});
+}
+
 // ---------- ループ ----------
 const info=document.getElementById('info');
 document.getElementById('regen').onclick=()=>{SEED=Math.floor(Math.random()*1e9);resetWorld()};
-addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();fitRes()});
 resetWorld();
 let last=performance.now(),frame=0;
 function loop(now){
@@ -987,7 +1325,8 @@ function loop(now){
   camera.position.set(player.x,player.y,player.z);
   camera.rotation.set(player.pitch,player.yaw,0);
   water.position.x=player.x;water.position.z=player.z;
-  if(frame++%10===0){updateChunks();info.textContent=`seed:${SEED}  chunks:${chunks.size}`;updateNav()}
+  updateEnv(dt);
+  if(frame++%10===0){updateChunks();info.textContent=`seed:${SEED}  chunks:${chunks.size}  ${biomeName()}`;updateNav()}
   const tx=Math.round(player.x/.0586)*.0586,tz=Math.round(player.z/.0586)*.0586;   // 影のちらつき防止（テクセルにスナップ）
   sun.target.position.set(tx,0,tz);sun.position.set(tx+SUN_OFF.x,SUN_OFF.y,tz+SUN_OFF.z);
   renderer.render(scene,camera);
