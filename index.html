@@ -1304,6 +1304,9 @@ function dbgTowns(){                                              // 近い順�
 }
 const yawTo=(dx,dz)=>Math.atan2(-dx,-dz);                          // (dx,dz)の方を向くyaw（前=(-sin yaw,-cos yaw)）
 const DBG_B=[
+  ['cityPlaza','都市・中央広場',t=>{const c=t.city;if(!c)return[];return[{x:c.plaza.x,z:c.plaza.z,yaw:0}]}],
+  ['cityMarket','都市・屋根付き市場',t=>{const c=t.city;if(!c)return[];return c.landmarks.filter(m=>m.roofedMarket).map(m=>({x:m.x,z:m.z+m.d/2+9,yaw:0}))}],
+  ['cityStreet','都市・市場通り',t=>{const c=t.city;if(!c)return[];return c.bz.map(b=>{const m=(b.a0+b.a1)/2,ax=b.ax==='x';return{x:ax?m:b.k*L,z:ax?b.k*L:m,yaw:ax?yawTo(1,0):yawTo(0,1)}})}],
   ['plaza','宮殿・広場',t=>{const p=t.pal,[x,z]=palW(p,0,20);return[{x,z,yaw:p.th}]}],                 // 本殿に向かって、U字の建物に囲まれた広場
   ['hall','宮殿・本殿の中',t=>{const p=t.pal,[x,z]=palW(p,0,p.hv+4);return[{x,z,yaw:p.th}]}],           // 吹き抜けの真ん中から奥の壁を向く
   ['back','宮殿・背面',t=>{const p=t.pal,[x,z]=palW(p,0,-72);return[{x,z,yaw:p.th+Math.PI}]}],            // 青い壁の奥の外から、本殿の背面を見上げる
