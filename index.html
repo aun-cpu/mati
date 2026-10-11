@@ -340,6 +340,29 @@ function rawH(x,z){                                              // 街の平坦
   const big=(fbm(x*0.006,z*0.006)-.5)*70,small=(fbm(x*0.03+50,z*0.03+50)-.5)*8,dune=(vnoise(x*.011+90,z*.019-40)-.5)*6;
   return big*(1-.5*de-.6*st-.25*sv+.25*cold)+small*(1-.6*de-.6*st-.3*sv)+dune*de;
 }
+function makeMarketCity(parent){
+  // 王国から独立した小都市。城・城壁・水路・橋を持たず、屋根付き市場と広場を中心に構成する。
+  const rr=mulberry(hash(Math.round(parent.x),Math.round(parent.z),SEED+8081)*1e9|0);
+  const R=235+rr()*65,ang=rr()*Math.PI*2,dist=parent.R+R+210;
+  const x=parent.x+Math.cos(ang)*dist,z=parent.z+Math.sin(ang)*dist,ctl=[];
+  for(let i=0;i<12;i++)ctl.push(.88+rr()*.24);
+  const c={kind:'city',x,z,R,ctl,HS:0,lowP:.12,courtP:.025,landmarks:[],roads:[],bz:[],gates:[],stairs:[],wallB:new Map(),moatB:new Map(),deckB:new Map(),pal:{x,y:0,z,th:0,k:1,rects:[],circs:[],wings:[],roofs:[],dc:[],tb:[],tc:[],arcs:[]}};
+  // 4つの屋根付き市場ホールと、広場を囲む小規模な商業施設
+  const addHall=(dx,dz,w,d,ht,mi)=>{
+    const cols=[];for(let u=-w/2+3;u<w/2;u+=4){cols.push([x+dx+u,z+dz+d/2+1],[x+dx+u,z+dz-d/2-1])}
+    c.landmarks.push({type:'b',x:x+dx,z:z+dz,w,d,ht,top:TOWN_H+ht,m:.45,mi,grand:true,dome:false,min:false,uo:0,vo:0,stair:null,bridges:[],ready:true,arcade:true,cols,circs:cols.map(a=>[a[0],a[1],.35]),town:c,roofedMarket:true});
+  };
+  addHall(-66,-36,52,28,10,0);addHall(66,-36,52,28,10,1);
+  addHall(-66,42,52,28,9,2);addHall(66,42,52,28,9,3);
+  // 市場通りは互いに独立した短い通り。王国の道や橋には接続しない。
+  for(const [ax,off,start,len] of [['x',-83,-35,70],['x',83,-35,70],['z',-28,-15,90],['z',28,-15,90],['x',0,-92,58],['x',0,34,58]]){
+    const k=Math.round(((ax==='x'?z:x)+off)/L);
+    c.bz.push({ax,k,a0:(ax==='x'?x:z)+start,a1:(ax==='x'?x:z)+start+len});
+  }
+  // 中央広場は建物を置かず、四方から市場へ入れる開けた空間にする
+  c.plaza={x,z,w:74,d:48};
+  return c;
+}
 function townOfCell(ix,iz){
   const k=ix+','+iz;if(townCache.has(k))return townCache.get(k);
   const r=mulberry(hash(ix,iz,SEED+101)*1e9|0);
@@ -396,11 +419,12 @@ function townOfCell(ix,iz){
       t.bz.push({ax,k:Math.round(((ax==='x'?t.z:t.x)+off)/L),a0:Math.min(p0,p1),a1:Math.max(p0,p1)});
     }
   }
+  if(t&&!t.kind)t.city=makeMarketCity(t);
   townCache.set(k,t);return t;
 }
 function nearTowns(x,z){
   const ix=Math.floor(x/TCELL),iz=Math.floor(z/TCELL),a=[];
-  for(let i=-1;i<=1;i++)for(let j=-1;j<=1;j++){const t=townOfCell(ix+i,iz+j);if(t)a.push(t)}
+  for(let i=-1;i<=1;i++)for(let j=-1;j<=1;j++){const t=townOfCell(ix+i,iz+j);if(t){a.push(t);if(t.city)a.push(t.city)}}
   return a;
 }
 function townEdge(t,ang){                                        // 方位angでの街の端までの距離
@@ -454,9 +478,11 @@ function lotBase(lx,lz){
   const t=townIn(x0,z0,20);
   if(t){
     const dx=x0-t.x,dz=z0-t.z,Ri=townEdge(t,Math.atan2(dz,dx))*INNER_K;          // Ri=その方角の内壁の半径
-    if(Math.abs(dx)<t.HS+9&&Math.abs(dz)<t.HS+9)o=null;                           // 宮殿の城壁の内側とその周り
-    else if(Math.abs(Math.hypot(dx,dz)-Ri)<16)o=null;                             // 厚い内壁の帯
+    if(t.kind==='city'&&Math.abs(dx)<37&&Math.abs(dz)<24)o=null;                  // 都市中央の広場
+    else if(t.kind!=='city'&&Math.abs(dx)<t.HS+9&&Math.abs(dz)<t.HS+9)o=null;     // 王国の宮殿の城壁の内側とその周り
+    else if(t.kind!=='city'&&Math.abs(Math.hypot(dx,dz)-Ri)<16)o=null;             // 王国の厚い内壁の帯
     else if(t.landmarks.some(m=>Math.abs(x0-m.x)<m.w/2+L/2+1&&Math.abs(z0-m.z)<m.d/2+L/2+1))o=null; // 大建築の敷地・前庭
+    else if(t.kind==='city'&&Math.abs(dx)<39&&Math.abs(dz)<26)o=null;
     else if(sp=shopSpec(t,lx,lz,x0,z0,rr))o=sp;                                   // 商店街の店
     else if(rr()<t.courtP){                                                       // 回廊つきの中庭（柱の二重列＋屋根の輪＋噴水）
       const cols=[],circs=[],add=(x,z)=>{cols.push([x0+x,z0+z]);circs.push([x0+x,z0+z,.3])};
@@ -466,7 +492,7 @@ function lotBase(lx,lz){
       circs.push([x0,z0,1.35]);
       o={type:'court',x0,z0,cols,circs};
     }else{                                                                        // 建物: 区画内で大きさと位置がばらつく→路地の幅が2〜6mで変化
-      const w=9+rr()*3,d=9+rr()*3,mx=(L-w)/2-1,mz=(L-d)/2-1,ht=rr()<t.lowP?4.5+Math.floor(rr()*2)*2.2:3.3*(3+Math.floor(rr()*5));
+      const w=(t.kind==='city'?10:9)+rr()*3,d=(t.kind==='city'?10:9)+rr()*3,mx=(L-w)/2-1,mz=(L-d)/2-1,ht=rr()<t.lowP?4.5+Math.floor(rr()*2)*2.2:3.3*(3+Math.floor(rr()*5));
       o={type:'b',x:x0+(rr()*2-1)*mx,z:z0+(rr()*2-1)*mz,w,d,ht,top:TOWN_H+ht,m:.45,mi:Math.floor(rr()*5),dome:rr()<.12,min:rr()<.07,uo:rr(),vo:rr(),grand:false,ready:false,town:t};
     }
     if(o){                                                                        // 主要な道（幅RW）にかかる建物・中庭・ヤシは作らない
@@ -801,6 +827,7 @@ function clearPalaces(){for(const g of palaces.values()){scene.remove(g);g.userD
 function updatePalaces(){
   const keep=new Set();
   for(const t of nearTowns(player.x,player.z)){
+    if(t.kind==='city')continue;
     const p=t.pal,key=t.x+','+t.z,d=Math.hypot(p.x-player.x,p.z-player.z);
     if(d<320||(d<400&&palaces.has(key))){
       keep.add(key);
@@ -813,7 +840,7 @@ function colorFor(h,slope,x,z){
   const t=townIn(x,z,0);
   if(t){                                                  // 街の地面: 路地=明るい砂、建物の敷地=土
     const dx=x-t.x,dz=z-t.z;
-    if(Math.abs(dx)<t.HS&&Math.abs(dz)<t.HS){                                                         // 宮殿の城壁の内側
+    if(t.kind!=='city'&&Math.abs(dx)<t.HS&&Math.abs(dz)<t.HS){                                                         // 宮殿の城壁の内側
       const pl=palL(t.pal,x,z);
       if(t.pal.wings.some(w=>Math.abs(pl[0]-w[0])<w[2]/2&&Math.abs(pl[1]-w[1])<w[3]/2))return[.74,.68,.55];   // 棟の中の石の床
       if(Math.abs(pl[0])<BLUE.u&&pl[1]>BLUE.v0&&pl[1]<BLUE.v1)return[.82,.75,.6];                     // 青い壁の中: 石畳の広場・中庭
@@ -889,6 +916,7 @@ function makeChunk(cx,cz){
     const b=new THREE.Mesh(bg,mat);b.position.set(bx,TOWN_H+ht/2,bz);b.castShadow=b.receiveShadow=true;g.add(b);
     const dc=mat.color.clone().multiplyScalar(1.05),fc=mat.color.clone().multiplyScalar(1.14),kc=mat.color.clone().multiplyScalar(.2);
     det.push([bx,TOWN_H+ht+.05,bz,w+.5,.1,d+.5,dc]);
+    if(B.roofedMarket){const roof=new THREE.Color(0x765033);det.push([bx,TOWN_H+ht+1.15,bz,w+3,0.7,d+3,roof]);det.push([bx,TOWN_H+ht+.72,bz,w+3,.16,d+3,fc]);}
     det.push([bx,TOWN_H+.45,bz,w+.5,.9,d+.5,fc]);                                  // 土台
     for(const sz of[-1,1]){det.push([bx,TOWN_H+ht+.55,bz+sz*d/2,w+.5,.9,.35,fc]);det.push([bx+sz*w/2,TOWN_H+ht+.55,bz,.35,.9,d+.5,fc])}   // 屋上の低い縁（パラペット）
     for(const sx of[-1,1])for(const sz of[-1,1])det.push([bx+sx*w/2,TOWN_H+ht/2,bz+sz*d/2,.9,ht,.9,dc]);
@@ -1230,7 +1258,7 @@ function updateNav(){
   let best=null,bd=1e9;
   for(let a=-4;a<=4;a++)for(let b=-4;b<=4;b++){
     const t=townOfCell(ix+a,iz+b);if(!t)continue;
-    const d=Math.hypot(t.x-player.x,t.z-player.z);if(d<bd){bd=d;best=t}
+    for(const q of [t,t.city].filter(Boolean)){const d=Math.hypot(q.x-player.x,q.z-player.z);if(d<bd){bd=d;best=q}}
   }
   if(!best){navEl.textContent='';return}
   if(townIn(player.x,player.z,0)){navEl.textContent='街の中';return}
