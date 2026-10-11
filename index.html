@@ -185,6 +185,23 @@ function makePalace(t,fx,fz,k){                                   // 宮殿（�
 function buildWalls(t){
   const HS=t.HS,B=new Map();
   const bk=(x,z)=>{const key=Math.floor(x/CHUNK)+','+Math.floor(z/CHUNK);let b=B.get(key);if(!b){b={w:[],m:[],t:[]};B.set(key,b)}return b};
+  if(t.kind==='city'){
+    // 都市は王国の外壁と同様の石壁・水堀を持つが、内壁や宮殿の壁は作らない。
+    const wallR=a=>townEdge(t,a)-5,gateHalf=8;let idx=0;
+    for(let a=0;a<Math.PI*2;){
+      const r1=wallR(a),a2=a+6/r1,r2=wallR(a2),mx=t.x+(Math.cos(a)*r1+Math.cos(a2)*r2)/2,mz=t.z+(Math.sin(a)*r1+Math.sin(a2)*r2)/2;
+      const dx=mx-t.x,dz=mz-t.z,ang=Math.atan2(dz,dx),rad=Math.hypot(dx,dz);
+      const nearGate=[0,Math.PI/2,Math.PI,-Math.PI/2].some(ga=>Math.abs(Math.atan2(Math.sin(ang-ga),Math.cos(ang-ga)))*rad<gateHalf);
+      if(!nearGate)bk(mx,mz).w.push([mx,mz,Math.hypot((Math.cos(a2)*r2)-(Math.cos(a)*r1),(Math.sin(a2)*r2)-(Math.sin(a)*r1))+.5,8,13,-Math.atan2(Math.sin(a2)*r2-Math.sin(a)*r1,Math.cos(a2)*r2-Math.cos(a)*r1),undefined,(idx++)%3]);
+      a=a2;
+    }
+    // 四方の門の両脇に低い門塔。門の開口は橋から広場へ続く道と一直線。
+    for(const a of[0,Math.PI/2,Math.PI,Math.PI*1.5]){
+      const r=wallR(a),tx=t.x+Math.cos(a)*r,tz=t.z+Math.sin(a)*r;
+      for(const side of[-1,1]){const x=tx-Math.sin(a)*side*10,z=tz+Math.cos(a)*side*10;bk(x,z).w.push([x,z,5,5,14,0]);}
+    }
+    t.wallB=B;return;
+  }
   const gate=(x,z,gw)=>{const dx=Math.abs(x-t.x),dz=Math.abs(z-t.z);return (dx<gw&&dz>HS-8)||(dz<gw&&dx>HS-8)};
   let jn=0;                                                                       // 隣り合う小片の高さ・厚みを少しずらす（重なり部分で面が重なってチラつくのを防ぐ）
   const piece=(x,z,len,th,h,rot,gw)=>{if(!gate(x,z,gw||GW))bk(x,z).w.push([x,z,len,th,h,rot,undefined,(jn++)%3])};
@@ -249,6 +266,21 @@ function bridgeAt(x,z){                                         // 水路にか�
 function buildDeck(t){                                          // 主要な道の橋: 宮殿側の傾斜路・平らな橋桁・欄干・橋脚、外壁の門楼（階段は門楼の中）
   t.gates=[];t.stairs=[];
   const B=new Map(),bk=(x,z)=>{const k=Math.floor(x/CHUNK)+','+Math.floor(z/CHUNK);let b=B.get(k);if(!b){b={box:[],pr:[],pc:[],gh:[],fz:[]};B.set(k,b)}return b};
+  if(t.kind==='city'){
+    // 都市は水堀を渡る橋だけを設置。街の内部に橋桁・門楼・階段は作らない。
+    for(const q of t.roads){
+      const zr=q.ax==='z',ctr=zr?t.z:t.x,W=s=>ctr+q.sg*s,pos=(s,l)=>zr?[q.c+l,W(s)]:[W(s),q.c+l];
+      const b0=q.s1+35,b1=q.s1+55;
+      for(let s=b0;s<b1-1e-6;s+=10){
+        const s2=Math.min(b1,s+10),len=s2-s+.25,mid=(s+s2)/2,p=pos(mid,0),b=bk(p[0],p[1]);
+        b.box.push([p[0],TOWN_H-.46,p[1],zr?10:len,1,zr?len:10]);
+        for(const sd of[-1,1]){const pp=pos(mid,sd*4.6);b.fz.push([pp[0],TOWN_H+.5,pp[1],zr?.8:len,1,zr?len:.8,FZ_C]);b.box.push([pp[0],TOWN_H+1.1,pp[1],zr?1:len,.2,zr?len:1])}
+      }
+      for(const ss of[b0+1.5,(b0+b1)/2,b1-1.5]){const p=pos(ss,0),b=bk(p[0],p[1]);b.box.push([p[0],TOWN_H-3.1,p[1],zr?9:1.6,4.2,zr?1.6:9])}
+      for(const sd of[-1,1]){const p=pos((b0+b1)/2,sd*4.7);t.gates.push({x:p[0],z:p[1],w:zr?.6:b1-b0,d:zr?b1-b0:.6,top:TOWN_H+1,bot:TOWN_H-.5,m:.1})}
+    }
+    t.deckB=B;return;
+  }
   for(const q of t.roads){
     const zr=q.ax==='z',ctr=zr?t.z:t.x,W=s=>ctr+q.sg*s,pos=(s,l)=>zr?[q.c+l,W(s)]:[W(s),q.c+l],YB=TOWN_H-8;
     const sL=q.s1-16;                                           // 門楼の奥（城壁の中の16m）はこの手前から。橋は奥の壁(s1)で門楼の広間へ出る。橋桁はその手前まで
@@ -341,7 +373,7 @@ function rawH(x,z){                                              // 街の平坦
   return big*(1-.5*de-.6*st-.25*sv+.25*cold)+small*(1-.6*de-.6*st-.3*sv)+dune*de;
 }
 function makeMarketCity(parent){
-  // 王国から独立した小都市。城・城壁・水路・橋を持たず、屋根付き市場と広場を中心に構成する。
+  // 王国とは独立した小都市。外壁・水堀・四方の橋と門を備え、内部には橋を置かない。
   const rr=mulberry(hash(Math.round(parent.x),Math.round(parent.z),SEED+8081)*1e9|0);
   const R=235+rr()*65,ang=rr()*Math.PI*2,dist=parent.R+R+210;
   const x=parent.x+Math.cos(ang)*dist,z=parent.z+Math.sin(ang)*dist,ctl=[];
@@ -354,13 +386,25 @@ function makeMarketCity(parent){
   };
   addHall(-66,-36,52,28,10,0);addHall(66,-36,52,28,10,1);
   addHall(-66,42,52,28,9,2);addHall(66,42,52,28,9,3);
-  // 市場通りは互いに独立した短い通り。王国の道や橋には接続しない。
-  for(const [ax,off,start,len] of [['x',-83,-35,70],['x',83,-35,70],['z',-28,-15,90],['z',28,-15,90],['x',0,-92,58],['x',0,34,58]]){
-    const k=Math.round(((ax==='x'?z:x)+off)/L);
-    c.bz.push({ax,k,a0:(ax==='x'?x:z)+start,a1:(ax==='x'?x:z)+start+len});
-  }
-  // 中央広場は建物を置かず、四方から市場へ入れる開けた空間にする
+  // 市場通りは広場から四方の門まで伸ばし、門の外の道路・橋へ連続させる。
   c.plaza={x,z,w:74,d:48};
+  const reach=R+105,halfW=8;
+  c.roads=[
+    {ax:'z',c:x,sg:1,a0:z+c.plaza.d/2,a1:z+reach},
+    {ax:'z',c:x,sg:-1,a0:z-reach,a1:z-c.plaza.d/2},
+    {ax:'x',c:z,sg:1,a0:x+c.plaza.w/2,a1:x+reach},
+    {ax:'x',c:z,sg:-1,a0:x-reach,a1:x-c.plaza.w/2}
+  ];
+  for(const q of c.roads){
+    const zr=q.ax==='z',ang=zr?(q.sg>0?Math.PI/2:-Math.PI/2):(q.sg>0?0:Math.PI);
+    q.s0=0;q.sf=0;q.s1=townEdge(c,ang)+4;
+  }
+  // 四方の道路に沿って市場通りを配置。広場の内部は開けたままにする。
+  for(const q of c.roads){
+    const zr=q.ax==='z',off=(q.sg>0?1:-1)*20,k=Math.round(((zr?z:x)+off)/L);
+    c.bz.push({ax:q.ax,k,a0:q.a0,a1:q.a1});
+  }
+  buildWalls(c);buildDeck(c);buildMoat(c);
   return c;
 }
 function townOfCell(ix,iz){
