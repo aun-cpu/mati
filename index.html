@@ -3178,9 +3178,24 @@ function warpEmpire(){                                           // 帝国（ま
   if(!list.length){dbgMsg.textContent='帝国: ±'+Math.round(12*EMB*TCELL/1000)+'km以内には無い';return}
   const vis=dbgVisited.emp||(dbgVisited.emp=new Set()),key=E=>E.bx+','+E.bz;
   let pick=list.find(E=>!vis.has(key(E)));if(!pick){vis.clear();pick=list[0]}
-  vis.add(key(pick));const t=townOfCell(pick.bx*EMB+1,pick.bz*EMB+1);
-  warpTo(t.x+townEdge(t,0)+90,t.z,yawTo(-1,0));
-  dbgMsg.textContent=`帝国の王都へ移動（${vis.size}/${list.length}か所目）`;
+  vis.add(key(pick));
+  // 王都が西洋風の場合、townOfCell() は意図的に null を返す。
+  // その場合は empireOf() が保持している西洋都市の王都座標を使う。
+  const ci=pick.bx*EMB+1,cz=pick.bz*EMB+1;
+  let t=townOfCell(ci,cz),tx=null,tz=null,edge=0;
+  if(t){tx=t.x;tz=t.z;edge=townEdge(t,0)}
+  else{
+    const cap=pick.euro&&pick.euro.find(o=>o.t==='c');
+    if(cap){tx=cap.x;tz=cap.z;edge=190}
+  }
+  // 地形候補の都合で王都の生成に失敗した帝国でも、デバッグワープ自体は落とさない。
+  if(tx===null||tz===null){
+    const cap=pick.euro&&pick.euro[0];
+    if(cap){tx=cap.x;tz=cap.z;edge=190}
+    else{tx=(pick.bx*EMB+1.5)*TCELL;tz=(pick.bz*EMB+1.5)*TCELL;edge=0}
+  }
+  warpTo(tx+edge+90,tz,yawTo(-1,0));
+  dbgMsg.textContent=`帝国へ移動（${vis.size}/${list.length}か所目）`;
 }
 // ---------- ループ ----------
 const info=document.getElementById('info');
