@@ -933,8 +933,8 @@ function blockCenter(t,x,z){                                      // (x,z)を含
   const cx=f(Ln.V[q],lx),cz=f(Ln.H[q],lz);return cx===null||cz===null?null:{x:cx,z:cz};
 }
 // ---------- 帝国（レア）----------
-// 3×3区画(TCELL×3)の広い範囲がまれに「帝国」になる。中央にやや大きい王都を置き、周囲には空地を挟んで少数の王国・公国・共和国を点在させる。
-// 各拠点の間は曲がりくねった道で結び、道の外は元の地形・バイオームを維持する。
+// 帝国は王都を中心とする連続した都市圏。3×3区画の各区画を諸侯の勢力圏として扱い、内側の境界に城壁を置く。
+// 王権の街道は境界城壁の門を通って諸侯領を横断する。建築様式・畑・植生は支配者ではなく、その土地の気候とバイオームに従う。
 const EMB=3,EMP_P=.07,EMG=128,empCache=new Map();
 const HUT_M=new THREE.MeshLambertMaterial({color:0xffffff}),HUT_B=new THREE.BoxGeometry(1,1,1).translate(0,.5,0),HUT_C=new THREE.ConeGeometry(.7071,1,4).rotateY(Math.PI/4).translate(0,.5,0);
 function empireOf(bx,bz){
@@ -995,6 +995,28 @@ function empRoadD(x,z){                                           // 帝国の�
   const E=empireXZ(x,z);if(!E)return 1e9;empRoads(E);
   const a=E.grid.get(Math.floor(x/EMG)+','+Math.floor(z/EMG));if(!a)return 1e9;
   let m=1e9;for(const s of a){const d=segDist(x,z,s);if(d<m)m=d}return m;
+}
+function empireBoundaryWalls(cx,cz,E){                           // 諸侯領の境界城壁。王権街道が通る箇所は門のために開ける
+  const out=[],x0=cx*CHUNK,z0=cz*CHUNK,x1=x0+CHUNK,z1=z0+CHUNK,step=8,thick=2.4,wh=6.5;
+  const bx=E.bx*EMB*TCELL,bz=E.bz*EMB*TCELL;
+  const add=(x,z,len,rot)=>{
+    const h0=heightAt(x,z);if(h0<WATER+1.5||h0>25)return;
+    const h1=heightAt(x+(rot===0?len/2:0),z+(rot!==0?len/2:0));
+    if(Math.abs(h1-h0)>2.8)return;
+    const cv=climateAt(x,z),des=cv.de>=.6;
+    out.push([x,(h0+h1)/2+wh/2,z,len,wh,thick,rot,new THREE.Color(des?0xb99a6a:(cv.C>.45?0x888d8b:0xb5b0a3))]);
+  };
+  for(let k=1;k<EMB;k++){
+    const xx=bx+k*TCELL;
+    if(xx>=x0&&xx<x1)for(let z=Math.floor(z0/step)*step;z<z1;z+=step){
+      const zz=z+step/2;if(empRoadD(xx,zz)<17)continue;add(xx,zz,step,Math.PI/2);
+    }
+    const zz=bz+k*TCELL;
+    if(zz>=z0&&zz<z1)for(let x=Math.floor(x0/step)*step;x<x1;x+=step){
+      const xx2=x+step/2;if(empRoadD(xx2,zz)<17)continue;add(xx2,zz,step,0);
+    }
+  }
+  return out;
 }
 function townOfCell(ix,iz){
   const k=ix+','+iz;if(townCache.has(k))return townCache.get(k);
@@ -2535,7 +2557,7 @@ function colorFor(h,slope,x,z){
     if(dx<cv.hw-CV_RD&&dz<cv.hd-CV_RD)return[.8,.72,.58];                              // 中庭の石畳
     if(dx<cv.hw+3&&dz<cv.hd+3)return[.7,.58,.42];
     if(dx<cv.hw+22&&dz<cv.hd+22)return[.82,.72,.54];}                                  // 踏み固められた砂
-  if(h>WATER+.5){const rd=empRoadD(x,z);if(rd<3.8&&!townIn(x,z,0)&&!(eu&&Math.hypot(x-eu.x,z-eu.z)<eu.Rt+10)){const q=sm01(2.4,3.8,rd);return[.66-.14*q,.6-.14*q,.5-.13*q]}}   // 帝国の道（石を敷いた明るい道）
+  if(h>WATER+.5){const rd=empRoadD(x,z);if(rd<5.2&&!townIn(x,z,0)&&!(eu&&Math.hypot(x-eu.x,z-eu.z)<eu.Rt+10)){const q=sm01(3.2,5.2,rd);return[.68-.14*q,.62-.14*q,.52-.13*q]}}   // 帝国の道（街道を少し広げ、拠点間の集落道として連続させる）
   const t=townIn(x,z,0);
   if(t){                                                  // 街の地面: 路地=明るい砂、建物の敷地=土
     const dx=x-t.x,dz=z-t.z;
@@ -2563,6 +2585,19 @@ function colorFor(h,slope,x,z){
     if(q>40&&q<58)return[.55,.5,.36];
     for(const r of t2.roads){const zr=r.ax==='z',pp=zr?x:z,al=zr?z:x;if(Math.abs(pp-r.c)<RW/2&&al>r.a0&&al<r.a1)return[.8,.73,.58]}
     if(q<FLATX)return[.76,.68,.5];
+  }
+  // 帝国内の西洋圏では、街道の間にも畑地を連続的に広げる（砂漠・熱帯には適用しない）。
+  {const E=empireXZ(x,z),rd=empRoadD(x,z),cv=climateAt(x,z);
+    if(E&&cv.M+cv.C>.60&&cv.de<.10&&rd>12&&rd<240&&!townIn(x,z,0)&&!euroNear(x,z)){
+      const cell=180,ix=Math.floor(x/cell),iz=Math.floor(z/cell),rr=mulberry(hash(ix,iz,SEED+6217)*1e9|0);
+      const fx=(ix+.5)*cell+(rr()-.5)*52,fz=(iz+.5)*cell+(rr()-.5)*52;
+      const dx=x-fx,dz=z-fz,ang=rr()*Math.PI,ux=Math.cos(ang),uz=Math.sin(ang),u=dx*ux+dz*uz,v=-dx*uz+dz*ux;
+      const fw=48+rr()*32,fh=30+rr()*22;
+      if(Math.abs(u)<fw&&Math.abs(v)<fh){
+        const band=(Math.floor((v+fh)/4.5)&1),noise=(vnoise(x*.12,z*.12)-.5)*.035;
+        return band?[.38+noise,.43+noise,.24+noise]:[.53+noise,.43+noise,.27+noise];
+      }
+    }
   }
   const c=climateAt(x,z),de=c.de,sv=c.sv,st=c.st,gr=c.gr,bf=c.bf,tg=c.tg,tf=c.tf,jg=c.jg,cg=c.cg,ta=c.ta,tu=c.tu,sn=c.sn,cold=c.C;   // すぐ読む
   if(h<WATER+1.5)return[.78-.2*cold,.7-.06*cold,.52+.1*cold];            // 岸辺の砂（冷帯は灰色の砂利）
@@ -2789,16 +2824,17 @@ function makeChunk(cx,cz){
   //  砂漠=ほぼ何も無い(水辺にヤシ) / サバンナ=傘形の木がぽつぽつ / ステップ=ほぼ草だけ / 草原=広葉樹がまばら / 広葉樹林=広葉樹が密
   //  熱帯=ヤシとやや高い木、ジャングル=背の高い木が密集 / 冷帯=針葉樹林（雪をかぶる）、雪原は小さな針葉樹がまばら
   const r=mulberry(hash(cx,cz,SEED)*1e9|0);
-  const hutB=[],hutC=[],hutR=[];                                  // 帝国の小屋（道ぞいに多め、それ以外はまばら）。砂漠風（日干しレンガの平屋根）と西洋風（切妻風の四角錐屋根）が混ざる
-  {const E=empireXZ(cx*CHUNK,cz*CHUNK);if(E){const hr=mulberry(hash(cx,cz,SEED+9100)*1e9|0);
-    for(let n=0;n<2;n++){
-      const x=cx*CHUNK+5+hr()*(CHUNK-10),z=cz*CHUNK+5+hr()*(CHUNK-10),p0=hr(),w=5+hr()*3,d=4+hr()*2.5,hh=3+hr()*1.4,ry=hr()*6.283,st=hr(),tn=hr(),rh=2+hr()*.8,rd=empRoadD(x,z);
-      if(p0>(rd<70?.04:.012)||rd<9)continue;
+  const hutB=[],hutC=[],hutR=[],empWalls=[];                 // 帝国の居住地と諸侯領の境界城壁
+  {const E=empireXZ(cx*CHUNK,cz*CHUNK);if(E){empWalls.push(...empireBoundaryWalls(cx,cz,E));const hr=mulberry(hash(cx,cz,SEED+9100)*1e9|0);
+    // 帝国内の拠点間も連続した居住地にする。道沿いは西洋風の家屋を密に、離れるほど農地・疎住地へ。
+    for(let n=0;n<12;n++){
+      const x=cx*CHUNK+2+hr()*(CHUNK-4),z=cz*CHUNK+2+hr()*(CHUNK-4),p0=hr(),w=5.5+hr()*3.5,d=5+hr()*3,hh=3.6+hr()*1.8,ry=hr()*6.283,st=hr(),tn=hr(),rh=2.2+hr()*1.1,rd=empRoadD(x,z);
+      if(p0>(rd<28?.48:rd<65?.15:.025)||rd<7)continue;
       const h0=heightAt(x,z);
       if(h0<WATER+2||h0>16||mtBump(x,z)>0||townW(x,z)>0||euroNear(x,z)||caravanClear(x,z)||riverEff(x,z)<14||villageDist(x,z)<25||fieldAt(x,z,6))continue;
       let lo=h0,hi=h0;for(const[a,b]of[[1,1],[1,-1],[-1,1],[-1,-1]]){const hv=heightAt(x+a*w/2,z+b*d/2);lo=Math.min(lo,hv);hi=Math.max(hi,hv)}
       if(hi-lo>1.2)continue;
-      const des=st<.25+.5*climateAt(x,z).de,k=.9+.2*tn,c0=Math.cos(ry),s0=Math.sin(ry);
+      const localClimate=climateAt(x,z),des=localClimate.de>=.6,k=.9+.2*tn,c0=Math.cos(ry),s0=Math.sin(ry);
       hutB.push([x,lo-.4,z,w,hh+.4,d,ry,des?new THREE.Color(.82*k,.7*k,.5*k):new THREE.Color(.86*k,.83*k,.74*k)]);
       if(des)hutB.push([x,lo+hh,z,w*1.06,.35,d*1.06,ry,new THREE.Color(.72*k,.6*k,.42*k)]);
       else hutC.push([x,lo+hh,z,w*1.2,rh,d*1.2,ry,tn<.5?new THREE.Color(.55,.22,.16):new THREE.Color(.3,.3,.34)]);
@@ -2847,6 +2883,11 @@ function makeChunk(cx,cz){
   const mkH=(geo,list)=>{if(!list.length)return;const gg=geo.clone();gg.boundingSphere=new THREE.Sphere(vctr,64);geos.push(gg);const m=new THREE.InstancedMesh(gg,HUT_M,list.length);
     list.forEach((a,i)=>{dummy.position.set(a[0],a[1],a[2]);dummy.rotation.set(0,a[6],0);dummy.scale.set(a[3],a[4],a[5]);dummy.updateMatrix();m.setMatrixAt(i,dummy.matrix);m.setColorAt(i,a[7])});m.castShadow=true;m.receiveShadow=true;g.add(m)};
   mkH(HUT_B,hutB);mkH(HUT_C,hutC);
+  if(empWalls.length){
+    const wm=new THREE.InstancedMesh(boxG,WALL_M,empWalls.length);
+    empWalls.forEach((a,i)=>{dummy.position.set(a[0],a[1],a[2]);dummy.rotation.set(0,a[6],0);dummy.scale.set(a[3],a[4],a[5]);dummy.updateMatrix();wm.setMatrixAt(i,dummy.matrix);wm.setColorAt(i,a[7]);circ.push([a[0],a[2],Math.max(a[3]/2,4.5)])});
+    wm.frustumCulled=false;wm.castShadow=wm.receiveShadow=true;g.add(wm);
+  }
   g.userData.geo=geo;g.userData.geos=geos;g.userData.circ=circ;g.userData.mat=terrain.material;
   scene.add(g);return g;
 }
