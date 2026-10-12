@@ -945,20 +945,27 @@ function empireOf(bx,bz){
     const cells=new Map(),euro=[];let land=0;
     for(let a=0;a<3;a++)for(let b=0;b<3;b++){
       const ix=bx*EMB+a,iz=bz*EMB+b,isCapital=a===1&&b===1;
-      // 帝国は建物の密集した巨大都市ではなく、王都と離れた少数の拠点から成る。
-      // 中央と隣接区画以外は空地になりやすく、既存の地形・バイオームを残す。
-      const roll=r(),ty=isCapital?'c':(roll<.43?'-':roll<.70?'e':'d');
+      // 集落の種類は候補地のバイオームから決める。砂漠風の街は砂漠に、西洋風の街は温帯・寒帯に限定。
       let s={t:'-'};
-      if(rawH((ix+.5)*TCELL,(iz+.5)*TCELL)>WATER+3 && ty!=='-'){
-        if(ty==='e'){                                            // 西洋風の都市
-          for(let n=0;n<8;n++){const x=(ix+.2+r()*.6)*TCELL,z=(iz+.2+r()*.6)*TCELL,h=rawH(x,z);
-            if(h>WATER+4&&h<18&&rawH(x+250,z)>WATER+2&&rawH(x-250,z)>WATER+2&&rawH(x,z+250)>WATER+2&&rawH(x,z-250)>WATER+2){s={t:'e',x,z,h};euro.push(s);break}}
-        }else s={t:ty};                                          // 'c'=王都 'd'=小さな王国拠点
+      for(let n=0;n<18;n++){
+        const x=(ix+.18+r()*.64)*TCELL,z=(iz+.18+r()*.64)*TCELL,h=rawH(x,z);
+        if(h<=WATER+4)continue;
+        const c=climateAt(x,z);
+        if(c.de>=.60){
+          // 砂漠の街・王都は、街の外周も砂漠に収まる場所だけを採用。
+          let desert=true;const R=isCapital?620:300;
+          for(let j=0;j<8&&desert;j++){const q=climateAt(x+Math.cos(j*.785)*R,z+Math.sin(j*.785)*R);if(q.de<.60)desert=false}
+          if(desert){s=isCapital?{t:'c',biome:'d'}:{t:'d'};break}
+        }else if(c.M+c.C>=.85&&c.de<.10){
+          // 西洋風の街は温帯・寒帯の中に置き、街の周囲も同じ気候帯か確認。
+          let western=true;for(let j=0;j<8&&western;j++){const q=climateAt(x+Math.cos(j*.785)*250,z+Math.sin(j*.785)*250);if(q.M+q.C<.60||q.de>=.10)western=false}
+          if(western){s=isCapital?{t:'c',biome:'e',x,z,h}:{t:'e',x,z,h};euro.push(s);break}
+        }
       }
       if(s.t!=='-')land++;
       cells.set(ix+','+iz,s);
     }
-    if(cells.get((bx*EMB+1)+','+(bz*EMB+1)).t==='c'&&land>=6)E={bx,bz,cells,euro,roads:null,grid:new Map()};
+    if(cells.get((bx*EMB+1)+','+(bz*EMB+1)).t==='c'&&land>=4)E={bx,bz,cells,euro,roads:null,grid:new Map()};
   }
   empCache.set(k,E);return E;
 }
@@ -968,7 +975,7 @@ function empRoads(E){                                             // 国どう�
   if(E.roads)return E.roads;
   E.roads=[];
   const at=(a,b)=>{const ix=E.bx*EMB+a,iz=E.bz*EMB+b,s=E.cells.get(ix+','+iz);if(!s||s.t==='-')return null;
-    if(s.t==='e')return{x:s.x,z:s.z,gates:null};
+    if(s.t==='e'||(s.t==='c'&&s.biome==='e'))return{x:s.x,z:s.z,gates:null};
     const t=townOfCell(ix,iz);if(!t)return null;
     return{x:t.x,z:t.z,gates:t.roads.map(q=>q.ax==='z'?[q.c,t.z+q.sg*q.s1]:[t.x+q.sg*q.s1,q.c])}};
   const gate=(o,p)=>{if(!o.gates)return[o.x,o.z];let b=null,bd=1e9;for(const g of o.gates){const d=Math.hypot(g[0]-p.x,g[1]-p.z);if(d<bd){bd=d;b=g}}return b};
@@ -991,7 +998,7 @@ function empRoadD(x,z){                                           // 帝国の�
 }
 function townOfCell(ix,iz){
   const k=ix+','+iz;if(townCache.has(k))return townCache.get(k);
-  const r=mulberry(hash(ix,iz,SEED+101)*1e9|0),EC=empireAt(ix,iz),forced=!!EC&&(EC.s.t==='c'||EC.s.t==='d');   // 帝国の区画: 王都と王国は必ず作る（砂漠でなくてもよい）。西洋の国・海の区画は街なし
+  const r=mulberry(hash(ix,iz,SEED+101)*1e9|0),EC=empireAt(ix,iz),desertEmpire=!!EC&&(EC.s.t==='d'||(EC.s.t==='c'&&EC.s.biome==='d')),forced=desertEmpire;   // 帝国の砂漠風拠点だけを砂漠に生成。西洋風拠点は euroOfCell 側で生成
   let t=null;
   if(EC&&!forced){townCache.set(k,null);return null}
   if(forced||r()<TOWN_P){
@@ -1001,7 +1008,7 @@ function townOfCell(ix,iz){
       const cx=(ix+.35+r()*.3)*TCELL,cz=(iz+.35+r()*.3)*TCELL;
       let dm=climateAt(cx,cz).de;                               // 中心と、街の外周（半径の1.15倍）8方向がすべて砂漠か
       for(let i=0;i<8&&dm>=.6;i++)dm=Math.min(dm,climateAt(cx+Math.cos(i*.785)*R*1.15,cz+Math.sin(i*.785)*R*1.15).de);
-      if(dm<.6&&!forced)continue;
+      if(dm<.6)continue;
       let wet=0,mn=1e9,mx=-1e9;
       for(let i=0;i<9;i++){
         const a=i*.785,d=i?R*.7:0,h=rawH(cx+Math.cos(a)*d,cz+Math.sin(a)*d);
@@ -1270,7 +1277,7 @@ function euroOfCell(ix,iz){
   const k=ix+','+iz;if(euroCache.has(k))return euroCache.get(k);
   euroCache.set(k,null);
   {const E=empireOf(Math.floor(ix*ETC/(EMB*TCELL)),Math.floor(iz*ETC/(EMB*TCELL)));     // 帝国の中: 決まった場所の西洋の都市だけ（それ以外は作らない）
-    if(E){const q=E.euro.find(o=>Math.floor(o.x/ETC)===ix&&Math.floor(o.z/ETC)===iz),e=q?makeEuro({x:q.x,z:q.z,h:Math.min(17,Math.max(3,q.h))},mulberry(hash(ix,iz,SEED+4243)*1e9|0)):null;if(e)e.empire=E;euroCache.set(k,e);return e}}
+    if(E){const q=E.euro.find(o=>Math.floor(o.x/ETC)===ix&&Math.floor(o.z/ETC)===iz),e=q?makeEuro({x:q.x,z:q.z,h:Math.min(17,Math.max(3,q.h))},mulberry(hash(ix,iz,SEED+4243)*1e9|0)):null;if(e){e.empire=E;e.capital=q.t==='c';if(e.capital)e.label='王都'}euroCache.set(k,e);return e}}
   const r=mulberry(hash(ix,iz,SEED+4242)*1e9|0);
   let e=null;
   if(r()<.5){
