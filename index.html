@@ -1299,7 +1299,7 @@ function euroOfCell(ix,iz){
   const k=ix+','+iz;if(euroCache.has(k))return euroCache.get(k);
   euroCache.set(k,null);
   {const E=empireOf(Math.floor(ix*ETC/(EMB*TCELL)),Math.floor(iz*ETC/(EMB*TCELL)));     // 帝国の中: 決まった場所の西洋の都市だけ（それ以外は作らない）
-    if(E){const q=E.euro.find(o=>Math.floor(o.x/ETC)===ix&&Math.floor(o.z/ETC)===iz),e=q?makeEuro({x:q.x,z:q.z,h:Math.min(17,Math.max(3,q.h))},mulberry(hash(ix,iz,SEED+4243)*1e9|0)):null;if(e){e.empire=E;e.capital=q.t==='c';if(e.capital)e.label='王都'}euroCache.set(k,e);return e}}
+    if(E){const q=E.euro.find(o=>Math.floor(o.x/ETC)===ix&&Math.floor(o.z/ETC)===iz),e=q?makeEuro({x:q.x,z:q.z,h:Math.min(17,Math.max(3,q.h))},mulberry(hash(ix,iz,SEED+4243)*1e9|0)):null;if(e){e.empire=E;e.capital=q.t==='c';makeEmpireUrbanBelt(e,e.capital);if(e.capital)e.label='王都'}euroCache.set(k,e);return e}}
   const r=mulberry(hash(ix,iz,SEED+4242)*1e9|0);
   let e=null;
   if(r()<.5){
@@ -1560,10 +1560,74 @@ function makeEuro(b0,r){
     e.owall={Ro,pts:P2,skip,cor,sm,og,GR,edges:hull.map((p,i)=>{const q=hull[(i+1)%hull.length];return[p[0]+b0.x,p[1]+b0.z,q[0]+b0.x,q[1]+b0.z]})};
   }
   if(e.manor&&chr){const c=Math.cos(chr.ry),sn=Math.sin(chr.ry),Wd=(lx,lz)=>[b0.x+chr.lx+lx*c+lz*sn,b0.z+chr.lz-lx*sn+lz*c];chr.vil=true;chr.circs=churchCircs(CH_PARTS.v,Wd).concat(churchYard(()=>{},()=>0,Wd,b0.x+chr.lx,b0.z+chr.lz))}   // 公国の教会は村の教会（墓地の石垣つき）
-  e.Rcity=Rt;e.Rt=Rw;e.Rw=Rw;e.gates=gates;e.wallc=wallc;e.mids=mids;e.GT=GT;   // Rt以降は「壁まで含めた町の半径」
+  e.Rcity=Rt;e.Rt=Rw;e.Rw=Rw;e.ang=ang.slice();e.gates=gates;e.wallc=wallc;e.mids=mids;e.GT=GT;   // Rt以降は「壁まで含めた町の半径」
   e.settlementType='city';e.label=settlementLabel(e,'city');
   return e;
 }
+
+function makeEmpireUrbanBelt(e,isCapital){
+  // 帝国内の町は、既存の公国・村と同じ家屋生成関数を使って城壁の外にも広げる。
+  // 城壁の外に環状道路を足し、その両側へ村の木骨造り住宅を配置する。
+  if(!e||!e.empire||!e.ang||!e.Rw)return;
+  const rng=mulberry(hash(Math.round(e.x),Math.round(e.z),SEED+(isCapital?6719:6721))*1e9|0);
+  const radii=isCapital?[e.Rw+34,e.Rw+70,e.Rw+106]:[e.Rw+38,e.Rw+82];
+  e.outb=e.outb||[];
+  e.fields=e.fields||[];
+  const newLots=[];
+  const hAngles=e.ang;
+  for(const rr of radii){
+    // 環状道路は既存の城門から伸びる放射状道路と接続する。
+    for(let k=0;k<8;k++){
+      const a0=hAngles[k],a1=(k===7?hAngles[0]+Math.PI*2:hAngles[k+1]);
+      let px=e.x+Math.cos(a0)*rr,pz=e.z+Math.sin(a0)*rr;
+      for(let j=1;j<=5;j++){
+        const a=a0+(a1-a0)*j/5,x=e.x+Math.cos(a)*rr,z=e.z+Math.sin(a)*rr;
+        e.segs.push([px,pz,x,z]);px=x;pz=z;
+      }
+      // 各区画に2軒ずつ、道路の両側へ配置。王都は区画数を増やし、外周まで市街地を連続させる。
+      const fractions=isCapital?[.22,.43,.64,.82]:[.30,.70];
+      for(const f of fractions){
+        const a=a0+(a1-a0)*f;
+        for(const side of [-1,1]){
+          const w=6.6+rng()*2.6,d=7.8+rng()*3.2;
+          const off=side*(d/2+3.8),rad=rr+off;
+          const x=e.x+Math.cos(a)*rad,z=e.z+Math.sin(a)*rad;
+          if(rawH(x,z)<WATER+3||riverEff(x,z)<7||townW(x,z)>0)continue;
+          const h0=heightAt(x,z),h1=heightAt(x+Math.cos(a)*w/2,z+Math.sin(a)*w/2);
+          if(Math.abs(h0-h1)>2.2)continue;
+          // 既存の放射状道路・環状道路から家屋の幅ぶん離す。
+          let nearRoad=1e9;
+          for(const seg of e.segs){const dd=segDist(x,z,seg);if(dd<nearRoad)nearRoad=dd}
+          if(nearRoad<d/2+2.8)continue;
+          const ry=Math.PI/2-a;
+          const bd={x:x-e.x,z:z-e.z,ax:x,az:z,w,d,f:1+Math.floor(rng()*2),col:0xe0cfae,roof:0x8a3f2d,ry,sd:side===1?1:-1,inf:true,out:true,empireOuter:true};
+          // 村・公国で使っている木骨造り＋切妻屋根＋煙突の家屋を、そのまま既存描画系へ渡す。
+          e.bld.push(bd);
+          e.outb.push([x,z,Math.hypot(w,d)/2+4]);
+          const lot={cx:x,cz:z,ux:Math.cos(ry),uz:-Math.sin(ry),hu:w/2+2,hv:d/2+2};
+          newLots.push(lot);
+        }
+      }
+    }
+  }
+  // 新しい市街地の区画と重なる畑だけ除き、家屋の下や街路沿いに柵・畝が残らないようにする。
+  if(newLots.length&&e.fields.length){
+    const keep=[];
+    for(const f of e.fields){
+      let hit=false;
+      for(const lot of newLots){if(fieldsOverlap(lot,f,2.5)){hit=true;break}}
+      if(hit){
+        const R=Math.hypot(f.hu,f.hv)+16,X0=Math.floor((f.cx-R)/FRC),X1=Math.floor((f.cx+R)/FRC),Z0=Math.floor((f.cz-R)/FRC),Z1=Math.floor((f.cz+R)/FRC);
+        for(const M of (f.pl?[FLD,FLDV]:[FLD]))for(let X=X0;X<=X1;X++)for(let Z=Z0;Z<=Z1;Z++){
+          const key=X+','+Z,L=M.get(key);if(!L)continue;
+          const at=L.indexOf(f);if(at>=0)L.splice(at,1);if(!L.length)M.delete(key);
+        }
+      }else keep.push(f);
+    }
+    e.fields=keep;
+  }
+}
+
 function euroNear(x,z){
   const ix=Math.floor(x/ETC),iz=Math.floor(z/ETC);
   if(ix!==_euIx||iz!==_euIz){_euIx=ix;_euIz=iz;_euL=[];for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++){const q=euroOfCell(ix+a,iz+b);if(q)_euL.push(q)}}
