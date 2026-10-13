@@ -1079,7 +1079,7 @@ function rawH(x,z){                                              // 街の平坦
   const big=(fbm(x*0.006,z*0.006)-.5)*70,small=(fbm(x*0.03+50,z*0.03+50)-.5)*8,dune=(vnoise(x*.011+90,z*.019-40)-.5)*6;
   let hb=big*(1-.5*de-.6*st-.25*sv+.25*cold)+small*(1-.6*de-.6*st-.3*sv)+dune*de+mtBump(x,z);
   if(hb<WATER+4)hb=WATER+4-(WATER+4-hb)*.1;                      // 内陸の湖・池はほぼ埋める（水は川と海だけ）
-  const oo=vnoise(x*.000045+500,z*.000045-300)*.7+vnoise(x*.00011+90,z*.00011+40)*.3,om=sm01(.60,.73,oo);   // 海: 海域を拡大し、陸地を大きな島・半島に分ける
+  const oo=vnoise(x*.000045+500,z*.000045-300)*.7+vnoise(x*.00011+90,z*.00011+40)*.3,om=sm01(.66,.79,oo);   // 海: 海面の割合が全体のおよそ30%になるよう調整
   if(om>0)hb=hb*(1-om)+(WATER-28-12*vnoise(x*.002,z*.002))*om;
   return empBarH(x,z,hb);
 }
