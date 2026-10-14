@@ -37,7 +37,7 @@ function fbm(x,y){let s=0,a=.5,f=1;for(let i=0;i<5;i++){s+=a*vnoise(x*f,y*f);f*=
 // 街: ワールドを TCELL(m) 四方のセルに分け、セルごとに70%で1つ、ランダムな位置・大きさ(半径500〜850m=直径1〜1.7km)・形の巨大な街ができる
 // スポーン地点とは無関係に決まる（スポーンは街の外）。街同士が重ならないよう、中心のずれ幅はセルの30%まで。
 const MS=2;                                                      // 屋敷の規模の倍率（建物・庭・フェンス・当たり判定・配置まで全部）
-const TOWN_H=3,L=14,TCELL=3600,TBLEND=150,TOWN_P=.58;      // L=1区画の大きさ
+const TOWN_H=3,L=14,TCELL=3600,TBLEND=150,TOWN_P=.24,CITY_P=.075;      // L=1区画の大きさ
 const townCache=new Map();
 // 政体ラベル: 宮殿/城 > 屋敷 > なし。構造物の有無から毎回判定し、今後生成される集落にも適用する。
 function settlementLabel(o,type){
@@ -202,18 +202,21 @@ function buildWalls(t){
     for(let a=0;a<Math.PI*2;){
       const r1=wallR(a),a2=a+6/r1,r2=wallR(a2),mx=t.x+(Math.cos(a)*r1+Math.cos(a2)*r2)/2,mz=t.z+(Math.sin(a)*r1+Math.sin(a2)*r2)/2;
       const dx=mx-t.x,dz=mz-t.z,ang=Math.atan2(dz,dx),rad=Math.hypot(dx,dz);
-      const nearGate=[0,Math.PI/2,Math.PI,-Math.PI/2].some(ga=>Math.abs(Math.atan2(Math.sin(ang-ga),Math.cos(ang-ga)))*rad<gateHalf);
+      const nearGate=[0,Math.PI/2,Math.PI,-Math.PI/2].some(ga=>townGateOpen(t,ga)&&Math.abs(Math.atan2(Math.sin(ang-ga),Math.cos(ang-ga)))*rad<gateHalf);
       if(!nearGate)bk(mx,mz).w.push([mx,mz,Math.hypot((Math.cos(a2)*r2)-(Math.cos(a)*r1),(Math.sin(a2)*r2)-(Math.sin(a)*r1))+.5,8,13,-Math.atan2(Math.sin(a2)*r2-Math.sin(a)*r1,Math.cos(a2)*r2-Math.cos(a)*r1),undefined,(idx++)%3]);
       a=a2;
     }
     // 四方の門の両脇に低い門塔。門の開口は橋から広場へ続く道と一直線。
     for(const a of[0,Math.PI/2,Math.PI,Math.PI*1.5]){
+      if(!townGateOpen(t,a))continue;
       const r=wallR(a),tx=t.x+Math.cos(a)*r,tz=t.z+Math.sin(a)*r;
       for(const side of[-1,1]){const x=tx-Math.sin(a)*side*10,z=tz+Math.cos(a)*side*10;bk(x,z).w.push([x,z,5,5,14,0]);}
     }
     t.wallB=B;return;
   }
-  const gate=(x,z,gw)=>{const dx=Math.abs(x-t.x),dz=Math.abs(z-t.z);return (dx<gw&&dz>HS-8)||(dz<gw&&dx>HS-8)};
+  const gate=(x,z,gw)=>{const dx=Math.abs(x-t.x),dz=Math.abs(z-t.z);
+    if(dx<gw&&dz>HS-8)return townGateOpen(t,z>=t.z?Math.PI/2:-Math.PI/2);
+    if(dz<gw&&dx>HS-8)return townGateOpen(t,x>=t.x?0:Math.PI);return false};
   let jn=0;                                                                       // 隣り合う小片の高さ・厚みを少しずらす（重なり部分で面が重なってチラつくのを防ぐ）
   const piece=(x,z,len,th,h,rot,gw)=>{if(!gate(x,z,gw||GW))bk(x,z).w.push([x,z,len,th,h,rot,undefined,(jn++)%3])};
   const ring=(fr,h,th,gw,hn,bg,opt)=>{
@@ -1137,11 +1140,11 @@ function makeMarketCity(parent){
   c.plaza={x,z,w:74,d:48};
   const reach=R+105,halfW=8;
   c.roads=[
-    {ax:'z',c:x,sg:1,a0:z+c.plaza.d/2,a1:z+reach},
-    {ax:'z',c:x,sg:-1,a0:z-reach,a1:z-c.plaza.d/2},
-    {ax:'x',c:z,sg:1,a0:x+c.plaza.w/2,a1:x+reach},
-    {ax:'x',c:z,sg:-1,a0:x-reach,a1:x-c.plaza.w/2}
-  ];
+    {ax:'z',c:x,sg:1,a0:z+c.plaza.d/2,a1:z+reach,ang:Math.PI/2},
+    {ax:'z',c:x,sg:-1,a0:z-reach,a1:z-c.plaza.d/2,ang:-Math.PI/2},
+    {ax:'x',c:z,sg:1,a0:x+c.plaza.w/2,a1:x+reach,ang:0},
+    {ax:'x',c:z,sg:-1,a0:x-reach,a1:x-c.plaza.w/2,ang:Math.PI}
+  ].filter(q=>townGateOpen(c,q.ang));
   for(const q of c.roads){
     const zr=q.ax==='z',ang=zr?(q.sg>0?Math.PI/2:-Math.PI/2):(q.sg>0?0:Math.PI);
     q.s0=0;q.sf=0;q.s1=townEdge(c,ang)+4;
@@ -1172,7 +1175,7 @@ function blockCenter(t,x,z){                                      // (x,z)を含
 // ---------- 帝国（レア）----------
 // 帝国は王都を中心とする連続した都市圏。3×3区画の各区画を諸侯の勢力圏として扱い、内側の境界に城壁を置く。
 // 王権の街道は境界城壁の門を通って諸侯領を横断する。建築様式・畑・植生は支配者ではなく、その土地の気候とバイオームに従う。
-const EMB=3,EMP_P=.07,EMG=48,empCache=new Map();
+const EMB=3,EMP_P=.08,EMG=48,empCache=new Map();
 const HUT_M=new THREE.MeshLambertMaterial({color:0xffffff}),HUT_B=new THREE.BoxGeometry(1,1,1).translate(0,.5,0),HUT_C=new THREE.ConeGeometry(.7071,1,4).rotateY(Math.PI/4).translate(0,.5,0);
 // makeEuro と同じ乱数の並びで、城門の向き・城壁・畑の半径を先に求める（街道を城門の先へつなぐため）。Rj=門の外の道の端
 function euroGateInfo(x,z,big,cap){
@@ -1188,12 +1191,13 @@ function empMainRoads(E,C,r){
   const inBox=(x,z)=>Math.abs(x-E.ccx)<5050&&Math.abs(z-E.ccz)<5050;
   const probe=a=>{let d=0;for(let s=250;s<=4800;s+=125){const x=cx+Math.cos(a)*s,z=cz+Math.sin(a)*s;if(!inBox(x,z)||rawH(x,z)<=WATER+2.5||climateAt(x,z).de>=.10)break;d=s}return d};   // その向きに、陸が続く距離
   const okCity=(x,z,hmax)=>{
-    const h=rawH(x,z);if(h<=WATER+4||h>hmax||mtBump(x,z)>0)return false;
+    const h=rawH(x,z);if(h<=WATER+4||h>hmax||mtBump(x,z)>0||rangeBump(x,z)>62)return false;
+    if(rough(x,z)>15)return false;                                          // 大都市は山腹でなく、街道・農地を広げられる台地や谷底へ
     const c=climateAt(x,z);if(c.de>=.10||c.M+c.C<.85)return false;
     for(let j=0;j<8;j++){const a=j*.785,q=climateAt(x+Math.cos(a)*250,z+Math.sin(a)*250);if(q.M+q.C<.60||q.de>=.10)return false}
     for(let j=0;j<8;j++){const a=j*.785;if(climateAt(x+Math.cos(a)*700,z+Math.sin(a)*700).de>=.2||rawH(x+Math.cos(a)*500,z+Math.sin(a)*500)<=WATER+2)return false}
     return true};
-  const rough=(x,z)=>{let mn=1e9,mx=-1e9;for(let j=0;j<9;j++){const d=j?150:0,a=j*.785,h=rawH(x+Math.cos(a)*d,z+Math.sin(a)*d);if(h<mn)mn=h;if(h>mx)mx=h}return mx-mn};
+  const rough=(x,z)=>{let mn=1e9,mx=-1e9;for(let j=0;j<9;j++){const d=j?180:0,a=j*.785,h=rawH(x+Math.cos(a)*d,z+Math.sin(a)*d);if(h<mn)mn=h;if(h>mx)mx=h}return mx-mn}; // 街と街道が置ける広さの平坦地を評価
   const gateTo=(gi,x,z,a)=>{let b=-1,bd=-9;for(let k=0;k<8;k++){if(gi.used.has(k))continue;const d=Math.cos(gi.ang[k]-a);if(d>bd){bd=d;b=k}}gi.used.add(b);return[x+Math.cos(gi.ang[b])*gi.Rj,z+Math.sin(gi.ang[b])*gi.Rj]};
   const base=(r()-.5)*.7;
   for(let k=0;k<4;k++){
@@ -1247,7 +1251,10 @@ function empGateLine(E,lines,li){
   let ci=cross(pts);
   if(ci<0){                                                          // 道が領土の中で終わっている → 国境まで延ばす
     let T=null;
-    for(let s=60;s<=4500;s+=60){const x=A[0]+dx*s,z=A[1]+dz*s;if(rawH(x,z)<=WATER+2)return;if(D([x,z])>=0){T=[x+dx*50,z+dz*50];break}}
+    for(let s=60;s<=4500;s+=60){const x=A[0]+dx*s,z=A[1]+dz*s,h=rawH(x,z);
+      if(h<=WATER+2||rangeBump(x,z)>72||mtBump(x,z)>48)return;
+      const h2=rawH(x+dx*30,z+dz*30);if(Math.abs(h2-h)/30>.55)return;
+      if(D([x,z])>=0){T=[x+dx*50,z+dz*50];break}}
     if(!T||rawH(T[0],T[1])<=WATER+2)return;
     const ext=empNavPath(A,T,li*10+7);pts=pts.concat(ext.slice(1));ci=cross(pts);
   }
@@ -1262,7 +1269,18 @@ function empGateLine(E,lines,li){
   const out=pts.slice(0,j+1),K=out[out.length-1],S0=[G[0]-ux*45,G[1]-uz*45];
   const seg=(P,Q,st)=>{const L=Math.hypot(Q[0]-P[0],Q[1]-P[1]),n=Math.max(1,Math.round(L/st));for(let i=1;i<=n;i++)out.push([P[0]+(Q[0]-P[0])*i/n,P[1]+(Q[1]-P[1])*i/n])};
   seg(K,S0,24);seg(S0,[G[0]+ux*60,G[1]+uz*60],15);
-  const gobj={x:G[0],z:G[1],ux,uz,h:rawH(G[0],G[1])};
+  // 国境門の周囲を短く探索し、道筋を大きく変えずに「少し高く、起伏は小さい」地点へ寄せる。
+  // 川の真上・急斜面へ要塞を置かないため、±90mの候補を比較する。
+  let gateX=G[0],gateZ=G[1],gateScore=1e9;
+  for(let off=-90;off<=90;off+=15){
+    const xx=G[0]+ux*off,zz=G[1]+uz*off,hh=rawH(xx,zz);
+    if(hh<=WATER+3||hh>75||rangeBump(xx,zz)>95)continue;
+    let lo=hh,hi=hh;for(let j=0;j<8;j++){const a=j*Math.PI/4,q=rawH(xx+Math.cos(a)*38,zz+Math.sin(a)*38);lo=Math.min(lo,q);hi=Math.max(hi,q)}
+    if(hi-lo>13)continue;
+    const score=(75-hh)*.22+(hi-lo)*1.8+Math.abs(off)*.08;
+    if(score<gateScore){gateScore=score;gateX=xx;gateZ=zz}
+  }
+  const gobj={x:gateX,z:gateZ,ux,uz,h:rawH(gateX,gateZ)};
   try{empMargrave(E,out,gobj)}catch(err){console.error(err)}
   lines[li]=out;E.gates.push(gobj);
 }
@@ -1289,7 +1307,7 @@ function empireOf(bx,bz){
   const k=bx+','+bz;if(empCache.has(k))return empCache.get(k);
   empCache.set(k,null);
   const r=mulberry(hash(bx,bz,SEED+9001)*1e9|0);let E=null;
-  if(((bx%3)+3)%3===0&&((bz%3)+3)%3===0){   // 帝国は大陸ごとに1つ（区画の中心のブロック）
+  if(((bx%3)+3)%3===0&&((bz%3)+3)%3===0&&r()<EMP_P){   // 32km級の地域ごとに候補を置き、地形条件を満たす場合も8%だけ帝国化。大半は小国が並ぶ
     const cells=new Map(),euro=[];let land=0;
     for(let a=0;a<3;a++)for(let b=0;b<3;b++){
       const ix=bx*EMB+a,iz=bz*EMB+b,isCapital=a===1&&b===1;
@@ -1305,9 +1323,15 @@ function empireOf(bx,bz){
           let western=true;for(let j=0;j<8&&western;j++){const q=climateAt(x+Math.cos(j*.785)*250,z+Math.sin(j*.785)*250);if(q.M+q.C<.60||q.de>=.10)western=false}
           if(western){const RR=(isCapital?.6:.46)*TCELL*.9,RW=isCapital?RR:.25*TCELL;   // 諸侯の街は、海まで900mあれば置ける（領土が海岸に届き、港町ができる）。王都は今までどおり周囲が陸
           for(let j=0;j<8&&western;j++){if(climateAt(x+Math.cos(j*.785)*RR,z+Math.sin(j*.785)*RR).de>=.2||rawH(x+Math.cos(j*.785)*RW,z+Math.sin(j*.785)*RW)<=WATER+2)western=false}}
-          if(western){const q=isCapital?{t:'c',biome:'e',x,z,h}:{t:'e',x,z,h};
-            if(isCapital||coastNear(x,z)){s=q;euro.push(s);break}   // 諸侯の街は、海岸が1〜1.5km先にある候補を優先（領土が海に面して港町ができる）
-            if(!fb)fb=q}
+          if(western){
+            const relief=[];for(let j=0;j<8;j++)relief.push(rawH(x+Math.cos(j*.785)*210,z+Math.sin(j*.785)*210));
+            const spread=Math.max(h,...relief)-Math.min(h,...relief);
+            if(spread>17||rangeBump(x,z)>62)continue;                         // 街・農地を展開できない急斜面や山脈の中腹は避ける
+            const q=isCapital?{t:'c',biome:'e',x,z,h}:{t:'e',x,z,h};
+            if(isCapital){s=q;euro.push(s);break}
+            if(coastNear(x,z)){s=q;euro.push(s);break}                       // 海岸近くの都市は港・海上交易に接続
+            if(!fb)fb=q
+          }
         }
       }
       if(s.t==='-'&&fb){s=fb;euro.push(s)}
@@ -1324,11 +1348,35 @@ function empireOf(bx,bz){
   empCache.set(k,E);return E;
 }
 // 領土: 各拠点を中心にした(円とは限らない)ゆがんだ円の和集合。empD<0 が領土の内側、0が国境、>0が外側（メートル）
-function empD(E,x,z){let m=1e9;for(const q of E.seats){const d=Math.hypot(x-q.x,z-q.z)-q.R*(1+.34*(vnoise(x*.0007+q.x*.001,z*.0007+q.z*.001)-.5));if(d<m)m=d}
+function empBaseD(E,x,z){let m=1e9;for(const q of E.seats){const d=Math.hypot(x-q.x,z-q.z)-q.R*(1+.34*(vnoise(x*.0007+q.x*.001,z*.0007+q.z*.001)-.5));if(d<m)m=d}
   return Math.max(m,Math.max(Math.abs(x-E.ccx),Math.abs(z-E.ccz))-5250)}
-function empBar(x,z){                                              // 国境の外側の自然障壁。国境線ごとに 山/川/森 をなめらかに切り替えて必ず1つ置く
+function empD(E,x,z){
+  const base=empBaseD(E,x,z);if(Math.abs(base)>700)return base;
+  let best=null,bd=1e9;
+  const ci=Math.floor((x+CONT_O)/CONT),cj=Math.floor((z+CONT_O)/CONT);
+  for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++){
+    const k=contOfCell(ci+a,cj+b);if(!k||Math.hypot(x-k.x,z-k.z)>k.rx*1.25)continue;
+    for(const sg of k.sg){const vx=sg[2]-sg[0],vz=sg[3]-sg[1],l2=vx*vx+vz*vz||1,u=Math.max(0,Math.min(1,((x-sg[0])*vx+(z-sg[1])*vz)/l2)),px=sg[0]+vx*u,pz=sg[1]+vz*u,d=Math.hypot(x-px,z-pz);if(d<bd){bd=d;best={x:px,z:pz,tx:vx/Math.sqrt(l2),tz:vz/Math.sqrt(l2)}}}
+  }
+  // RVHだけを参照し、ここでは川生成を起動しない（境界評価から港生成へ再入するのを防ぐ）。
+  const rx=Math.floor(x/RVC),rz=Math.floor(z/RVC);
+  for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++){const arr=RVH.get((rx+a)+','+(rz+b));if(!arr)continue;
+    for(const q of arr){const vx=q.x1-q.x0,vz=q.z1-q.z0,l2=vx*vx+vz*vz||1,u=Math.max(0,Math.min(1,((x-q.x0)*vx+(z-q.z0)*vz)/l2)),px=q.x0+vx*u,pz=q.z0+vz*u,d=Math.hypot(x-px,z-pz);if(d<bd){bd=d;best={x:px,z:pz,tx:vx/Math.sqrt(l2),tz:vz/Math.sqrt(l2)}}}
+  }
+  if(!best||bd>520)return base;
+  const probe=empBaseD(E,best.x,best.z);if(Math.abs(probe)>720)return base;
+  const gx=empBaseD(E,x+24,z)-empBaseD(E,x-24,z),gz=empBaseD(E,x,z+24)-empBaseD(E,x,z-24),gl=Math.hypot(gx,gz)||1;
+  const align=Math.abs((-gz/gl)*best.tx+(gx/gl)*best.tz);if(align<.58)return base;
+  const weight=(1-sm01(280,520,bd))*(1-sm01(240,720,Math.abs(probe)))*Math.min(1,(align-.45)*2.2);
+  const nx=-best.tz,nz=best.tx,cross=(x-best.x)*nx+(z-best.z)*nz;
+  const plus=empBaseD(E,best.x+nx*24,best.z+nz*24),minus=empBaseD(E,best.x-nx*24,best.z-nz*24);
+  const terrainSigned=(plus<minus?-1:1)*cross; // 領土の内側が負になるよう、稜線・河川の左右を決める
+  return base*(1-weight*.8)+terrainSigned*(weight*.8);
+}
+function empBar(x,z){                                              // 国境の外側の自然障壁。高い稜線が国境に重なる場所では、地形を優先して山地の防衛線にする
   const E=empireXZ(x,z);if(!E||!E.seats)return null;const d=empD(E,x,z);if(d<-2||d>420)return null;
-  const t=(Math.atan2(z-E.c0.z,x-E.c0.x)+Math.PI)/.55,i=Math.floor(t),f=t-i,sf=f*f*(3-2*f),ty=k=>Math.floor(hash(((k%12)+12)%12,E.bx*31+E.bz,SEED+77)*3);
+  const ridge=rangeBump(x,z),t=(Math.atan2(z-E.c0.z,x-E.c0.x)+Math.PI)/.55,i=Math.floor(t),f=t-i,sf=f*f*(3-2*f),ty=k=>Math.floor(hash(((k%12)+12)%12,E.bx*31+E.bz,SEED+77)*3);
+  if(ridge>42)return{d,m:1,r:0,f:0};                                  // 実際の山脈・高い稜線がある場所は、人工的な森や川より山地境界を優先
   const w=[0,0,0];w[ty(i)]+=1-sf;w[ty(i+1)]+=sf;return{d,m:w[0],r:w[1],f:w[2]}}
 function empBarH(x,z,h){const b=empBar(x,z);if(!b)return h;const d=b.d;
   if(b.m>0){const k=Math.max(0,Math.min(1,d/50))*(1-Math.max(0,Math.min(1,(d-230)/140)));h+=b.m*k*(70+30*vnoise(x*.01,z*.01))}   // 山: 国境のすぐ外に連なる
@@ -1371,7 +1419,7 @@ function empNavPath(p,q,sd){                                       // p→q の�
     const pts=[];for(let c=found;c;c=c.pk!==null?best.get(c.pk):null)pts.push(nd(c.i,c.j));return pts.reverse();
   };
   const pts=search(Math.max(520,Ld*.2),0,30000)||search(Math.max(1400,Ld*.45),0,60000)||search(Math.max(1400,Ld*.45),400,60000);
-  if(!pts||pts.length<2)return[p,q];
+  if(!pts||pts.length<2)return[p]; // 経路が見つからない場合は山や海を直線で貫通させず、道を作らない
   const P=pts.map((o,n)=>n===0?[p[0],p[1]]:n===pts.length-1?[q[0],q[1]]:[o.x+(hash(o.i,o.j,SEED+sd)-.5)*G*.5,o.z+(hash(o.j,o.i,SEED+sd+5)-.5)*G*.5]);
   return empChaikin(P,2);
 }
@@ -1604,7 +1652,11 @@ function townOfCell(ix,iz){
     const HS=Math.round(.22*R),fv=[[0,1],[1,0],[-1,0],[0,-1]][Math.floor(r()*4)];   // HS=宮殿の城壁(四角)の半分の長さ。宮殿の正面は東西南北のどれか
     t.HS=HS;t.pal=makePalace(t,fv[0],fv[1],HS/85);
     const L2=1.5*R;                                             // 主要な道: 宮殿の城壁の門から東西南北へ（街の外まで）
-    t.roads=[{ax:'z',c:x,a0:z+HS,a1:z+L2},{ax:'z',c:x,a0:z-L2,a1:z-HS},{ax:'x',c:z,a0:x+HS,a1:x+L2},{ax:'x',c:z,a0:x-L2,a1:x-HS}];
+    const roadCandidates=[
+      {ax:'z',c:x,a0:z+HS,a1:z+L2,ang:Math.PI/2},{ax:'z',c:x,a0:z-L2,a1:z-HS,ang:-Math.PI/2},
+      {ax:'x',c:z,a0:x+HS,a1:x+L2,ang:0},{ax:'x',c:z,a0:x-L2,a1:x-HS,ang:Math.PI}
+    ];
+    t.roads=roadCandidates.filter(q=>townGateOpen(t,q.ang));
     for(const q of t.roads){const zr=q.ax==='z',sg=q.a0>(zr?z:x)?1:-1;q.sg=sg;q.s0=HS-1.5;q.sf=HS+1.5;q.s1=townEdge(t,zr?sg*Math.PI/2:(sg>0?0:Math.PI))+4}
     buildWalls(t);buildDeck(t);buildMoat(t);
     const n=3+Math.floor(R/70);                                 // 大モスク/マドラサ風の大建築（内壁と外壁のあいだの地区に散らす。道とは重ならない）
@@ -1634,9 +1686,20 @@ function townOfCell(ix,iz){
       t.bz.push({ax,k:Math.round(((ax==='x'?t.z:t.x)+off)/L),a0:Math.min(p0,p1),a1:Math.max(p0,p1)});
     }
   }
-  if(t&&!t.kind&&!EC)t.city=makeMarketCity(t);
+  if(t&&!t.kind&&!EC&&r()<.22)t.city=makeMarketCity(t);   // 王国に市場都市が併設されるのは一部だけ
+  if(!t&&!EC&&!forced&&r()<CITY_P){                         // 王国に付属しない独立都市（共和国）もまれに生成
+    let best=null,bs=1e9;
+    for(let n=0;n<12;n++){
+      const cx=(ix+.22+r()*.56)*TCELL,cz=(iz+.22+r()*.56)*TCELL,c=climateAt(cx,cz),h=rawH(cx,cz);
+      if(c.M+c.C<.85||c.de>.1||h<WATER+4||h>19||riverNear(cx,cz,260,35))continue;
+      let mn=h,mx=h;for(let j=0;j<8;j++){const hh=rawH(cx+Math.cos(j*.785)*180,cz+Math.sin(j*.785)*180);mn=Math.min(mn,hh);mx=Math.max(mx,hh)}
+      if(mn<WATER+2.5||mx>24)continue;
+      const score=mx-mn;if(score<bs){bs=score;best={x:cx,z:cz}}
+    }
+    if(best)t=makeMarketCity({x:best.x,z:best.z,R:0});
+  }
   if(t&&EC){t.empire=EC.E;t.capital=EC.s.t==='c'}
-  if(t){t.settlementType='kingdom';t.label=t.capital?'王都':settlementLabel(t,'kingdom');}
+  if(t){if(t.kind==='city'){t.settlementType='city';t.label=settlementLabel(t,'city');}else{t.settlementType='kingdom';t.label=t.capital?'王都':settlementLabel(t,'kingdom');}}
   if(t&&t.city){t.city.settlementType='city';t.city.label=settlementLabel(t.city,'city');}
   townCache.set(k,t);return t;
 }
@@ -1645,9 +1708,21 @@ function nearTowns(x,z){
   for(let i=-1;i<=1;i++)for(let j=-1;j<=1;j++){const t=townOfCell(ix+i,iz+j);if(t){a.push(t);if(t.city)a.push(t.city)}}
   return a;
 }
-function townEdge(t,ang){                                        // 方位angでの街の端までの距離
-  const u=(((ang/(2*Math.PI))%1)+1)%1*12,i=Math.floor(u),f=u-i,sm=f*f*(3-2*f);
-  return t.R*(t.ctl[i]*(1-sm)+t.ctl[(i+1)%12]*sm);
+function townGateOpen(t,ang){
+  const ca=Math.cos(ang),sa=Math.sin(ang),edge=townEdgeBase(t,ang);let prev=rawH(t.x+ca*edge,t.z+sa*edge);
+  if(prev<=WATER+3||rangeBump(t.x+ca*edge,t.z+sa*edge)>62)return false;
+  for(let d=edge+24;d<=edge+420;d+=24){const xx=t.x+ca*d,zz=t.z+sa*d,h=rawH(xx,zz);
+    if(h<=WATER+2.5||rangeBump(xx,zz)>72||mtBump(xx,zz)>42||Math.abs(h-prev)/24>.48)return false;prev=h}
+  return true;
+}
+function townEdgeBase(t,ang){const u=(((ang/(2*Math.PI))%1)+1)%1*12,i=Math.floor(u),f=u-i,sm=f*f*(3-2*f);return t.R*(t.ctl[i]*(1-sm)+t.ctl[(i+1)%12]*sm)}
+function townEdge(t,ang){
+  const base=townEdgeBase(t,ang),key=Math.round((((ang/(2*Math.PI))%1+1)%1)*72);
+  if(!t._edgeTerrain)t._edgeTerrain=new Map();if(t._edgeTerrain.has(key))return t._edgeTerrain.get(key);
+  const a=key/72*Math.PI*2,ca=Math.cos(a),sa=Math.sin(a);let limit=base,prev=rawH(t.x+ca*base*.48,t.z+sa*base*.48);
+  for(let d=base*.48+30;d<=base+180;d+=30){const xx=t.x+ca*d,zz=t.z+sa*d,h=rawH(xx,zz);
+    if(h<=WATER+2.5||rangeBump(xx,zz)>82||mtBump(xx,zz)>65||Math.abs(h-prev)/30>.72){limit=Math.min(limit,Math.max(base*.52,d-35));break}prev=h}
+  t._edgeTerrain.set(key,limit);return limit;
 }
 function townIn(x,z,margin){                                     // (x,z)が街の内側（端からmargin以上）ならその街
   for(const t of nearTowns(x,z)){
@@ -1864,6 +1939,7 @@ function warpCaravan(){
 }
 
 // ---------- 西洋の都市（温帯・寒帯）----------
+// 地形ルール: 都市は急斜面・高山・水没地を避け、川から少し離れた平坦地を優先する。川は水運・農地への近さ、海岸は港・交易への接続として立地評価に加点する。
 // 中心に噴水と円形の広場。そこから8本の道が放射状に伸び、隣り合う道どうしを、あみだくじのようにランダムな高さで斜めにつなぐ。
 // 道の両側には、道を正面にして建物（今は箱＋切妻屋根）が並ぶ。規模は砂漠の都市の半分以下（半径125〜190m）。
 const ETC=1800,euroCache=new Map(),euroGroups=new Map();let _euIx=NaN,_euIz=NaN,_euL=[];
@@ -1910,12 +1986,16 @@ function euroOfCell(ix,iz){
       if(!ok)continue;
       let mn=1e9,mx=-1e9,sum=0,cnt=0,mn2=1e9,mx2=-1e9;                       // 町(〜120m)と、その外の畑の範囲(〜330m)の高さを見る
       for(const d of[0,120,240,330])for(let i=0;i<(d?8:1);i++){const h=rawH(x+Math.cos(i*.785)*d,z+Math.sin(i*.785)*d);if(d<=120){mn=Math.min(mn,h);mx=Math.max(mx,h)}else{mn2=Math.min(mn2,h);mx2=Math.max(mx2,h)}sum+=h;cnt++}
-      if(mn<WATER+3.5||mx>19||mn2<WATER+2.5||mx2>26)continue;                 // 水辺・高山は避ける
+      if(mn<WATER+3.5||mx>32||mn2<WATER+2.5||mx2>38)continue;                 // 水没地・急斜面・高山を避ける
       mn=Math.min(mn,mn2);mx=Math.max(mx,mx2);
-      if(riverNear(x,z,350,40))continue;                                      // 川の近くは避ける（畑の範囲まで）
+      const rd=riverEff(x,z);                                                  // 川からの距離。街そのものは川から離し、農地と街道が届く距離を優先
+      if(rd<175)continue;                                                      // 城壁が川筋に食い込まないようにする
       let gap=1e9;for(const t of nearTowns(x,z)){const dx=x-t.x,dz=z-t.z;gap=Math.min(gap,Math.hypot(dx,dz)-townEdge(t,Math.atan2(dz,dx)))}
       if(gap<450)continue;
-      if(mx-mn<bs){bs=mx-mn;best={x,z,h:Math.min(17,Math.max(3,sum/cnt))}}
+      const relief=mx-mn,waterScore=rd<1e8?Math.abs(rd-330)*.045:19,coastScore=coastNear(x,z)?-11:0;
+      const altitudeScore=Math.max(0,sum/cnt-17)*.45+Math.max(0,8-sum/cnt)*.25;
+      const score=relief*1.25+waterScore+coastScore+altitudeScore;
+      if(score<bs){bs=score;best={x,z,h:Math.min(17,Math.max(3,sum/cnt))}}
     }
     if(best)e=makeEuro(best,r);
   }
