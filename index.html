@@ -4547,8 +4547,11 @@ function miniTerrain(D){                                        // 下地（数�
   }
   // 居住可能地を緑で重ねて表示。平坦さ・樹木密度・水辺・高地の台地判定を使用。
   const hab=new Uint8Array(N*N),waterNear=(x,z)=>{
-    for(let a=0;a<8;a++){const an=a*Math.PI/4,xx=x+Math.cos(an)*75,zz=z+Math.sin(an)*75;
-      if(heightAt(xx,zz)<WATER+1.2||riverEff(xx,zz)<7)return true}
+    // 水辺にぴったり接していなくても、約150m以内に海岸・川があれば許可。
+    for(const radius of [50,100,150])for(let a=0;a<8;a++){
+      const an=a*Math.PI/4,xx=x+Math.cos(an)*radius,zz=z+Math.sin(an)*radius;
+      if(heightAt(xx,zz)<WATER+1.2||riverEff(xx,zz)<7)return true;
+    }
     return false;
   };
   for(let j=1;j<N-1;j++)for(let i=1;i<N-1;i++){
@@ -4559,7 +4562,7 @@ function miniTerrain(D){                                        // 下地（数�
     const range=Math.max(...hs)-Math.min(...hs),slope=Math.max(Math.abs(hs[2]-hs[1]),Math.abs(hs[4]-hs[3]));
     if(slope>5.5||range>7.5)continue;                 // 斜面・起伏の大きい地形は不可
     if(h>WATER+95&&range>3.5)continue;                // 高地は平坦な台地状の場所だけ許可
-    if(!waterNear(x,z))continue;                      // 海岸または川から約75m以内
+    if(!waterNear(x,z))continue;                      // 海岸または川からおよそ150m以内
     const cl=climateAt(x,z),cn=sm01(.35,.7,canopyRaw(x,z));
     const treeDensity=cl.ta*(.24+.52*cn)+cl.sq*.05+cl.cg*(.02+.06*cn*cn)
       +cl.bf*(.2+.4*cn)+cl.sq*.03+cl.gr*(.03+.1*cn*cn)
