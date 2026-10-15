@@ -48,6 +48,7 @@ function fbm(x,y){let s=0,a=.5,f=1;for(let i=0;i<5;i++){s+=a*vnoise(x*f,y*f);f*=
 // 街: ワールドを TCELL(m) 四方のセルに分け、セルごとに70%で1つ、ランダムな位置・大きさ(半径500〜850m=直径1〜1.7km)・形の巨大な街ができる
 // スポーン地点とは無関係に決まる（スポーンは街の外）。街同士が重ならないよう、中心のずれ幅はセルの30%まで。
 const GEN_OTHER_TOWNS=false;   // 砂漠の街以外（川沿いの村・港町・西洋の都市・屋敷・教会・修道院・帝国）の生成。false=生成しない（コードとデータはそのまま残してある）。true にすると元に戻る
+const GEN_RIVER_VILLAGES=true;   // 川沿いの村だけは GEN_OTHER_TOWNS=false でも生成する。川の周りの「居住可能エリア」(ミニマップの緑: 平坦・樹木が過密でない・水際より上)の中にだけ作る
 const MS=2;                                                      // 屋敷の規模の倍率（建物・庭・フェンス・当たり判定・配置まで全部）
 const TOWN_H=3,L=14,TCELL=3600,TBLEND=150,TOWN_P=.24,CITY_P=.075;      // L=1区画の大きさ
 const townCache=new Map();
@@ -66,6 +67,8 @@ function settlementLabel(o,type){
 //  ④ 外壁（街の輪郭に沿う）
 // 東西南北に伸びる幅RW(m)の主要な道が、宮殿の城壁・内壁・外壁を門で通り抜ける。
 const RW=12,INNER_K=.48,GW=9;
+const KINGDOM_ATTACHED_CITY=false;   // true にすると砂漠の王国に市場都市が併設されることがある。false=併設しない
+const TOWN_OUTER_BAILEY=false;   // true にすると外壁の外にもう一つの低い壁（外郭）を作る。false=作らない（外壁が二重に見えるため）
 const DH=12,SLOPE=3.5,RL=DH*SLOPE,TUN=8,RGATE=8,TOWER_OFF=9.6;   // 橋の高さ / 勾配(1:3.5) / 橋の下の通路幅 / 内外壁の門(小片の中心がこれ未満なら省く) / 門塔の位置                                   // 主要な道の幅 / 内壁の半径=外壁の半径×INNER_K / 門の開口の目安(道の中心からGW)
 function roadClip(t,cx,cz,ex,ez,strict){                       // 橋の下の通路・傾斜路の敷地・(strict)橋の真下に、置いてはいけない物がかかるか
   for(const q of t.roads){
@@ -248,7 +251,7 @@ function buildWalls(t){
   };
   ring(a=>townEdge(t,a)-5,16,10,RGATE,undefined,30);                                                     // 外壁
   ring(a=>townEdge(t,a)*INNER_K,14,8,RGATE,9,20);
-  ring(a=>townEdge(t,a)+37,7,4,8.2,undefined,undefined,{toff:7.9,tw:5,tH:10});             // 外郭: 外壁の外に、もう一つの低い壁（門の前は道の幅だけ開ける）                                               // 内壁
+  if(TOWN_OUTER_BAILEY)ring(a=>townEdge(t,a)+37,7,4,8.2,undefined,undefined,{toff:7.9,tw:5,tH:10});             // 外郭: 外壁の外に、もう一つの低い壁（門の前は道の幅だけ開ける）                                               // 内壁
   {                                                                                  // 宮殿の四角い城壁: 門の開口(|s|<6.15)は下の土台で埋め、その外側を左右対称にすき間なく並べる（南北の壁は角の外面まで、東西の壁は角の内面まで）
     const g0=6.15,seg=(e,cb)=>{const n=Math.max(1,Math.ceil((e-g0)/6)),pl=(e-g0)/n;for(const sd of[-1,1])for(let k=0;k<n;k++)cb(sd*(g0+pl*(k+.5)),pl+(k?.2:.1),(jn++)%3)};
     seg(HS+1.5,(c,l,j)=>{for(const sg of[-1,1])bk(t.x+c,t.z+sg*HS).w.push([t.x+c,t.z+sg*HS,l,3,14+DH,0,undefined,j])});
@@ -437,7 +440,8 @@ function canopyRaw(x,z){return vnoise(x*.03+11,z*.03+5)*.65+vnoise(x*.08-4,z*.08
 // 川は rawH(山を含む地形) だけを見て下るので、街・植生には依存しない（heightAtが川の溝を彫り、チャンクが水面のリボンを張る）。
 const MC=6000,MT_P=.4,RVC=64;
 const mtCache=new Map(),RVH=new Map();let _mbIx=NaN,_mbIz=NaN,_mbM=null,_rvIx=NaN,_rvIz=NaN;
-const RIVER_M=new THREE.MeshLambertMaterial({color:0x3f86a8,transparent:true,opacity:.8,side:THREE.DoubleSide});
+const RV_POOL=4;                                      // 窪みにたまる水の最大の深さ / 水面を横へ広げる最大の距離
+const RIVER_M=new THREE.MeshLambertMaterial({color:0xffffff,vertexColors:true,transparent:true,opacity:1,side:THREE.DoubleSide,depthWrite:false});   // 色と透明度は頂点ごと（浅い縁ほど薄く明るい）
 function mtOfCell(ix,iz){
   const k=ix+','+iz;if(mtCache.has(k))return mtCache.get(k);
   mtCache.set(k,null);                                          // 作っている最中に再入しても無限ループしないよう先に仮置き
@@ -483,23 +487,6 @@ function lakeCut(x,z,h){                                        // 湖の窪み:
   }
   return h;
 }
-// 滝: 川が崖(落差7m以上)に差しかかると、その線分が滝（白い水の幕）になる。滝つぼ（下の湖）は作らない。
-const PLH=new Map(),FALL_LIST=[];
-function addPool(pl){
-  const e=pl.R*1.5;
-  for(let X=Math.floor((pl.x-e)/LKC);X<=Math.floor((pl.x+e)/LKC);X++)for(let Z=Math.floor((pl.z-e)/LKC);Z<=Math.floor((pl.z+e)/LKC);Z++){const k=X+','+Z;let a=PLH.get(k);if(!a){a=[];PLH.set(k,a)}a.push(pl)}
-  FALL_LIST.push(pl);
-}
-function poolCut(x,z,h){                                         // 滝つぼのくぼみ: 中心は水面の2.6m下、縁(水面の高さ)でなめらかに元の地形へ。崖の壁や高台は削らない
-  const a=PLH.get(Math.floor(x/LKC)+','+Math.floor(z/LKC));if(!a)return h;
-  for(const pl of a){
-    const t=Math.hypot(x-pl.x,z-pl.z)/pl.R;if(t>=1.4)continue;
-    const w=(1-sm01(.95,1.4,t))*(1-sm01(pl.y+1.5,pl.y+5,h));if(w<=0)continue;
-    const fl=pl.y-2.6*(1-sm01(0,1.05,t));
-    if(fl<h)h=h*(1-w)+fl*w;
-  }
-  return h;
-}
 function genRiver(m,a,rr,st){                                   // st={x,z}: 本流の途中から分かれる支流（細い）
   const STEP=16,P=[],rs=m.R*(.2+.1*rr());let x=st?st.x:m.x+Math.cos(a)*rs,z=st?st.z:m.z+Math.sin(a)*rs,hd=a,hb=a,sea=false;
   for(let n=0;n<560;n++){
@@ -516,58 +503,31 @@ function genRiver(m,a,rr,st){                                   // st={x,z}: 本
     x+=Math.cos(hd)*STEP;z+=Math.sin(hd)*STEP;
   }
   if(!sea||P.length<8)return null;                              // 海に着かなかった川は作らない
-  {                                                              // 崖（落差7m以上・幅10m以内）を滝にする。崖の上端Aと下端Bを川の点として足し、A→Bの線分が滝
-    const S=[0];for(let i=1;i<P.length;i++)S.push(S[i-1]+Math.hypot(P[i].x-P[i-1].x,P[i].z-P[i-1].z));
-    const at=(i0,s)=>{let i=i0;while(i<P.length-2&&S[i+1]<s)i++;const L=S[i+1]-S[i]||1,t=Math.max(0,Math.min(1,(s-S[i])/L));return{x:P[i].x+(P[i+1].x-P[i].x)*t,z:P[i].z+(P[i+1].z-P[i].z)*t}};
-    const falls=[];
-    for(let i=2;i+2<P.length-4;i++){
-      if(P[i].h-P[i+2].h<7||P[i].h<WATER+8)continue;
-      const s0=S[i],s1=S[i+2],hs=[],pt=[];
-      for(let q=s0;q<=s1;q+=1){const o=at(i,q);pt.push(o);hs.push(rawH(o.x,o.z))}
-      const n=hs.length;let bk=-1,bd=0;
-      for(let k=0;k+8<n;k++){const d=hs[k]-hs[k+8];if(d>bd){bd=d;bk=k}}
-      if(bd<7)continue;
-      let t1=bk,t2=bk+8;const top=hs[bk],bot=hs[bk+8];
-      while(t1<t2&&hs[t1]>top-.6)t1++;
-      while(t2>t1&&hs[t2]<bot+.6)t2--;
-      const ka=Math.max(0,t1-1),kb=Math.min(n-1,t2+1);
-      falls.push({sA:s0+ka,sB:s0+kb,A:{x:pt[ka].x,z:pt[ka].z,h:hs[ka],fall:true},B:{x:pt[kb].x,z:pt[kb].z,h:hs[kb]}});
-      i+=2;
-    }
-    if(falls.length){
-      const items=[];
-      P.forEach((p,i)=>{if(!falls.some(f=>S[i]>f.sA-2&&S[i]<f.sB+2))items.push({s:S[i],p})});
-      for(const f of falls)items.push({s:f.sA,p:f.A},{s:f.sB,p:f.B});
-      items.sort((u,v)=>u.s-v.s);
-      P.length=0;for(const o of items)P.push(o.p);
-    }
-  }
   if(!st){                                                      // 本流の終点（河口）に湖を作る。川が途中で途切れて見えないように、川の進む向きの少し先を中心にする
     const E=P[P.length-1],LR=55+hash(Math.round(E.x),Math.round(E.z),SEED+3131)*55;
     addLake(E.x+Math.cos(hd)*LR*.35,E.z+Math.sin(hd)*LR*.35,LR);
   }
   const q=P[P.length-1];P.push({x:q.x+Math.cos(hd)*STEP,z:q.z+Math.sin(hd)*STEP,h:WATER-3});   // 河口の先（海の中）まで延ばす
-  let _rc=0;for(const p of P){p.rc=_rc;if(p.fall)_rc++}                  // 滝をはさんだ上流・下流は別の区間（なめらかにならさない）
-  const N=P.length,hs=P.map((p,i)=>{for(let d=-3;d<=3;d++)if(P[i+d]&&P[i+d].fall)return p.h;let s=0,c=0;for(let j=-2;j<=2;j++){const o=P[i+j];if(o&&o.rc===p.rc){s+=o.h;c++}}return s/c});   // 滝の前後（上流3点・下流2点）は実際の高さ（なまらせると上流の高さに引きずられ、滝の前後が土手の上に浮く）
-  let prev=1e9;
+  const N=P.length,hs=P.map((p,i)=>{let s=0,c=0;for(let j=-2;j<=2;j++){const o=P[i+j];if(o){s+=o.h;c++}}return s/c});   // 川底の高さは前後5点でなめらかにならす
   for(let i=0;i<N;i++){                                         // 川底: 地面より2.2m下。上流より高くはならない（必ず下り）
-    const p=P[i],bed=Math.min(hs[i]-2.2,prev-.04);prev=bed;
+    const p=P[i],bed=hs[i]-2.2;                                  // 川底は地面の2.2m下（地形に沿う。上流より低くなるよう無理に掘り下げない）
+    
     const hw=(2.6+5.4*sm01(0,110,i))*(st?.62:1),dep=.95+.06*hw;              // 川幅は下流ほど広く
-    p.b=bed;p.hw=hw;p.y=bed+dep;p.ww=hw+1.8;
+    p.b=bed;p.hw=hw;p.y=bed+dep;p.y0=p.y;p.ww=hw+1.8;
+  }
+  {                                                              // 水面: 水は低い方へ流れ、窪みにたまり、下流の一番高い所（いちばん低い縁）からあふれる。水面は下流へ向かって上がらない
+    const S=new Array(N);let sm=-1e9;
+    for(let i=N-1;i>=0;i--){sm=Math.max(sm,P[i].y0);S[i]=Math.min(sm,P[i].y0+RV_POOL)}   // 下流で越える最も高い水面まで（たまる深さには上限）
+    for(let i=0;i<N;i++){if(i>0)S[i]=Math.min(S[i],S[i-1]);P[i].y=Math.max(S[i],P[i].y0)}
   }
   for(let i=0;i<N;i++){                                         // 水面リボンの左右の頂点
     const a0=P[Math.max(0,i-1)],a1=P[Math.min(N-1,i+1)],p=P[i];
     let tx=a1.x-a0.x,tz=a1.z-a0.z;const l=Math.hypot(tx,tz)||1;tx/=l;tz/=l;
     p.lx=p.x-tz*p.ww;p.lz=p.z+tx*p.ww;p.rx=p.x+tz*p.ww;p.rz=p.z-tx*p.ww;
   }
-  for(let i=0;i<N-1;i++){                                       // 滝つぼ（滝の下流側に、崖の足もとへ半分かかる円形のくぼみ）
-    const A=P[i];if(!A.fall)continue;
-    const B=P[i+1],dx=B.x-A.x,dz=B.z-A.z,L=Math.hypot(dx,dz)||1,ux=dx/L,uz=dz/L,drop=A.h-B.h,R=6;
-    addPool({x:B.x,z:B.z,R,y:B.h-.6,A,B,ux,uz,drop});   // 滝の線分の記録（滝つぼは作らない。川がそのまま滝になる）
-  }
   const RV={P};
   for(let i=0;i<N-1;i++){                                       // 空間ハッシュ（RVCm四方）に線分を登録。影響範囲(約20m)ぶん広げる
-    const a0=P[i],a1=P[i+1],s={x0:a0.x,z0:a0.z,x1:a1.x,z1:a1.z,b0:a0.b,b1:a1.b,h0:a0.hw,h1:a1.hw,R:RV,i,fall:!!a0.fall};
+    const a0=P[i],a1=P[i+1],s={x0:a0.x,z0:a0.z,x1:a1.x,z1:a1.z,b0:a0.b,b1:a1.b,h0:a0.hw,h1:a1.hw,R:RV,i};
     const X0=Math.floor((Math.min(a0.x,a1.x)-20)/RVC),X1=Math.floor((Math.max(a0.x,a1.x)+20)/RVC),Z0=Math.floor((Math.min(a0.z,a1.z)-20)/RVC),Z1=Math.floor((Math.max(a0.z,a1.z)+20)/RVC);
     for(let X=X0;X<=X1;X++)for(let Z=Z0;Z<=Z1;Z++){const k=X+','+Z;let L=RVH.get(k);if(!L){L=[];RVH.set(k,L)}L.push(s)}
   }
@@ -587,7 +547,7 @@ function mtRivers(m){
       const B=genRiver(m,a,rr,{x:p.x,z:p.z});if(B){B.branch=1;m.rv.push(B);break}
     }
   }
-  if(GEN_OTHER_TOWNS)for(const R of m.rv)findSites(R,m);        // 川沿いの村（生成停止中は作らない）
+  if(GEN_OTHER_TOWNS||GEN_RIVER_VILLAGES)for(const R of m.rv)findSites(R,m);        // 川沿いの村（居住可能エリアの中だけ）
   return m.rv;
 }
 function ensureRivers(x,z){                                     // この位置の周り3x3区画の山の川を作っておく
@@ -625,67 +585,6 @@ function riverCut(x,z,h){                                       // 川の溝を�
   if(e<1.5){const t=e/1.5;return b+(lip-b)*t*t*(3-2*t)}
   const u=(e-1.5)/bk;return lip+(h-lip)*u*u*(3-2*u);
 }
-const FALL_M=new THREE.MeshLambertMaterial({vertexColors:true,transparent:true,opacity:.88,side:THREE.DoubleSide,emissive:0x3a424a});
-function fallGeo(cx,cz){                                          // チャンクの中に滝の下端がある滝: 縦の筋のある水の幕（崖の縁から弧を描いて落ち、下で広がる）と足もとの泡
-  ensureRivers(cx*CHUNK+CHUNK/2,cz*CHUNK+CHUNK/2);
-  const x0=cx*CHUNK,z0=cz*CHUNK,L=PLH.get(Math.floor((x0+CHUNK/2)/LKC)+','+Math.floor((z0+CHUNK/2)/LKC));if(!L)return null;
-  const pos=[],nm=[],col=[],idx=[],V=(x,y,z,n,c)=>{pos.push(x,y,z);nm.push(n[0],n[1],n[2]);col.push(c[0],c[1],c[2]);return pos.length/3-1};
-  let any=false;
-  const RW=[.25,.52,.66],WH=[.96,.98,1],LB=[.72,.88,.97];
-  for(const pl of L){
-    if(pl.x<x0||pl.x>=x0+CHUNK||pl.z<z0||pl.z>=z0+CHUNK)continue;any=true;
-    const A=pl.A,B=pl.B,ux=pl.ux,uz=pl.uz,n=[ux*.6,.5,uz*.6],ROW=12,COL=12,id=[];
-    const yA=A.y,yB=B.y,seed=Math.round(A.x*7+A.z*13);                       // 上端は上流の水面、下端は下流の水面と同じ高さ
-    for(let i=0;i<=ROW;i++){
-      const u=i/ROW,yy=yA+(yB-yA)*u,sp=1+.12*Math.sin(u*3.1416),wf=4*u*(1-u);   // 川底の斜面に沿って流れ落ちる（両端の幅・位置は川と同じ）
-      const lx=A.lx+(B.lx-A.lx)*u,lz=A.lz+(B.lz-A.lz)*u,rx=A.rx+(B.rx-A.rx)*u,rz=A.rz+(B.rz-A.rz)*u,cx0=(lx+rx)/2,cz0=(lz+rz)/2;
-      const row=[];
-      for(let j=0;j<=COL;j++){
-        const v=j/COL,h=hash(j,seed,SEED+9)  ,edge=Math.sin(v*3.1416),
-          fw=sp*(1-.08*(1-edge)*Math.sin(u*3.1416)),                                              // 途中だけ縁を少し細く（両端は川幅いっぱい）
-          px=cx0+(lx+(rx-lx)*v-cx0)*fw,pz=cz0+(lz+(rz-lz)*v-cz0)*fw,
-          w=ux*(Math.sin(j*1.9+i*.8+seed)*.22*wf+.15*wf*(h-.5)),w2=uz*(Math.sin(j*1.9+i*.8+seed)*.22*wf+.15*wf*(h-.5));
-        const st=(j&1?1:.86)*(.88+.12*h),k=Math.min(1,u*2.2);                                   // 縦の筋（明暗）。上は川の青→下は白
-        const c=[(RW[0]+(WH[0]-RW[0])*k)*st,(RW[1]+(WH[1]-RW[1])*k)*st,(RW[2]+(WH[2]-RW[2])*k)*st];
-        row.push(V(px+w,yy,pz+w2,n,c));
-      }
-      id.push(row);
-    }
-    for(let i=0;i<ROW;i++)for(let j=0;j<COL;j++){const a=id[i][j],b=id[i][j+1],c=id[i+1][j],d=id[i+1][j+1];idx.push(a,b,c,b,d,c)}
-    {                                                                                          // 落ちた所の泡（川幅より少し広い白いもやもや）
-      const hw=Math.hypot(B.rx-B.lx,B.rz-B.lz)/2*1.25,cxm=(B.lx+B.rx)/2,czm=(B.lz+B.rz)/2,lat=[-uz,ux],N=10,rows=[];
-      for(let r=0;r<=3;r++){const d=r*1.6-.3,row=[];
-        for(let j=0;j<=N;j++){const v=j/N*2-1,e=1-.35*r/3,h=hash(j,r+seed,SEED+17);
-          row.push(V(cxm+ux*d+lat[0]*v*hw*e,yB+.07+.05*h,czm+uz*d+lat[1]*v*hw*e,[0,1,0],[.9+.1*h,.95+.05*h,1]))}
-        rows.push(row)}
-      for(let r=0;r<3;r++)for(let j=0;j<N;j++){const a=rows[r][j],b=rows[r][j+1],c=rows[r+1][j],d=rows[r+1][j+1];idx.push(a,b,c,b,d,c)}
-    }
-  }
-  if(!any)return null;
-  const g=new THREE.BufferGeometry();
-  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));g.setAttribute('normal',new THREE.Float32BufferAttribute(nm,3));g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));g.setIndex(idx);
-  return g;
-}
-function riverGeo(cx,cz){                                       // チャンクの中に中点がある川の線分の水面
-  ensureRivers(cx*CHUNK+CHUNK/2,cz*CHUNK+CHUNK/2);
-  const x0=cx*CHUNK,z0=cz*CHUNK,seen=new Set(),pos=[],idx=[];
-  for(let X=Math.floor(x0/RVC);X<=Math.floor((x0+CHUNK)/RVC);X++)for(let Z=Math.floor(z0/RVC);Z<=Math.floor((z0+CHUNK)/RVC);Z++){
-    const L=RVH.get(X+','+Z);if(!L)continue;
-    for(const s of L){
-      if(seen.has(s))continue;seen.add(s);
-      if(s.fall)continue;                                          // 滝の線分は fallGeo（白い水の幕）で描く
-      const mx=(s.x0+s.x1)/2,mz=(s.z0+s.z1)/2;
-      if(mx<x0||mx>=x0+CHUNK||mz<z0||mz>=z0+CHUNK)continue;
-      const a=s.R.P[s.i],b=s.R.P[s.i+1],v=pos.length/3;
-      pos.push(a.lx,a.y,a.lz,a.rx,a.y,a.rz,b.lx,b.y,b.lz,b.rx,b.y,b.rz);
-      idx.push(v,v+1,v+2,v+1,v+3,v+2);
-    }
-  }
-  if(!idx.length)return null;
-  const g=new THREE.BufferGeometry(),nm=[];for(let i=0;i<pos.length/3;i++)nm.push(0,1,0);
-  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));g.setAttribute('normal',new THREE.Float32BufferAttribute(nm,3));g.setIndex(idx);
-  return g;
-}
 // ---------- 川沿いの西洋の村 ----------
 // 川(mtRiversの川)のうち、ゆるやかで平らな陸が続く草原・森の区間に作る。川沿いの道(主道)・奥の道・それをつなぐ横道に沿って、二階建て・尖った屋根・煙突の家が並ぶ。
 // 道と場所は川の形だけで決まる(heightAtに依存しない)ので、地面の色・木の除外にすぐ使える。家は近づいた時に初めて作る(地面の高さを見て、基礎で段差を埋める)。
@@ -703,76 +602,284 @@ function villageDist(x,z){                                      // 最寄りの�
   let d=1e9;for(const s of L){const e=segD(x,z,s);if(e<d)d=e}
   return d;
 }
-function findSites(RV,m){
-  const P=RV.P,N=P.length,LEN=12;let last=-99,cnt=0;
-  const nrm=i=>{const a=P[Math.max(0,i-1)],b=P[Math.min(N-1,i+1)];let tx=b.x-a.x,tz=b.z-a.z;const l=Math.hypot(tx,tz)||1;return[-tz/l,tx/l]};
-  for(let i0=6;i0+LEN<N-8&&cnt<2;i0+=2){
-    if(i0<last+LEN+8)continue;
-    if(P[i0].b-P[i0+LEN].b>18||P[i0+LEN].b<WATER+4)continue;    // 急流・河口は避ける
-    const mid=P[i0+6],c=climateAt(mid.x,mid.z);if(c.de>=.5||c.gr+c.bf+c.ta+c.tf+c.cg<.6)continue;   // 砂漠を除外し、草原か森にだけ村を作る（CVはすぐ読む）
-    const dv={};
-    for(const s of[1,-1]){                                      // 川の両岸がそれぞれ平らか
-      let dev=0;
-      for(let i=i0;i<=i0+LEN;i+=3){const n=nrm(i),p=P[i];for(const o of[10,32,56]){const oo=p.hw+o,h=rawH(p.x+s*n[0]*oo,p.z+s*n[1]*oo);dev=Math.max(dev,Math.abs(h-p.h),h<WATER+3?99:0)}}
-      dv[s]=dev;
+function habTree(x,z){                                          // 樹木の密度の目安（ミニマップの居住可能地と村の場所選びで共通）
+  const cl=climateAt(x,z),cn=sm01(.35,.7,canopyRaw(x,z));
+  return cl.ta*(.24+.52*cn)+cl.sq*.05+cl.cg*(.02+.06*cn*cn)+cl.bf*(.2+.4*cn)+cl.sq*.03+cl.gr*(.03+.1*cn*cn)+cl.tg*(.015+.04*cn)+cl.st*.002+cl.jg*(.22+.45*cn)+cl.tf*(.12+.28*cn);
+}
+function habK(x,z,k){const o=VK;VK=k;try{return habRaw(x,z)}finally{VK=o}}
+let VK=1.45;                                                    // 居住可能地の緩さ（1=最初の厳しさ、大きいほど緩い）。既定=ミニマップ用。村ごとに findSites が変える
+function habRaw(x,z){                                           // 居住可能地か（ミニマップの緑と同じ基準: 水際より上・斜面と起伏が小さい・高地は平らな台地だけ・森が過密でない）。川や海への近さは呼び出し側で保証する。地形はrawH（川の溝・街の平坦化の前）で見る
+  const h=rawH(x,z);if(h<WATER+2)return false;
+  const d=10,a=rawH(x-d,z),b=rawH(x+d,z),c=rawH(x,z-d),e=rawH(x,z+d);
+  const range=Math.max(h,a,b,c,e)-Math.min(h,a,b,c,e),slope=Math.max(Math.abs(b-a),Math.abs(e-c));
+  if(slope>5.5*VK||range>7.5*VK)return false;
+  if(h>WATER+95&&range>3.5*VK)return false;
+  return habTree(x,z)<=.31*VK;
+}
+// ---------- 川沿いの村: 地形に合わせた道の生成（地形は平らにならさない）----------
+// 順序: ① 主道（川に沿う）→ 枝道（川から離れる向き）を引く → ② 畑の小道と畑 → ③ 家（buildVillage）。
+// 道を引くときに守る決まり: 1刻み(VST m)の高低差がVDH以下（段差・崖・土手を通らない）／居住可能地(habRaw)の中／川の縁から9〜VRIV m／
+// 同じ村の別の道・他の村の道から VGAP m 以上離す（枝道の根元だけは別）／村の中心から VRMAX m まで（村が広がりすぎない）。
+const VST=6,VDH=2.2,VGAP=16,VRMAX=160,VRIV=260,VSEP=140;   // VSEP=別の村の道からこの距離(m)以上離す（村の境目を分かりやすくする）
+function villageSep(x,z){                                         // 生成済みの別の村の道までの最短距離（VSEPより遠ければ打ち切る）
+  let d=1e9;
+  for(const v of VLIST){
+    if(Math.hypot(x-v.cx,z-v.cz)>VRMAX+VSEP+60)continue;
+    for(const s of v.roads){const e=segD(x,z,s);if(e<d)d=e}
+  }
+  return d;
+}
+function vhRoad(x,z){return riverCut(x,z,rawH(x,z))}                  // 道を引くときの地面の高さ（川の溝は含み、街や畑の平坦化は含まない）
+function psDist(x,z,ax,az,bx,bz){const dx=bx-ax,dz=bz-az;let t=((x-ax)*dx+(z-az)*dz)/(dx*dx+dz*dz||1);t=t<0?0:t>1?1:t;return Math.hypot(x-ax-dx*t,z-az-dz*t)}
+function netDist(net,x,z,skip){                                      // 道の網（点列の配列）までの最短距離。skip=[x,z,r]: 端点が円の中にある小片は無視する（枝道の根元）
+  let d=1e9;
+  for(const pl of net)for(let i=0;i+1<pl.length;i++){
+    const a=pl[i],b=pl[i+1];
+    if(skip&&(Math.hypot(a[0]-skip[0],a[1]-skip[1])<skip[2]||Math.hypot(b[0]-skip[0],b[1]-skip[1])<skip[2]))continue;
+    const e=psDist(x,z,a[0],a[1],b[0],b[1]);if(e<d)d=e;
+  }
+  return d;
+}
+function vOutward(P,x,z){let bj=0,bd=1e9;for(let j=0;j<P.length;j++){const d=Math.hypot(P[j].x-x,P[j].z-z);if(d<bd){bd=d;bj=j}}return Math.atan2(z-P[bj].z,x-P[bj].x)}   // 川から離れる向き
+function growRoad(s0,th0,maxLen,net,C,kind,fr){                      // s0から向きth0へ、地形を見ながら1刻みずつ道を伸ばす。kind='t'=主道（川の縁から約14mを保つ）, 'b'=枝道（出だしの向きから±55°、川から離れ気味）
+  const pl=[[s0[0],s0[1]]];let th=th0,x=s0[0],z=s0[1],h=vhRoad(x,z),len=0;
+  while(len<maxLen){
+    let best=null,bc=1e9;
+    for(let k=-3;k<=3;k++){
+      const a=th+k*.21,qx=x+Math.cos(a)*VST,qz=z+Math.sin(a)*VST;
+      if(kind==='b'&&Math.abs(Math.atan2(Math.sin(a-th0),Math.cos(a-th0)))>.96)continue;
+      if(Math.hypot(qx-C[0],qz-C[1])>VRMAX)continue;                                        // 村の中心から遠すぎる
+      const hq=vhRoad(qx,qz);if(Math.abs(hq-h)>VDH*VK/1.45)continue;                                // 段差
+      const hm=vhRoad((x+qx)/2,(z+qz)/2);if(Math.abs(hm-(h+hq)/2)>.8)continue;             // 刻みの途中の溝・土手
+      if(!habRaw(qx,qz))continue;                                                           // 居住可能地の外
+      const re=riverEff(qx,qz);if(re<9||re>VRIV*VK/1.45)continue;                            // 川の縁に近すぎる／水辺から遠すぎる
+      if(netDist(net,qx,qz,[s0[0],s0[1],VGAP])<VGAP)continue;                               // 他の道に近すぎる
+      if(villageSep(qx,qz)<VSEP)continue;                                                  // 他の村の道に近すぎる
+      const cost=Math.abs(hq-h)*2.5+Math.abs(k)*.5+(kind==='t'?Math.abs(re-14)*.12:-re*.02)+fr()*.5;
+      if(cost<bc){bc=cost;best=[a,qx,qz,hq]}
     }
-    const bs=dv[1]<=dv[-1]?1:-1;
-    if(dv[bs]>9)continue;
-    let twin=dv[-bs]<=9;                                      // 対岸も平らなら、橋をかけて対岸にも村を広げる
-    const mk=sd=>{const M=[],B=[];for(let i=i0;i<=i0+LEN;i++){const n=nrm(i),p=P[i],o1=p.hw+10,o2=p.hw+56;M.push([p.x+sd*n[0]*o1,p.z+sd*n[1]*o1]);B.push([p.x+sd*n[0]*o2,p.z+sd*n[1]*o2])}return[M,B]};   // 主道は川の縁から10m離す（岸の斜面に道を載せない）
-    const[M,B]=mk(bs);let M2=null,B2=null;if(twin)[M2,B2]=mk(-bs);
-    const tight=(BB,th)=>{for(let i=0;i<BB.length-1;i++)if(Math.hypot(BB[i+1][0]-BB[i][0],BB[i+1][1]-BB[i][1])<th)return true;return false};   // 川の急カーブの内側は避ける
-    if(tight(B,7))continue;
-    if(twin&&tight(B2,7))B2=null;                               // 対岸の奥の道がつぶれる所は、対岸は主道沿いの家だけにする
-    const roads=[],ck=[0,4,8,12],bk=twin?[4,8]:[];
-    for(const[MM,BB]of twin?[[M,B],[M2,B2]]:[[M,B]]){
-      for(let i=0;i<MM.length-1;i++){roads.push([MM[i][0],MM[i][1],MM[i+1][0],MM[i+1][1]]);if(BB)roads.push([BB[i][0],BB[i][1],BB[i+1][0],BB[i+1][1]])}
-      if(BB)for(const k of ck)roads.push([MM[k][0],MM[k][1],BB[k][0],BB[k][1]]);
+    if(!best)break;
+    th=best[0];x=best[1];z=best[2];h=best[3];pl.push([x,z]);len+=VST;
+  }
+  return pl;
+}
+function vTrunk(P,i,side,nrm,net,C,fr){                              // 川(P[i]付近)の岸に沿う主道。種の位置は川の縁から10〜22mで条件を満たす所。前後へ75mずつまで
+  const p=P[i],n=nrm(i),a=P[Math.max(0,i-1)],b=P[Math.min(P.length-1,i+1)],tg=Math.atan2(b.z-a.z,b.x-a.x);
+  let S=null;
+  for(const o of[14,10,18,22]){
+    const x=p.x+side*n[0]*(p.hw+o),z=p.z+side*n[1]*(p.hw+o);
+    if(!habRaw(x,z))continue;const re=riverEff(x,z);if(re<9||re>VRIV)continue;
+    if(C&&Math.hypot(x-C[0],z-C[1])>VRMAX)continue;
+    if(netDist(net,x,z)<VGAP||villageSep(x,z)<VSEP)continue;
+    S=[x,z];break;
+  }
+  if(!S)return null;
+  const Cc=C||S,fw=growRoad(S,tg,75,net,Cc,'t',fr),bw=growRoad(S,tg+Math.PI,75,net.concat([fw]),Cc,'t',fr);
+  return{S,pl:bw.reverse().concat(fw.slice(1))};
+}
+function vBranches(P,trunk,net,C,fr,out){                             // 主道から川と反対向きに枝道（家の通り）を、約44〜58mおきに最大68mまで
+  let acc=0,nxt=16+fr()*10;
+  for(let j=0;j+1<trunk.length;j++){
+    const a=trunk[j],b=trunk[j+1],sl=Math.hypot(b[0]-a[0],b[1]-a[1]);
+    while(nxt<=acc+sl){
+      const t=(nxt-acc)/sl,sx=a[0]+(b[0]-a[0])*t,sz=a[1]+(b[1]-a[1])*t;
+      const pl=growRoad([sx,sz],vOutward(P,sx,sz),40+fr()*28,net,C,'b',fr);
+      if(pl.length>=4){net.push(pl);out.push(pl)}
+      nxt+=44+fr()*14;
     }
-    for(const k of bk)roads.push([M[k][0],M[k][1],M2[k][0],M2[k][1]]);   // 橋（川をまたいで両岸の主道をつなぐ）
-    const fields=[],fr=mulberry(hash(Math.round(M[6][0]),Math.round(M[6][1]),SEED+6262)*1e9|0);
-    const lanes=[];
-    for(const[BB,sg]of[[B,bs],[B2,-bs]]){                       // 奥の道の外側(川と反対側)へ、土の小道を一定間隔で引き、その両脇に畑を奥行き約110mまで並べる
-      if(!BB)continue;
-      const Wd=20+fr()*8,PIT=2*Wd+9;let acc=0,nxt=6;
-      for(let j=0;j+1<BB.length;j++){
-        const p0=BB[j],p1=BB[j+1],sl=Math.hypot(p1[0]-p0[0],p1[1]-p0[1]);if(sl<1e-3)continue;
-        while(nxt<=acc+sl){
-          const t=(nxt-acc)/sl,ox=p0[0]+(p1[0]-p0[0])*t,oz=p0[1]+(p1[1]-p0[1])*t,ux=sg*(p1[0]-p0[0])/sl,uz=sg*(p1[1]-p0[1])/sl,nx=-uz,nz=ux;   // nは川と反対向き
-          const n0=fields.length,h0=rawH(ox,oz),reach=farmLane(ox,oz,nx,nz,14,124,Wd,fr,f=>fieldOk(f,6)&&Math.abs(rawH(f.cx,f.cz)-h0)<9,fields);   // 道の高さから±9m以内の、ゆるい斜面だけ
-          if(reach>0)lanes.push({seg:[ox,oz,ox+nx*reach,oz+nz*reach],fs:fields.slice(n0)});
-          nxt+=PIT;
-        }
-        acc+=sl;
-      }
-    }
-    if(fields.length){                                           // 畑は1枚の平面へ寄せて平らに（heightAtのfarmFlat）。平面から6m以上ずれる畑は外してやり直す
-      let pl=fitPlane(fields);
-      for(let i=fields.length-1;i>=0;i--){const f=fields[i];if(Math.abs(rawH(f.cx,f.cz)-(pl.a+pl.b*(f.cx-pl.mx)+pl.c*(f.cz-pl.mz)))>6)fields.splice(i,1)}
-      if(fields.length)pl=fitPlane(fields);
-      for(const f of fields)f.pl=pl;
-    }
-    for(const q of lanes)if(q.fs.some(f=>fields.includes(f)))roads.push(q.seg);   // 畑が残った小道だけ道にする
-    const manor=null;                                            // 村には屋敷を作らない（屋敷は西洋の都市＝公国だけ）
-    const v={cx:M[6][0],cz:M[6][1],s:bs,M,B,M2,B2,twin,ck,bk,roads,P,i0,houses:null,deck:null,fields,fcircs:null,manor};
-    v.settlementType='village';v.label=settlementLabel(v,'village');
-    for(const f of fields)fieldRegister(f);
-    VLIST.push(v);vRegister(v);last=i0;cnt++;
+    acc+=sl;
   }
 }
-function villageChurchSite(v){                                   // 村の教会の場所（村ごとに1回だけ決めて覚える。木を生やさない範囲にも使う）
-  if(v.chs!==undefined)return v.chs;
-  v.chs=null;
+function vBridges(P,t1,t2){                                           // 両岸の主道を結ぶ橋（最大2本・間隔45m以上・両端の高低差2.5m以内・川幅の2倍＋45m以内）
+  const c=[];
+  for(let i=0;i<t1.length;i++){
+    let bj=-1,bd=1e9;for(let j=0;j<t2.length;j++){const d=Math.hypot(t1[i][0]-t2[j][0],t1[i][1]-t2[j][1]);if(d<bd){bd=d;bj=j}}
+    if(bj<0)continue;
+    let hw=0,rd=1e9;for(const q of P){const d=Math.hypot(q.x-t1[i][0],q.z-t1[i][1]);if(d<rd){rd=d;hw=q.hw}}
+    if(bd>2*hw+45)continue;
+    if(Math.abs(vhRoad(t1[i][0],t1[i][1])-vhRoad(t2[bj][0],t2[bj][1]))>3.5)continue;
+    c.push({i,bd,a:t1[i],b:t2[bj]});
+  }
+  c.sort((p,q)=>p.bd-q.bd);
+  const out=[];for(const q of c){if(out.every(o=>Math.abs(o.i-q.i)*VST>=45))out.push(q);if(out.length>=2)break}
+  return out.map(q=>[q.a,q.b]);
+}
+function vFields(P,trunks,branches,net,starts,C,fr){                  // 畑は道を引いたあとに置く。土の小道は ①枝道の先の延長 ②主道の外側の空き（枝道の根元から30m以上）から引き、その両脇に畑を並べる。畑は ゆるい斜面(高低差5m未満)・居住可能地・他の道から10m以上・川から14m以上
+  const fields=[],lanes=[];
+  const okf=f=>{
+    if(Math.hypot(f.cx-C[0],f.cz-C[1])>VRMAX+35)return false;
+    if(!habRaw(f.cx,f.cz))return false;
+    for(const[x,z]of[[f.cx,f.cz],...fieldCorners(f)])if(netDist(net,x,z)<10)return false;
+    if(villageDist(f.cx,f.cz)<12)return false;
+    return fieldOk(f,5);
+  };
+  const lane=(ox,oz,nx,nz,Wd)=>{
+    const n0=fields.length,reach=farmLane(ox,oz,nx,nz,16,92,Wd,fr,okf,fields);
+    if(reach<=0)return;
+    let maxT=reach,h=vhRoad(ox,oz);                                                      // 小道が段差を通らない所までで打ち切る
+    for(let u=VST;u<=reach;u+=VST){const hh=vhRoad(ox+nx*u,oz+nz*u);if(Math.abs(hh-h)>VDH){maxT=u-VST;break}h=hh}
+    for(const f of fields.slice(n0))if((f.cx-ox)*nx+(f.cz-oz)*nz+f.hu>maxT+.01)fields.splice(fields.indexOf(f),1);
+    const keep=fields.slice(n0);
+    if(keep.length){let r2=0;for(const f of keep)r2=Math.max(r2,(f.cx-ox)*nx+(f.cz-oz)*nz+f.hu);lanes.push({seg:[ox,oz,ox+nx*r2,oz+nz*r2],fs:keep})}
+  };
+  for(const pl of branches){                                                              // ① 枝道の先の延長
+    const e=pl[pl.length-1],q=pl[pl.length-2],dx=e[0]-q[0],dz=e[1]-q[1],l=Math.hypot(dx,dz)||1;
+    lane(e[0],e[1],dx/l,dz/l,20+fr()*8);
+  }
+  for(const trunk of trunks){                                                             // ② 主道の外側の空き
+    const Wd=20+fr()*8,PIT=2*Wd+9;let acc=0,nxt=10+fr()*PIT*.5;
+    for(let j=0;j+1<trunk.length;j++){
+      const a=trunk[j],b=trunk[j+1],sl=Math.hypot(b[0]-a[0],b[1]-a[1]);if(sl<1e-3)continue;
+      while(nxt<=acc+sl){
+        const t=(nxt-acc)/sl,ox=a[0]+(b[0]-a[0])*t,oz=a[1]+(b[1]-a[1])*t;
+        if(starts.some(s=>Math.hypot(s[0]-ox,s[1]-oz)<30)){nxt+=8;continue}                 // 枝道の根元の近くは避ける
+        const ang=vOutward(P,ox,oz);lane(ox,oz,Math.cos(ang),Math.sin(ang),Wd);
+        nxt+=PIT;
+      }
+      acc+=sl;
+    }
+  }
+  return{fields,lanes};
+}
+function vLines(P,pl,isMain,out){                                     // 点列を約18mの直線の小片に区切る（家を並べる単位）。主道は川と反対側(外側)の向きsdを持つ
+  let a=0;
+  while(a<pl.length-1){
+    let b=Math.min(a+3,pl.length-1);if(pl.length-1-b<2)b=pl.length-1;
+    const A=pl[a],B=pl[b],L={a:A,b:B};
+    if(isMain){const dx=B[0]-A[0],dz=B[1]-A[1],l=Math.hypot(dx,dz)||1,ux=dx/l,uz=dz/l,o=vOutward(P,(A[0]+B[0])/2,(A[1]+B[1])/2);L.main=(-uz*Math.cos(o)+ux*Math.sin(o))>=0?1:-1}
+    out.push(L);a=b;
+  }
+}
+function hitField(cn,fields){                                      // 家の4隅が畑（1.5m外側まで）に入るか
+  for(const f of fields)for(const p of cn){const dx=p[0]-f.cx,dz=p[1]-f.cz;if(Math.abs(dx*f.ux+dz*f.uz)<f.hu+1.5&&Math.abs(-dx*f.uz+dz*f.ux)<f.hv+1.5)return true}
+  return false;
+}
+const VMINH=20;   // 家（教会と畑を除く）がこれ以下の村は破棄する
+// 村を登録する前に家の数を数える。生成済みの地形(heightAt)は使えないので、川の溝を含む地形 vhRoad で代用する（教会の場所も同じ方法で見積もる）
+function churchSiteCalc(v,heightAt){                                   // 村の教会の場所（村ごとに1回だけ決めて覚える。木を生やさない範囲にも使う）
   const rd=(px,pz)=>{let d=1e9;for(const s of v.roads){const e=segD(px,pz,s);if(e<d)d=e}return d};
-  const lines=[];for(const[MM,sg]of v.twin?[[v.M,v.s],[v.M2,-v.s]]:[[v.M,v.s]])for(let j=0;j<MM.length-1;j+=2)lines.push({a:MM[j],b:MM[Math.min(j+2,MM.length-1)],main:sg});
+  const lines=v.lines?v.lines.filter(L=>L.main):[];for(const[MM,sg]of v.lines?[]:v.twin?[[v.M,v.s],[v.M2,-v.s]]:[[v.M,v.s]])for(let j=0;j<MM.length-1;j+=2)lines.push({a:MM[j],b:MM[Math.min(j+2,MM.length-1)],main:sg});
   let chu=null;                                                       // 教会: 村の中心に近い主道ぞいに、正面を道へ向けて置く（道・川・急な斜面を避ける）。墓地は教会の横
-  {const mid=L=>Math.hypot((L.a[0]+L.b[0])/2-v.cx,(L.a[1]+L.b[1])/2-v.cz),cands=lines.filter(L=>L.main&&Math.hypot(L.b[0]-L.a[0],L.b[1]-L.a[1])>=24).sort((p,q)=>mid(p)-mid(q));
+  {const mid=L=>Math.hypot((L.a[0]+L.b[0])/2-v.cx,(L.a[1]+L.b[1])/2-v.cz),cands=lines.filter(L=>L.main&&Math.hypot(L.b[0]-L.a[0],L.b[1]-L.a[1])>=(v.lines?16:24)).sort((p,q)=>mid(p)-mid(q));
     for(const L of cands.slice(0,6)){
       const dx=L.b[0]-L.a[0],dz=L.b[1]-L.a[1],len=Math.hypot(dx,dz),ux=dx/len,uz=dz/len,nx=-uz*L.main,nz=ux*L.main,ry=Math.atan2(-nx,-nz),c=Math.cos(ry),s=Math.sin(ry);
       const ox=L.a[0]+ux*len/2+nx*17.1,oz=L.a[1]+uz*len/2+nz*17.1,Wd=(lx,lz)=>[ox+lx*c+lz*s,oz-lx*s+lz*c];
       let ok=true;
       for(let lx=-9;lx<=14&&ok;lx+=3)for(let lz=-12;lz<=14;lz+=3){const q=Wd(lx,lz);if(rd(q[0],q[1])<2.6||riverEff(q[0],q[1])<3||heightAt(q[0],q[1])<WATER+1.5){ok=false;break}}
       if(!ok)continue;
+      if(v.lines){const fp=[];for(let lx=-12;lx<=17;lx+=6)for(let lz=-15;lz<=16.5;lz+=6)fp.push(Wd(lx,lz));if(hitField(fp,v.fields))continue}   // 畑にはかけない
+      const hs=[];for(const lx of[-4,0,4])for(const lz of[-8,0,11]){const q=Wd(lx,lz);hs.push(heightAt(q[0],q[1]))}
+      const mx=Math.max(...hs),mn=Math.min(...hs);if(mx-mn>4.5)continue;
+      chu={ox,oz,ry,c,s,y0:mx+.25,ymin:mn,W:Wd};break;
+    }}
+  return chu;
+}
+function villageHouseCount(v,heightAt){
+  const r=mulberry(hash(Math.round(v.cx),Math.round(v.cz),SEED+6161)*1e9|0),roads=v.roads,houses=[];
+  const rd=(px,pz)=>{let d=1e9;for(const s of roads){const e=segD(px,pz,s);if(e<d)d=e}return d};
+  const WALL=[0xe8dcc0,0xf0e6d0,0xd9c49a,0xe0cfae,0xcdb98f,0xf2efe6],ROOF=[0x8a3f2d,0x6b4a30,0x555a62,0x7a5a35,0x9a4a38];
+  const lines=v.lines?v.lines.slice():[];
+  for(const[MM,BB,sg]of v.lines?[]:v.twin?[[v.M,v.B,v.s],[v.M2,v.B2,-v.s]]:[[v.M,v.B,v.s]]){
+    for(let j=0;j<MM.length-1;j+=2)lines.push({a:MM[j],b:MM[Math.min(j+2,MM.length-1)],main:sg});
+    if(BB){for(let j=0;j<BB.length-1;j+=2)lines.push({a:BB[j],b:BB[Math.min(j+2,BB.length-1)]});
+    for(const k of v.ck)lines.push({a:MM[k],b:BB[k],cross:true})}
+  }
+  if(v.extra)for(const L of v.extra)lines.push(L);                  // 港町: 追加の通り（奥の通り・横道）
+  const cornersOf=h=>{const c=Math.cos(h.ry),s=Math.sin(h.ry),o=[];for(const[lx,lz]of[[-1,-1],[1,-1],[1,1],[-1,1]]){const x=lx*h.w/2,z=lz*h.d/2;o.push([h.x+x*c+z*s,h.z-x*s+z*c])}return o};
+  const overlap=(A,B)=>{
+    if(Math.hypot(A.x-B.x,A.z-B.z)>20)return false;
+    for(const bd of[A,B])for(const ax of[[Math.cos(bd.ry),-Math.sin(bd.ry)],[Math.sin(bd.ry),Math.cos(bd.ry)]]){
+      let a0=1e9,a1=-1e9,b0=1e9,b1=-1e9;
+      for(const p of A.cn){const t=p[0]*ax[0]+p[1]*ax[1];a0=Math.min(a0,t);a1=Math.max(a1,t)}
+      for(const p of B.cn){const t=p[0]*ax[0]+p[1]*ax[1];b0=Math.min(b0,t);b1=Math.max(b1,t)}
+      if(a1<b0-.8||b1<a0-.8)return false;
+    }
+    return true;
+  };
+  const chu=churchSiteCalc(v,heightAt);
+  for(const L of lines){
+    const dx=L.b[0]-L.a[0],dz=L.b[1]-L.a[1],len=Math.hypot(dx,dz);if(len<8)continue;
+    const ux=dx/len,uz=dz/len;
+    for(const sd of(L.main?[L.main]:[-1,1])){                       // 主道は川と反対側(外側)だけに家を建てる
+      const nx=-uz*sd,nz=ux*sd;
+      for(let p=L.cross?7:2.5;;){
+        const wh=v.port&&L.main?r()<.4:false,w=wh?10+r()*5:6+r()*2.6,d=wh?8+r()*2:7+r()*2.2,gap=.8+r()*2.2,wc=wh?0x8b6b4a:WALL[Math.floor(r()*WALL.length)],rc=wh?0x4a4a52:ROOF[Math.floor(r()*ROOF.length)],ch=r()<.5?-1:1,dr=r()<.5?-1:1;
+        if(p+w>len-(L.cross?7:1.5))break;
+        const off=3.1+d/2,h={x:L.a[0]+ux*(p+w/2)+nx*off,z:L.a[1]+uz*(p+w/2)+nz*off,ry:Math.atan2(-nx,-nz),w,d,wc,rc,ch,dr};   // 玄関は道の側を向く
+        p+=w+gap;
+        h.cn=cornersOf(h);
+        let ok=true;
+        for(const q of h.cn)if(rd(q[0],q[1])<2.5||riverEff(q[0],q[1])<3){ok=false;break}
+        if(!ok)continue;
+        if(chu&&polyHit(h.cn,rectPoly(chu.ox,chu.oz,chu.c,chu.s,-12,17,-15,16.5)))continue
+        if(v.manor&&polyHit(h.cn,rectPoly(v.manor.ox,v.manor.oz,v.manor.c,v.manor.s,-30*MS,30*MS,-34*MS,38*MS)))continue
+        const hs=[heightAt(h.x,h.z)];for(const q of h.cn)hs.push(heightAt(q[0],q[1]));
+        const mx=Math.max(...hs),mn=Math.min(...hs);
+        if(mx-mn>(v.lines?3.5:4.5)||mn<WATER+1.5)continue;
+        if(v.lines&&(!habK(h.x,h.z,v.k)||hitField(h.cn,v.fields)))continue;   // 川沿いの村: 居住可能地の中で、畑には建てない（地形は平らにしないので、段差の小さい所だけ）
+        for(const o of houses)if(overlap(h,o)){ok=false;break}
+        if(!ok)continue;
+        h.y0=mx+.25;h.ymin=mn;houses.push(h);
+      }
+    }
+  }
+  return houses.length;
+}
+function findSites(RV,m){
+  const P=RV.P,N=P.length,LEN=12;let last=-99,cnt=0;
+  const nrm=i=>{const a=P[Math.max(0,i-1)],b=P[Math.min(N-1,i+1)];let tx=b.x-a.x,tz=b.z-a.z;const l=Math.hypot(tx,tz)||1;return[-tz/l,tx/l]};
+  for(let i0=6;i0+LEN<N-8&&cnt<5;i0+=2){
+    if(i0<last+LEN+4)continue;
+    VK=1.15+.5*mulberry(hash(Math.round(P[i0+6].x),Math.round(P[i0+6].z),SEED+7171)*1e9|0)();   // 村ごとに条件の緩さを変える（1.15〜1.65）
+    if(P[i0].b-P[i0+LEN].b>28||P[i0+LEN].b<WATER+2)continue;    // 急流・河口は避ける
+    const mid=P[i0+6],c=climateAt(mid.x,mid.z);if(c.de>=.5||c.gr+c.bf+c.ta+c.tf+c.cg<.4)continue;   // 砂漠を除外し、草原か森にだけ村を作る（CVはすぐ読む）
+    const dv={};
+    for(const s of[1,-1]){                                      // 川の両岸がそれぞれ「居住可能エリア」か（主道・奥の道の幅 10〜56m を調べる）。dv=居住不可の割合（0=全部可）。川面から12m以上高い所は崖なので不可
+      let miss=0,tot=0,dev=0;
+      for(let i=i0;i<=i0+LEN&&miss<=5;i+=3){const n=nrm(i),p=P[i];for(const o of[10,32,56]){const oo=p.hw+o,x=p.x+s*n[0]*oo,z=p.z+s*n[1]*oo;tot++;if(habRaw(x,z))dev=Math.max(dev,Math.abs(rawH(x,z)-p.h));else miss++}}
+      dv[s]=dev>24*VK/1.45?9:miss/tot;
+    }
+    const bs=dv[1]<=dv[-1]?1:-1;
+    if(dv[bs]>.55*VK/1.45)continue;
+    let twin=dv[-bs]<=.55*VK/1.45;                                      // 対岸も平らなら、橋をかけて対岸にも村を広げる
+    const fr=mulberry(hash(Math.round(P[i0+6].x),Math.round(P[i0+6].z),SEED+6262)*1e9|0);
+    const net=[],br=[],trunks=[];                                // ① 道を先に引く（地形は平らにならさない）: 主道（川に沿う）→ 枝道（川から離れる向き）
+    const T1=vTrunk(P,i0+6,bs,nrm,net,null,fr);
+    if(!T1||(T1.pl.length-1)*VST<30)continue;                    // 道が短すぎる所には村を作らない
+    const C=T1.S;net.push(T1.pl);trunks.push(T1.pl);vBranches(P,T1.pl,net,C,fr,br);
+    let bridges=[];
+    if(twin){                                                    // 対岸も居住可能なら、対岸にも主道と枝道を引いて橋でつなぐ（つなげなければ片岸だけ）
+      const T2=vTrunk(P,i0+6,-bs,nrm,net,C,fr);
+      if(T2&&(T2.pl.length-1)*VST>=30){const bg=vBridges(P,T1.pl,T2.pl);if(bg.length){bridges=bg;net.push(T2.pl);trunks.push(T2.pl);vBranches(P,T2.pl,net,C,fr,br)}}
+    }
+    const FL=vFields(P,trunks,br,net,br.map(q=>q[0]),C,fr);      // ② 畑（小道つき）を道のあとに置く。畑のための平坦化はしない
+    const fields=FL.fields,roads=[],lines=[];
+    for(const pl of net)for(let k=0;k+1<pl.length;k++)roads.push([pl[k][0],pl[k][1],pl[k+1][0],pl[k+1][1]]);
+    for(const q of FL.lanes)roads.push(q.seg);                   // 畑が残った小道だけ道にする
+    for(const[A,B]of bridges)roads.push([A[0],A[1],B[0],B[1]]);
+    for(const pl of trunks)vLines(P,pl,true,lines);for(const pl of br)vLines(P,pl,false,lines);   // ③ 家は buildVillage が、この小片（lines）に沿って置く
+    const v={k:VK,cx:C[0],cz:C[1],s:bs,lines,bridges,roads,P,i0,houses:null,deck:null,fields,fcircs:null,manor:null};
+    v.settlementType='village';v.label=settlementLabel(v,'village');
+    if(villageHouseCount(v,vhRoad)<=VMINH){last=i0;continue}     // 家が少なすぎる村は破棄（この区間は飛ばして次へ）
+    for(const f of fields)fieldRegister(f);
+    VLIST.push(v);vRegister(v);last=i0;cnt++;
+  }
+  VK=1.45;
+}
+function villageChurchSite(v){                                   // 村の教会の場所（村ごとに1回だけ決めて覚える。木を生やさない範囲にも使う）
+  if(v.chs!==undefined)return v.chs;
+  v.chs=null;
+  const rd=(px,pz)=>{let d=1e9;for(const s of v.roads){const e=segD(px,pz,s);if(e<d)d=e}return d};
+  const lines=v.lines?v.lines.filter(L=>L.main):[];for(const[MM,sg]of v.lines?[]:v.twin?[[v.M,v.s],[v.M2,-v.s]]:[[v.M,v.s]])for(let j=0;j<MM.length-1;j+=2)lines.push({a:MM[j],b:MM[Math.min(j+2,MM.length-1)],main:sg});
+  let chu=null;                                                       // 教会: 村の中心に近い主道ぞいに、正面を道へ向けて置く（道・川・急な斜面を避ける）。墓地は教会の横
+  {const mid=L=>Math.hypot((L.a[0]+L.b[0])/2-v.cx,(L.a[1]+L.b[1])/2-v.cz),cands=lines.filter(L=>L.main&&Math.hypot(L.b[0]-L.a[0],L.b[1]-L.a[1])>=(v.lines?16:24)).sort((p,q)=>mid(p)-mid(q));
+    for(const L of cands.slice(0,6)){
+      const dx=L.b[0]-L.a[0],dz=L.b[1]-L.a[1],len=Math.hypot(dx,dz),ux=dx/len,uz=dz/len,nx=-uz*L.main,nz=ux*L.main,ry=Math.atan2(-nx,-nz),c=Math.cos(ry),s=Math.sin(ry);
+      const ox=L.a[0]+ux*len/2+nx*17.1,oz=L.a[1]+uz*len/2+nz*17.1,Wd=(lx,lz)=>[ox+lx*c+lz*s,oz-lx*s+lz*c];
+      let ok=true;
+      for(let lx=-9;lx<=14&&ok;lx+=3)for(let lz=-12;lz<=14;lz+=3){const q=Wd(lx,lz);if(rd(q[0],q[1])<2.6||riverEff(q[0],q[1])<3||heightAt(q[0],q[1])<WATER+1.5){ok=false;break}}
+      if(!ok)continue;
+      if(v.lines){const fp=[];for(let lx=-12;lx<=17;lx+=6)for(let lz=-15;lz<=16.5;lz+=6)fp.push(Wd(lx,lz));if(hitField(fp,v.fields))continue}   // 畑にはかけない
       const hs=[];for(const lx of[-4,0,4])for(const lz of[-8,0,11]){const q=Wd(lx,lz);hs.push(heightAt(q[0],q[1]))}
       const mx=Math.max(...hs),mn=Math.min(...hs);if(mx-mn>4.5)continue;
       chu={ox,oz,ry,c,s,y0:mx+.25,ymin:mn,W:Wd};break;
@@ -831,8 +938,8 @@ function buildVillage(v){
   const r=mulberry(hash(Math.round(v.cx),Math.round(v.cz),SEED+6161)*1e9|0),roads=v.roads,houses=[];
   const rd=(px,pz)=>{let d=1e9;for(const s of roads){const e=segD(px,pz,s);if(e<d)d=e}return d};
   const WALL=[0xe8dcc0,0xf0e6d0,0xd9c49a,0xe0cfae,0xcdb98f,0xf2efe6],ROOF=[0x8a3f2d,0x6b4a30,0x555a62,0x7a5a35,0x9a4a38];
-  const lines=[];
-  for(const[MM,BB,sg]of v.twin?[[v.M,v.B,v.s],[v.M2,v.B2,-v.s]]:[[v.M,v.B,v.s]]){
+  const lines=v.lines?v.lines.slice():[];
+  for(const[MM,BB,sg]of v.lines?[]:v.twin?[[v.M,v.B,v.s],[v.M2,v.B2,-v.s]]:[[v.M,v.B,v.s]]){
     for(let j=0;j<MM.length-1;j+=2)lines.push({a:MM[j],b:MM[Math.min(j+2,MM.length-1)],main:sg});
     if(BB){for(let j=0;j<BB.length-1;j+=2)lines.push({a:BB[j],b:BB[Math.min(j+2,BB.length-1)]});
     for(const k of v.ck)lines.push({a:MM[k],b:BB[k],cross:true})}
@@ -868,7 +975,8 @@ function buildVillage(v){
         if(v.manor&&polyHit(h.cn,rectPoly(v.manor.ox,v.manor.oz,v.manor.c,v.manor.s,-30*MS,30*MS,-34*MS,38*MS)))continue
         const hs=[heightAt(h.x,h.z)];for(const q of h.cn)hs.push(heightAt(q[0],q[1]));
         const mx=Math.max(...hs),mn=Math.min(...hs);
-        if(mx-mn>4.5||mn<WATER+1.5)continue;
+        if(mx-mn>(v.lines?3.5:4.5)||mn<WATER+1.5)continue;
+        if(v.lines&&(!habK(h.x,h.z,v.k)||hitField(h.cn,v.fields)))continue;   // 川沿いの村: 居住可能地の中で、畑には建てない（地形は平らにしないので、段差の小さい所だけ）
         for(const o of houses)if(overlap(h,o)){ok=false;break}
         if(!ok)continue;
         h.y0=mx+.25;h.ymin=mn;houses.push(h);
@@ -889,8 +997,8 @@ function buildVillage(v){
   v.deck=[];
   let pcirc=[];
   if(v.port)try{pcirc=portBuild(v.port,quad,v.deck)}catch(err){console.error(err);EU_ERR='港: '+(err&&err.message)}
-  for(const k of(v.twin?v.bk:[])){                                       // 橋: 両岸の主道の高さをなめらかにつなぐ木の床と欄干（歩ける）
-    const a=v.M[k],b=v.M2[k],ya=heightAt(a[0],a[1])+.25,yb=heightAt(b[0],b[1])+.25,len=Math.hypot(b[0]-a[0],b[1]-a[1]),ux=(b[0]-a[0])/len,uz=(b[1]-a[1])/len,lx=-uz*2.2,lz=ux*2.2;
+  for(const[a,b]of(v.bridges||(v.twin?v.bk.map(k=>[v.M[k],v.M2[k]]):[]))){                                       // 橋: 両岸の主道の高さをなめらかにつなぐ木の床と欄干（歩ける）
+    const ya=heightAt(a[0],a[1])+.25,yb=heightAt(b[0],b[1])+.25,len=Math.hypot(b[0]-a[0],b[1]-a[1]),ux=(b[0]-a[0])/len,uz=(b[1]-a[1])/len,lx=-uz*2.2,lz=ux*2.2;
     const P3=(x,y,z)=>[x,y,z],mid=[(a[0]+b[0])/2,(ya+yb)/2,(a[1]+b[1])/2];
     const top=[P3(a[0]-lx,ya,a[1]-lz),P3(a[0]+lx,ya,a[1]+lz),P3(b[0]+lx,yb,b[1]+lz),P3(b[0]-lx,yb,b[1]-lz)];
     quad(top[0],top[1],top[2],top[3],0x8a6a45,[mid[0],mid[1]-5,mid[2]]);
@@ -1373,8 +1481,13 @@ function rawH(x,z){                                              // 街の平坦
 function makeMarketCity(parent){
   // 王国とは独立した小都市。外壁・水堀・四方の橋と門を備え、内部には橋を置かない。
   const rr=mulberry(hash(Math.round(parent.x),Math.round(parent.z),SEED+8081)*1e9|0);
-  const R=235+rr()*65,ang=rr()*Math.PI*2,dist=parent.R+R+210;
-  const x=(Math.floor((parent.x+Math.cos(ang)*dist)/L)+.5)*L,z=(Math.floor((parent.z+Math.sin(ang)*dist)/L)+.5)*L,ctl=[];   // 中心は区画の中央
+  const R=235+rr()*65,a0=rr()*Math.PI*2,dist=parent.R>0?parent.R+R+210:0,ctl=[];   // 独立都市(parent.R=0)は調べた場所そのまま
+  let x=0,z=0,found=false;
+  for(let k=0;k<12&&!found;k++){                                  // 王国のまわり12方向から、予定地がすべて陸の向きを探す（中心は区画の中央）
+    const ang=a0+k*Math.PI/6;x=(Math.floor((parent.x+Math.cos(ang)*dist)/L)+.5)*L;z=(Math.floor((parent.z+Math.sin(ang)*dist)/L)+.5)*L;
+    if(townLandOk(x,z,R)&&townDesertOk(x,z,R*1.12))found=true;else if(dist===0)break;   // 砂漠の街（王国に付属する市場都市も、独立した砂漠の共和国も）は砂漠の中だけ
+  }
+  if(!found)return null;
   for(let i=0;i<12;i++)ctl.push(.88+rr()*.24);
   const c={kind:'city',x,z,R,ctl,HS:0,lowP:.12,courtP:.025,landmarks:[],roads:[],bz:[],gates:[],stairs:[],wallB:new Map(),moatB:new Map(),deckB:new Map(),pal:{x,y:0,z,th:0,k:1,rects:[],circs:[],wings:[],roofs:[],dc:[],tb:[],tc:[],arcs:[]}};
   // 4つの屋根付き市場ホールと、広場を囲む小規模な商業施設
@@ -1872,6 +1985,16 @@ function empireBoundaryWalls(cx,cz,E){                           // 国境の城
   }
   return out;
 }
+function townLandOk(x,z,R){                                      // 街の予定地が陸か（中心と、半径の.5・.85・1.1倍の16方向がすべて海面より十分上）。海や湖の上に街を作らない
+  if(rawH(x,z)<WATER+3)return false;
+  for(const f of[.5,.85,1.1])for(let i=0;i<16;i++){const a=i*Math.PI/8;if(rawH(x+Math.cos(a)*R*f,z+Math.sin(a)*R*f)<WATER+3)return false}
+  return true;
+}
+function townDesertOk(x,z,Rmax){                                 // 街の予定地がすべて砂漠か（中心と、最大半径の.5・.85・1.0倍の16方向。外周は外壁の外の平らな帯ぶん70m外まで）。砂漠でない所に街を作って、そこだけ砂漠のように見えるのを防ぐ
+  if(climateAt(x,z).de<.6)return false;
+  for(const f of[.5,.85,1])for(let i=0;i<16;i++){const a=i*Math.PI/8,d=Rmax*f+(f>.9?70:0);if(climateAt(x+Math.cos(a)*d,z+Math.sin(a)*d).de<.6)return false}
+  return true;
+}
 function townOfCell(ix,iz){
   const k=ix+','+iz;if(townCache.has(k))return townCache.get(k);
   const r=mulberry(hash(ix,iz,SEED+101)*1e9|0),EC=empireAt(ix,iz),desertEmpire=!!EC&&(EC.s.t==='d'||(EC.s.t==='c'&&EC.s.biome==='d')),forced=desertEmpire;   // 帝国の砂漠風拠点だけを砂漠に生成。西洋風拠点は euroOfCell 側で生成
@@ -1885,6 +2008,8 @@ function townOfCell(ix,iz){
       let dm=climateAt(cx,cz).de;                               // 中心と、街の外周（半径の1.15倍）8方向がすべて砂漠か
       for(let i=0;i<8&&dm>=.6;i++)dm=Math.min(dm,climateAt(cx+Math.cos(i*.785)*R*1.15,cz+Math.sin(i*.785)*R*1.15).de);
       if(dm<.6)continue;
+      if(!townLandOk(cx,cz,R))continue;                         // 海・湖にかかる候補地は選ばない
+      if(!townDesertOk(cx,cz,R*1.23))continue;                  // 街の輪郭の最大(1.23倍)までがすべて砂漠の所だけ
       let wet=0,mn=1e9,mx=-1e9;
       for(let i=0;i<9;i++){
         const a=i*.785,d=i?R*.7:0,h=rawH(cx+Math.cos(a)*d,cz+Math.sin(a)*d);
@@ -1935,12 +2060,13 @@ function townOfCell(ix,iz){
       t.bz.push({ax,k:Math.round(((ax==='x'?t.z:t.x)+off)/L),a0:Math.min(p0,p1),a1:Math.max(p0,p1)});
     }
   }
-  if(t&&!t.kind&&!EC&&r()<.22)t.city=makeMarketCity(t);   // 王国に市場都市が併設されるのは一部だけ
-  if(!t&&!EC&&!forced&&r()<CITY_P){                         // 王国に付属しない独立都市（共和国）もまれに生成
+  if(KINGDOM_ATTACHED_CITY&&t&&!t.kind&&!EC&&r()<.22)t.city=makeMarketCity(t);   // 王国に市場都市が併設されるのは一部だけ
+  if(!t&&!EC&&!forced&&r()<CITY_P){                         // 王国に付属しない独立都市＝砂漠の共和国（砂漠の中にだけ作る。西洋の共和国は西洋の街 euroOfCell の側で別に作る）
     let best=null,bs=1e9;
     for(let n=0;n<12;n++){
-      const cx=(ix+.22+r()*.56)*TCELL,cz=(iz+.22+r()*.56)*TCELL,c=climateAt(cx,cz),h=rawH(cx,cz);
-      if(c.M+c.C<.85||c.de>.1||h<WATER+4||h>19||riverNear(cx,cz,260,35))continue;
+      const cx=(ix+.22+r()*.56)*TCELL,cz=(iz+.22+r()*.56)*TCELL,h=rawH(cx,cz);
+      if(h<WATER+4||h>19||riverNear(cx,cz,260,35))continue;
+      if(!townDesertOk(cx,cz,336)||!townLandOk(cx,cz,336))continue;       // 予定地がすべて砂漠で、海・湖にかからない所だけ（最大半径 300×1.12）
       let mn=h,mx=h;for(let j=0;j<8;j++){const hh=rawH(cx+Math.cos(j*.785)*180,cz+Math.sin(j*.785)*180);mn=Math.min(mn,hh);mx=Math.max(mx,hh)}
       if(mn<WATER+2.5||mx>24)continue;
       const score=mx-mn;if(score<bs){bs=score;best={x:cx,z:cz}}
@@ -3437,6 +3563,123 @@ const WATER=-6;
 const water=new THREE.Mesh(new THREE.PlaneGeometry(1000,1000),new THREE.MeshLambertMaterial({color:0x2b6fa8,transparent:true,opacity:.75}));
 water.rotation.x=-Math.PI/2;water.position.y=WATER;scene.add(water);
 
+// ---------- 水の簡易シミュレーション ----------
+// 水は「川」という部品ではなく、地形の上にある水の量（深さ）。高い所から低い所へ流れ、窪みにたまり、いっぱいになるとあふれる（川は溝があるから流れるだけ）。
+// プレイヤーのまわり GN×GN マス（1マス=CS m）だけを計算し、歩くとマスをずらして新しい側を作る。水源=川の各点のわき水。海面(WATER)より低いマスは海（上の板の水面）に任せる。
+// 流れは仮想パイプ法のごく簡単な版: 隣との水面の高さの差で流量が増え、水の深さに比例した上限がある（浅いと遅い）。
+const GN=80,CS=4,WS_C=.2,WS_DAMP=.88,WS_VMAX=.12,WS_STEPS=3,WS_MIN=.03;
+const wT=new Float32Array(GN*GN),wD=new Float32Array(GN*GN),wD2=new Float32Array(GN*GN),wF=new Float32Array(GN*GN*4);   // 地形の高さ・水の深さ・4方向(+x,-x,+z,-z)の流量
+const wT2=new Float32Array(GN*GN),wDt=new Float32Array(GN*GN),wFt=new Float32Array(GN*GN*4);
+const wR=new Uint8Array(GN*GN),wR2=new Uint8Array(GN*GN);                       // 川の溝（と岸の縁）にあたるマス=1。陸の水はここにだけ残る
+let wGX=NaN,wGZ=NaN,wSprings=[],wAcc=0;
+const WV=GN+1,wSy=new Float32Array(WV*WV),wCn=new Uint8Array(WV*WV);
+const wPos=new Float32Array(WV*WV*3),wNor=new Float32Array(WV*WV*3),wIdx=new Uint32Array(GN*GN*6),wCol=new Float32Array(WV*WV*4);
+const wSd=new Float32Array(WV*WV),wTs=new Float32Array(WV*WV),wTc=new Uint8Array(WV*WV),wDr=new Float32Array(WV*WV),wDc=new Uint8Array(WV*WV),wLv=new Float32Array(WV*WV),wVy=new Float32Array(WV*WV),wUse=new Uint8Array(WV*WV),wWet=new Uint8Array(GN*GN);   // 水面メッシュ作り用の作業配列
+for(let i=0;i<WV*WV;i++)wNor[i*3+1]=1;
+const wGeo=new THREE.BufferGeometry();
+wGeo.setAttribute('position',new THREE.BufferAttribute(wPos,3).setUsage(THREE.DynamicDrawUsage));
+wGeo.setAttribute('normal',new THREE.BufferAttribute(wNor,3));
+wGeo.setAttribute('color',new THREE.BufferAttribute(wCol,4).setUsage(THREE.DynamicDrawUsage));
+wGeo.setIndex(new THREE.BufferAttribute(wIdx,1).setUsage(THREE.DynamicDrawUsage));wGeo.setDrawRange(0,0);
+const wMesh=new THREE.Mesh(wGeo,RIVER_M);wMesh.frustumCulled=false;scene.add(wMesh);
+function waterReset(){wGX=NaN;wGZ=NaN;wSprings=[];wGeo.setDrawRange(0,0)}
+function waterInitCell(k,i,j){                                   // 新しく窓に入ったマス: 地形の高さと、最初の水（海は海面まで、川の溝は水面の高さまで）
+  const x=(wGX+i+.5)*CS,z=(wGZ+j+.5)*CS,h=heightAt(x,z);wT[k]=h;wF[k*4]=wF[k*4+1]=wF[k*4+2]=wF[k*4+3]=0;
+  wR[k]=(riverScan(x,z)&&RN_E<CS*.75)?1:0;                      // 川の中心線から（川幅の外へ）3m以内まで=川の溝
+  let d=0;
+  if(h<WATER)d=WATER-h;else if(riverScan(x,z)&&RN_E<0)d=Math.max(0,RN_B+.95+.06*RN_HW-h);
+  wD[k]=d;
+}
+function waterShift(ngx,ngz){
+  const dx=ngx-wGX,dz=ngz-wGZ,full=isNaN(wGX)||Math.abs(dx)>=GN||Math.abs(dz)>=GN;
+  if(!full){wT2.set(wT);wDt.set(wD);wFt.set(wF);wR2.set(wR)}
+  wGX=ngx;wGZ=ngz;
+  for(let j=0;j<GN;j++)for(let i=0;i<GN;i++){
+    const k=j*GN+i,oi=i+dx,oj=j+dz;
+    if(!full&&oi>=0&&oi<GN&&oj>=0&&oj<GN){const o=oj*GN+oi;wT[k]=wT2[o];wD[k]=wDt[o];wR[k]=wR2[o];for(let q=0;q<4;q++)wF[k*4+q]=wFt[o*4+q]}
+    else waterInitCell(k,i,j);
+  }
+  wSprings=[];                                                   // わき水: 窓の中の川の各点（下流ほど水量が多い。支流は半分）
+  const cx=(wGX+GN/2)*CS,cz=(wGZ+GN/2)*CS;ensureRivers(cx,cz);
+  const seen=new Set(),x0=wGX*CS,z0=wGZ*CS;
+  for(let X=Math.floor(x0/RVC);X<=Math.floor((x0+GN*CS)/RVC);X++)for(let Z=Math.floor(z0/RVC);Z<=Math.floor((z0+GN*CS)/RVC);Z++){
+    const L=RVH.get(X+','+Z);if(!L)continue;
+    for(const s of L){
+      if(seen.has(s))continue;seen.add(s);
+      const a=s.R.P[s.i],i=Math.floor(a.x/CS)-wGX,j=Math.floor(a.z/CS)-wGZ;
+      if(i<0||i>=GN||j<0||j>=GN)continue;
+      wSprings.push({k:j*GN+i,q:(.02+.028*Math.min(1,s.i/100))*(s.R.branch?.5:1)});
+    }
+  }
+}
+function waterStep(){
+  const N=GN,T=wT,D=wD,F=wF;
+  for(const s of wSprings)D[s.k]+=s.q;
+  for(let j=0;j<N;j++)for(let i=0;i<N;i++){                      // 流量: 隣より水面が高いほうへ増える（減衰あり・深さに比例した上限）
+    const k=j*N+i,d=D[k],k4=k*4;
+    if(d<1e-4){F[k4]=F[k4+1]=F[k4+2]=F[k4+3]=0;continue}
+    const L=T[k]+d,dn=T[k]-1,cap=d*WS_VMAX;
+    let a=F[k4]*WS_DAMP+WS_C*(L-(i<N-1?T[k+1]+D[k+1]:dn));
+    let b=F[k4+1]*WS_DAMP+WS_C*(L-(i>0?T[k-1]+D[k-1]:dn));
+    let c=F[k4+2]*WS_DAMP+WS_C*(L-(j<N-1?T[k+N]+D[k+N]:dn));
+    let e=F[k4+3]*WS_DAMP+WS_C*(L-(j>0?T[k-N]+D[k-N]:dn));      // 窓の外へは流れ出る（窓の外は低いものとして扱う）
+    F[k4]=a<0?0:a>cap?cap:a;F[k4+1]=b<0?0:b>cap?cap:b;F[k4+2]=c<0?0:c>cap?cap:c;F[k4+3]=e<0?0:e>cap?cap:e;
+  }
+  for(let j=0;j<N;j++)for(let i=0;i<N;i++){                      // 水の量: 出ていった分を引き、隣から入ってきた分を足す
+    const k=j*N+i,k4=k*4;
+    let nd=D[k]-(F[k4]+F[k4+1]+F[k4+2]+F[k4+3]);
+    if(i>0)nd+=F[(k-1)*4];if(i<N-1)nd+=F[(k+1)*4+1];if(j>0)nd+=F[(k-N)*4+2];if(j<N-1)nd+=F[(k+N)*4+3];
+    wD2[k]=nd<0?0:nd;
+  }
+  for(let k=0;k<N*N;k++)D[k]=T[k]<WATER?WATER-T[k]:wR[k]?wD2[k]:0;   // 海のマスは海面の高さに固定。川の溝の外（坂・岸の上）にあふれた水は地面にしみ込んで残らない（水は川の溝・窪みにだけたまる）
+}
+function waterMesh(){                                            // 水のあるマスの面。マスの四角い形のまま見えないように、①角の高さはまわりの水面の平均 ②水のマスの外側1マスぶんも水面を延ばし、外の角は地面の下へ沈める（地面と水面の交わる線＝自然な岸になる） ③浅い縁ほど薄く明るい
+  const N=GN;wSd.fill(0);wTs.fill(0);wTc.fill(0);wDr.fill(0);wDc.fill(0);wCn.fill(0);wSy.fill(0);wUse.fill(0);
+  for(let j=0;j<N;j++)for(let i=0;i<N;i++){                      // 1) 各マスの角に、水の高さ・深さ・地面の高さを集める（海面より下の地面は海面として扱う）
+    const k=j*N+i,d=wD[k],T=wT[k],Te=T<WATER?WATER:T,wet=d>=WS_MIN&&!(T<WATER&&T+d<WATER+.08);
+    wWet[k]=wet?1:0;
+    const v=j*WV+i;
+    for(let q=0;q<4;q++){const u=v+(q&1)+(q>>1)*WV;wTs[u]+=Te;wTc[u]++;if(wet){wSy[u]+=T+d;wSd[u]+=d;wCn[u]++}else{wDr[u]+=Te;wDc[u]++}}
+  }
+  for(let v=0;v<WV*WV;v++){                                      // 2) 水に触れている角: 高さ=まわりの水面の平均。岸の角(乾いたマスにも触れる)は、乾いたマスの地面より少し下まで
+    if(!wCn[v])continue;
+    const Lv=wSy[v]/wCn[v];let y=Lv;
+    if(wDc[v]){const Td=wDr[v]/wDc[v];if(Td-.05<y)y=Td-.05}
+    wLv[v]=Lv;wVy[v]=y;wUse[v]=1;
+    const dep=wSd[v]/4,t=Math.min(1,dep/.9),sm=t*t*(3-2*t);   // 深さ0→.9mで透明→濃く
+    wCol[v*4]=.58+(.22-.58)*sm;wCol[v*4+1]=.78+(.5-.78)*sm;wCol[v*4+2]=.74+(.68-.74)*sm;wCol[v*4+3]=.1+.78*sm;
+  }
+  let n=0;
+  for(let j=0;j<N;j++)for(let i=0;i<N;i++){
+    const k=j*N+i,v=j*WV+i,vs=[v,v+1,v+WV,v+WV+1];
+    if(!wWet[k]){                                                // 3) 水のマスのとなりの乾いたマス（岸のマス）にも水面を延ばす。海のマスは海面に任せる
+      if(wT[k]<WATER)continue;
+      if(!(wCn[vs[0]]|wCn[vs[1]]|wCn[vs[2]]|wCn[vs[3]]))continue;
+      for(const u of vs){
+        if(wUse[u])continue;
+        const ui=u%WV,uj=(u-ui)/WV;let sL=0,c=0;
+        for(let dj=-1;dj<=1;dj++)for(let di=-1;di<=1;di++){const a=ui+di,b=uj+dj;if(a<0||a>N||b<0||b>N)continue;const w=b*WV+a;if(wCn[w]){sL+=wLv[w];c++}}
+        const Ln=c?sL/c:wLv[vs.find(w=>wCn[w])];
+        const Tv=wTs[u]/wTc[u];
+        wVy[u]=Math.min(Ln,Tv-.08);wUse[u]=1;                    // 外の角は地面の下へ。地面が水面より高ければ水面の高さのまま（地面に隠れる）
+        wCol[u*4]=.6;wCol[u*4+1]=.8;wCol[u*4+2]=.76;wCol[u*4+3]=0;
+      }
+    }
+    wIdx[n++]=v;wIdx[n++]=v+WV;wIdx[n++]=v+1;wIdx[n++]=v+1;wIdx[n++]=v+WV;wIdx[n++]=v+WV+1;
+  }
+  for(let j=0;j<WV;j++)for(let i=0;i<WV;i++){const v=j*WV+i;wPos[v*3]=(wGX+i)*CS;wPos[v*3+1]=wUse[v]?wVy[v]:-1e4;wPos[v*3+2]=(wGZ+j)*CS}
+  wGeo.attributes.position.needsUpdate=true;wGeo.attributes.color.needsUpdate=true;wGeo.index.needsUpdate=true;wGeo.setDrawRange(0,n);
+}
+function waterUpdate(dt){
+  try{
+    const ngx=Math.floor(player.x/CS)-GN/2,ngz=Math.floor(player.z/CS)-GN/2;
+    if(ngx!==wGX||ngz!==wGZ)waterShift(ngx,ngz);
+    wAcc+=dt;let n=0;while(wAcc>=1/30&&n<WS_STEPS){waterStep();wAcc-=1/30;n++}
+    if(wAcc>.2)wAcc=0;
+    if(n>0)waterMesh();
+  }catch(err){console.error(err)}
+}
+
 // ---------- チャンク生成 ----------
 const CHUNK=32,SEG=20,RADIUS=4;
 const chunks=new Map();
@@ -3856,7 +4099,7 @@ function makeChunk(cx,cz){
     const o=lotAt(lx,lz);if(!o)continue;
     if(o.type==='b')addBuilding(o);
     else if(o.type==='court')addCourt(o);
-    else for(const[px,pz,ps] of o.palms)addPalm(g,px,TOWN_H,pz,ps);
+    else if(o.palms)for(const[px,pz,ps] of o.palms)addPalm(g,px,TOWN_H,pz,ps);   // 小広場(openlot)にはヤシが無いので何も置かない
   }
   for(const t of nearTowns(cx*CHUNK,cz*CHUNK))for(const m of t.landmarks)if(Math.floor(m.x/CHUNK)===cx&&Math.floor(m.z/CHUNK)===cz)addBuilding(m);
   const wd=new THREE.Object3D();
@@ -3928,8 +4171,6 @@ function makeChunk(cx,cz){
     pillars.forEach((a,i)=>{dummy.position.set(a[0],TOWN_H+a[3]/2,a[1]);dummy.rotation.set(0,0,0);dummy.scale.set(a[2],a[3],a[2]);dummy.updateMatrix();cm.setMatrixAt(i,dummy.matrix)});
     cm.frustumCulled=false;cm.castShadow=cm.receiveShadow=true;g.add(cm);
   }
-  {const rg=riverGeo(cx,cz);if(rg){geos.push(rg);const rm=new THREE.Mesh(rg,RIVER_M);rm.castShadow=false;rm.frustumCulled=false;g.add(rm)}}   // 川の水面
-  {const fg=fallGeo(cx,cz);if(fg){geos.push(fg);const fm=new THREE.Mesh(fg,FALL_M);fm.castShadow=false;fm.frustumCulled=false;g.add(fm)}}   // 滝と滝つぼ
   // 木・岩（チャンク座標から決定的に配置）: 気候帯・植生ごとに種類と密度が変わる
   //  砂漠=ほぼ何も無い(水辺にヤシ) / サバンナ=傘形の木がぽつぽつ / ステップ=ほぼ草だけ / 草原=広葉樹がまばら / 広葉樹林=広葉樹が密
   //  熱帯=ヤシとやや高い木、ジャングル=背の高い木が密集 / 冷帯=針葉樹林（雪をかぶる）、雪原は小さな針葉樹がまばら
@@ -4052,7 +4293,7 @@ function updateChunks0(){
   }
 }
 function resetWorld(){
-  clearVillages();FLD.clear();FLDV.clear();mtCache.clear();contCache.clear();_ctI=NaN;_ctJ=NaN;RVH.clear();LKH.clear();_mbIx=NaN;_rvIx=NaN;
+  clearVillages();FLD.clear();FLDV.clear();mtCache.clear();contCache.clear();_ctI=NaN;_ctJ=NaN;RVH.clear();LKH.clear();waterReset();_mbIx=NaN;_rvIx=NaN;
   lotCache.clear();townCache.clear();cvCache.clear();_cvIx=NaN;euroCache.clear();empCache.clear();_euIx=NaN;clearPalaces();clearCaravans();clearEuro();
   for(const c of chunks.values()){scene.remove(c);disposeChunk(c)}
   chunks.clear();
@@ -4249,12 +4490,6 @@ function warpBasin(){                                             // 盆地の�
 function warpMesa(){                                              // 台地の上面の縁の近く。外（崖の向こう）を向く
   warpCells('mesa',dbgCells(mesaOfCell,MC2,5),'台地',m=>{const a=Math.random()*6.2832;warpTo(m.x+Math.cos(a)*m.R*.55,m.z+Math.sin(a)*m.R*.55,yawTo(Math.cos(a),Math.sin(a)))});
 }
-function warpFall(){                                              // 滝。下流16mから滝を向く（近くの山の川を先に作ってから探す）
-  for(const m of dbgMountains(6,6))mtRivers(m);
-  ensureRivers(player.x,player.z);
-  const list=FALL_LIST.slice().sort((p,q)=>Math.hypot(p.x-player.x,p.z-player.z)-Math.hypot(q.x-player.x,q.z-player.z));
-  warpCells('fall',list,'滝',pl=>warpTo(pl.B.x+pl.ux*16,pl.B.z+pl.uz*16,yawTo(-pl.ux,-pl.uz)));
-}
 function warpPlain(){                                             // 海岸平野。内陸側を向く（段々の崖が見える）
   const px=player.x,pz=player.z;
   for(let r=300;r<=40000;r+=r<3000?200:500){
@@ -4378,7 +4613,7 @@ function warpBuilding(type,name,fn){
   H('建物へワープ');for(const[k,n,f] of DBG_B)B(n,()=>warpBuilding(k,n,f));
   H('砂漠');B('キャラバンサライ',warpCaravan);H('レア');B('帝国',warpEmpire);B('帝国の入り口',warpGate);B('港町',warpPort);
   H('温帯・寒帯');B('西洋の都市',warpEuro);B('教会領',warpAbbey);B('西洋の城門',warpEuroGate);
-  H('地形');B('氷河',()=>warpBiome('ic','氷河',60));B('盆地',warpBasin);B('台地（メサ）',warpMesa);B('海岸平野',warpPlain);B('滝',warpFall);
+  H('地形');B('氷河',()=>warpBiome('ic','氷河',60));B('盆地',warpBasin);B('台地（メサ）',warpMesa);B('海岸平野',warpPlain);
   H('山と川');B('巨大な山の頂上',()=>warpMountain('top','巨大な山の頂上'));B('川の源流',()=>warpMountain('src','川の源流'));B('河口',()=>warpMountain('mouth','河口'));B('川沿いの村',warpVillage);
   dbgMsg=document.createElement('div');dbgMsg.id='dbgmsg';dbgBox.appendChild(dbgMsg);
   const toggle=()=>{dbgOpen=!dbgOpen;dbgBox.style.display=dbgOpen?'block':'none';if(dbgOpen&&document.exitPointerLock)document.exitPointerLock()};   // PCはポインタを解放してクリックできるように
@@ -4416,8 +4651,8 @@ function villageHousesOf(v){                                    // 村の家の�
   const r=mulberry(hash(Math.round(v.cx),Math.round(v.cz),SEED+6161)*1e9|0),roads=v.roads,houses=[];
   const rd=(px,pz)=>{let d=1e9;for(const s of roads){const e=segD(px,pz,s);if(e<d)d=e}return d};
   const WALL=[0xe8dcc0,0xf0e6d0,0xd9c49a,0xe0cfae,0xcdb98f,0xf2efe6],ROOF=[0x8a3f2d,0x6b4a30,0x555a62,0x7a5a35,0x9a4a38];
-  const lines=[];
-  for(const[MM,BB,sg]of v.twin?[[v.M,v.B,v.s],[v.M2,v.B2,-v.s]]:[[v.M,v.B,v.s]]){
+  const lines=v.lines?v.lines.slice():[];
+  for(const[MM,BB,sg]of v.lines?[]:v.twin?[[v.M,v.B,v.s],[v.M2,v.B2,-v.s]]:[[v.M,v.B,v.s]]){
     for(let j=0;j<MM.length-1;j+=2)lines.push({a:MM[j],b:MM[Math.min(j+2,MM.length-1)],main:sg});
     if(BB){for(let j=0;j<BB.length-1;j+=2)lines.push({a:BB[j],b:BB[Math.min(j+2,BB.length-1)]});
     for(const k of v.ck)lines.push({a:MM[k],b:BB[k],cross:true})}
@@ -4453,7 +4688,8 @@ function villageHousesOf(v){                                    // 村の家の�
         if(v.manor&&polyHit(h.cn,rectPoly(v.manor.ox,v.manor.oz,v.manor.c,v.manor.s,-30*MS,30*MS,-34*MS,38*MS)))continue
         const hs=[heightAt(h.x,h.z)];for(const q of h.cn)hs.push(heightAt(q[0],q[1]));
         const mx=Math.max(...hs),mn=Math.min(...hs);
-        if(mx-mn>4.5||mn<WATER+1.5)continue;
+        if(mx-mn>(v.lines?3.5:4.5)||mn<WATER+1.5)continue;
+        if(v.lines&&(!habK(h.x,h.z,v.k)||hitField(h.cn,v.fields)))continue;   // 川沿いの村: 居住可能地の中で、畑には建てない（地形は平らにしないので、段差の小さい所だけ）
         for(const o of houses)if(overlap(h,o)){ok=false;break}
         if(!ok)continue;
         h.y0=mx+.25;h.ymin=mn;houses.push(h);
@@ -4563,11 +4799,7 @@ function miniTerrain(D){                                        // 下地（数�
     if(slope>5.5||range>7.5)continue;                 // 斜面・起伏の大きい地形は不可
     if(h>WATER+95&&range>3.5)continue;                // 高地は平坦な台地状の場所だけ許可
     if(!waterNear(x,z))continue;                      // 海岸または川からおよそ150m以内
-    const cl=climateAt(x,z),cn=sm01(.35,.7,canopyRaw(x,z));
-    const treeDensity=cl.ta*(.24+.52*cn)+cl.sq*.05+cl.cg*(.02+.06*cn*cn)
-      +cl.bf*(.2+.4*cn)+cl.sq*.03+cl.gr*(.03+.1*cn*cn)
-      +cl.tg*(.015+.04*cn)+cl.st*.002+cl.jg*(.22+.45*cn)+cl.tf*(.12+.28*cn);
-    if(treeDensity>.31)continue;                      // 樹木が過密な森は除外
+    if(habTree(x,z)>.31)continue;                      // 樹木が過密な森は除外
     hab[j*N+i]=1;
     img.data[o]=Math.round(img.data[o]*.42+55*.58);
     img.data[o+1]=Math.round(img.data[o+1]*.42+205*.58);
@@ -4799,6 +5031,7 @@ function loop(now){
   camera.rotation.set(player.pitch,player.yaw,0);
   water.position.x=player.x;water.position.z=player.z;
   updateEnv(dt);
+  waterUpdate(dt);
   if(frame++%10===0){updateChunks();info.textContent=`seed:${SEED}  chunks:${chunks.size}  ${biomeName()}${EU_ERR?'  '+EU_ERR:''}`;updateNav()}
   const tx=Math.round(player.x/.0586)*.0586,tz=Math.round(player.z/.0586)*.0586;   // 影のちらつき防止（テクセルにスナップ）
   sun.target.position.set(tx,0,tz);sun.position.set(tx+SUN_OFF.x,SUN_OFF.y,tz+SUN_OFF.z);
