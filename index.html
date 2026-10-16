@@ -49,6 +49,7 @@ function fbm(x,y){let s=0,a=.5,f=1;for(let i=0;i<5;i++){s+=a*vnoise(x*f,y*f);f*=
 // スポーン地点とは無関係に決まる（スポーンは街の外）。街同士が重ならないよう、中心のずれ幅はセルの30%まで。
 const GEN_OTHER_TOWNS=false;   // 砂漠の街以外（川沿いの村・港町・西洋の都市・屋敷・教会・修道院・帝国）の生成。false=生成しない（コードとデータはそのまま残してある）。true にすると元に戻る
 const GEN_RIVER_VILLAGES=true;   // 川沿いの村だけは GEN_OTHER_TOWNS=false でも生成する。川の周りの「居住可能エリア」(ミニマップの緑: 平坦・樹木が過密でない・水際より上)の中にだけ作る
+const GEN_PORT_TOWNS=GEN_RIVER_VILLAGES;   // 港町は村と同じ扱い: 川沿いの村と同じく GEN_OTHER_TOWNS=false でも生成する。村と同じ「居住可能エリア」・気候・村どうしの間隔(VSEP)の条件で海岸に作る
 const MS=2;                                                      // 屋敷の規模の倍率（建物・庭・フェンス・当たり判定・配置まで全部）
 const TOWN_H=3,L=14,TCELL=3600,TBLEND=150,TOWN_P=.24,CITY_P=.075;      // L=1区画の大きさ
 const townCache=new Map();
@@ -620,11 +621,12 @@ function habRaw(x,z){                                           // 居住可能�
 // 順序: ① 主道（川に沿う）→ 枝道（川から離れる向き）を引く → ② 畑の小道と畑 → ③ 家（buildVillage）。
 // 道を引くときに守る決まり: 1刻み(VST m)の高低差がVDH以下（段差・崖・土手を通らない）／居住可能地(habRaw)の中／川の縁から9〜VRIV m／
 // 同じ村の別の道・他の村の道から VGAP m 以上離す（枝道の根元だけは別）／村の中心から VRMAX m まで（村が広がりすぎない）。
+let VX=1;   // 内陸へ広げる村(30%)は 1.7: 川からの距離・村の半径・枝道の長さを広げ、居住可能地の条件も少しゆるめる
 const VST=6,VDH=2.2,VGAP=16,VRMAX=160,VRIV=260,VSEP=140;   // VSEP=別の村の道からこの距離(m)以上離す（村の境目を分かりやすくする）
 function villageSep(x,z){                                         // 生成済みの別の村の道までの最短距離（VSEPより遠ければ打ち切る）
   let d=1e9;
   for(const v of VLIST){
-    if(Math.hypot(x-v.cx,z-v.cz)>VRMAX+VSEP+60)continue;
+    if(Math.hypot(x-v.cx,z-v.cz)>VRMAX*(v.vx||1)+VSEP+60)continue;
     for(const s of v.roads){const e=segD(x,z,s);if(e<d)d=e}
   }
   return d;
@@ -648,11 +650,11 @@ function growRoad(s0,th0,maxLen,net,C,kind,fr){                      // s0から
     for(let k=-3;k<=3;k++){
       const a=th+k*.21,qx=x+Math.cos(a)*VST,qz=z+Math.sin(a)*VST;
       if(kind==='b'&&Math.abs(Math.atan2(Math.sin(a-th0),Math.cos(a-th0)))>.96)continue;
-      if(Math.hypot(qx-C[0],qz-C[1])>VRMAX)continue;                                        // 村の中心から遠すぎる
+      if(Math.hypot(qx-C[0],qz-C[1])>VRMAX*VX)continue;                                        // 村の中心から遠すぎる
       const hq=vhRoad(qx,qz);if(Math.abs(hq-h)>VDH*VK/1.45)continue;                                // 段差
       const hm=vhRoad((x+qx)/2,(z+qz)/2);if(Math.abs(hm-(h+hq)/2)>.8)continue;             // 刻みの途中の溝・土手
       if(!habRaw(qx,qz))continue;                                                           // 居住可能地の外
-      const re=riverEff(qx,qz);if(re<9||re>VRIV*VK/1.45)continue;                            // 川の縁に近すぎる／水辺から遠すぎる
+      const re=riverEff(qx,qz);if(re<9||re>VRIV*VX*VK/1.45)continue;                            // 川の縁に近すぎる／水辺から遠すぎる
       if(netDist(net,qx,qz,[s0[0],s0[1],VGAP])<VGAP)continue;                               // 他の道に近すぎる
       if(villageSep(qx,qz)<VSEP)continue;                                                  // 他の村の道に近すぎる
       const cost=Math.abs(hq-h)*2.5+Math.abs(k)*.5+(kind==='t'?Math.abs(re-14)*.12:-re*.02)+fr()*.5;
@@ -668,8 +670,8 @@ function vTrunk(P,i,side,nrm,net,C,fr){                              // 川(P[i]
   let S=null;
   for(const o of[14,10,18,22]){
     const x=p.x+side*n[0]*(p.hw+o),z=p.z+side*n[1]*(p.hw+o);
-    if(!habRaw(x,z))continue;const re=riverEff(x,z);if(re<9||re>VRIV)continue;
-    if(C&&Math.hypot(x-C[0],z-C[1])>VRMAX)continue;
+    if(!habRaw(x,z))continue;const re=riverEff(x,z);if(re<9||re>VRIV*VX)continue;
+    if(C&&Math.hypot(x-C[0],z-C[1])>VRMAX*VX)continue;
     if(netDist(net,x,z)<VGAP||villageSep(x,z)<VSEP)continue;
     S=[x,z];break;
   }
@@ -683,7 +685,7 @@ function vBranches(P,trunk,net,C,fr,out){                             // 主道�
     const a=trunk[j],b=trunk[j+1],sl=Math.hypot(b[0]-a[0],b[1]-a[1]);
     while(nxt<=acc+sl){
       const t=(nxt-acc)/sl,sx=a[0]+(b[0]-a[0])*t,sz=a[1]+(b[1]-a[1])*t;
-      const pl=growRoad([sx,sz],vOutward(P,sx,sz),40+fr()*28,net,C,'b',fr);
+      const pl=growRoad([sx,sz],vOutward(P,sx,sz),(40+fr()*28)*(VX>1?2.2:1),net,C,'b',fr);
       if(pl.length>=4){net.push(pl);out.push(pl)}
       nxt+=44+fr()*14;
     }
@@ -704,10 +706,534 @@ function vBridges(P,t1,t2){                                           // 両岸�
   const out=[];for(const q of c){if(out.every(o=>Math.abs(o.i-q.i)*VST>=45))out.push(q);if(out.length>=2)break}
   return out.map(q=>[q.a,q.b]);
 }
+// ---------- 村・港町の城: 道を少し伸ばした先に、城を置く（確率）----------
+// 城のタイプ: 'land'=段々の土地に城壁・塔・階段・館（castle_land式。1段か2段・丸か四角・館の形もランダム） / 'simple'=大きな正方形の石の城（今までの城）
+const VCW=44;   // simple の一辺(m)
+const CASTLE_LAND_P=.65;   // 'land' タイプを選ぶ確率（置けない場所では simple にする）
+function castleSite(v,net,Lp,cx,cz,half,c,sn,round,hf){          // 城の敷地の検査: 水・川・道・畑にかからず、極端な崖・山でない所（斜面はよい）。Lp=道の先端（その手前の道は無視する）
+  const n=Math.max(2,Math.ceil(2*half/11)),st=2*half/n,G={};let lo=1e9,hi=-1e9;
+  for(let i=0;i<=n;i++)for(let j=0;j<=n;j++){
+    const a=-half+i*st,b=-half+j*st;if(round&&a*a+b*b>half*half*1.04)continue;
+    const qx=cx+a*c+b*sn,qz=cz-a*sn+b*c,hh=hf(qx,qz);
+    if(hh<WATER+2.5||(!v.port&&riverEff(qx,qz)<10)||netDist(net,qx,qz,[Lp[0],Lp[1],16])<8)return false;
+    lo=Math.min(lo,hh);hi=Math.max(hi,hh);G[i+','+j]=hh;
+  }
+  for(const k in G){const[i,j]=k.split(',').map(Number),g0=G[k],g1=G[(i+1)+','+j],g2=G[i+','+(j+1)];
+    if((g1!==undefined&&Math.abs(g1-g0)>9)||(g2!==undefined&&Math.abs(g2-g0)>9))return false}   // 隣り合う点（約11m）で9m以上の高低差＝断崖は避ける
+  return hi-lo<=16;                                             // 斜面でもよい。極端な崖・山（全体で16m超の高低差）だけ避ける
+}
+function villageCastle(v,ends,hf,prob){                          // v=村/港町。ends=[{p:[x,z],th}] 道の先の候補（向きth）。条件が合えば道を伸ばし、v.castle と v.roads を足す
+  if(!ends||!ends.length)return;
+  const e0=ends[0].p,r=mulberry(hash(Math.round(e0[0]),Math.round(e0[1]),SEED+9393)*1e9|0);
+  if(r()>(prob===undefined?.6:prob))return;
+  const net=v.roads.map(s=>[[s[0],s[1]],[s[2],s[3]]]),E=ends[Math.floor(r()*ends.length)];
+  const cseed=1+Math.floor(r()*999999),kinds=r()<CASTLE_LAND_P?['land','simple']:['simple'];
+  const plan=kinds[0]==='land'?castleLandBuild({seed:cseed,plan:true}):null;   // land の大きさ・階段の向き（地形に関係なく種から決まる）
+  for(let t=0;t<6;t++){
+    const s0=E.p,th0=E.th+(t?(r()-.5)*1.2:0),maxLen=42+r()*54,pl=[[s0[0],s0[1]]];
+    let th=th0,x=s0[0],z=s0[1],h=hf(x,z),len=0;
+    while(len<maxLen){                                           // 地形に沿って（高低差の小さい向きを選んで）少し伸ばす
+      let best=null,bc=1e9;
+      for(let k=-3;k<=3;k++){
+        const a=th+k*.21,qx=x+Math.cos(a)*VST,qz=z+Math.sin(a)*VST;
+        if(Math.abs(Math.atan2(Math.sin(a-th0),Math.cos(a-th0)))>.9)continue;
+        const hq=hf(qx,qz);if(hq<WATER+1.8||Math.abs(hq-h)>VDH*2)continue;
+        if(!v.port&&riverEff(qx,qz)<9)continue;
+        if(netDist(net.concat([pl]),qx,qz,[s0[0],s0[1],VGAP*1.4])<VGAP||villageSep(qx,qz)<60)continue;
+        const cost=Math.abs(hq-h)*2.5+Math.abs(k)*.45+r()*.5;if(cost<bc){bc=cost;best=[a,qx,qz,hq]}
+      }
+      if(!best)break;
+      th=best[0];x=best[1];z=best[2];h=best[3];pl.push([x,z]);len+=VST;
+    }
+    if(pl.length<6)continue;                                     // 36m以上伸ばせた時だけ
+    const Lp=pl[pl.length-1],Pp=pl[pl.length-2],dd=Math.hypot(Lp[0]-Pp[0],Lp[1]-Pp[1])||1,ux=(Lp[0]-Pp[0])/dd,uz=(Lp[1]-Pp[1])/dd;
+    for(const kind of kinds){
+      let cx,cz,ry,half,sl=0;
+      if(kind==='land'){
+        half=plan.R;                                             // 一番下の段の階段が道（-u の向き）を向くように回す
+        const wx=-ux,wz=-uz;ry=Math.atan2(plan.dz*wx-plan.dx*wz,plan.dx*wx+plan.dz*wz);
+        sl=8;                                                    // 階段の長さ（段数に合わせて調整: 地形の高さから見積もる）
+        for(let it=0;it<3;it++){
+          cx=Lp[0]+ux*(plan.dS+sl+1.5);cz=Lp[1]+uz*(plan.dS+sl+1.5);
+          let mxe=hf(cx,cz);for(let k=0;k<8;k++){const a=k*Math.PI/4;mxe=Math.max(mxe,hf(cx+Math.cos(a)*half*.8,cz+Math.sin(a)*half*.8))}
+          const fy=hf(Lp[0]+ux*1.5,Lp[1]+uz*1.5),hh=Math.max(2.6,mxe+plan.stepH-fy);
+          sl=Math.min(16,Math.max(6,Math.ceil(hh/.42)*.55));
+        }
+        cx=Lp[0]+ux*(plan.dS+sl+1.5);cz=Lp[1]+uz*(plan.dS+sl+1.5);
+        if(hf(Lp[0]+ux*1.5,Lp[1]+uz*1.5)<WATER+1.5)continue;
+      }else{
+        half=VCW/2;cx=Lp[0]+ux*(half+6);cz=Lp[1]+uz*(half+6);ry=Math.atan2(-ux,-uz);   // 門（局所+z）を道へ向ける
+      }
+      const c=Math.cos(ry),sn=Math.sin(ry),W=(a,b)=>[cx+a*half*c+b*half*sn,cz-a*half*sn+b*half*c];
+      if(!castleSite(v,net,Lp,cx,cz,half,c,sn,kind==='land',hf))continue;   // 平らでなくてよい。水・道・畑にかからず、極端な崖・山でない所
+      const fr=kind==='land'?.72:1;
+      if(villageSep(cx,cz)<(kind==='land'?half+12:45)||hitField([W(-fr,-fr),W(fr,-fr),W(fr,fr),W(-fr,fr)],v.fields||[]))continue;
+      for(let i=0;i+1<pl.length;i++)v.roads.push([pl[i][0],pl[i][1],pl[i+1][0],pl[i+1][1]]);
+      if(kind==='land'){
+        v.roads.push([Lp[0],Lp[1],cx-ux*plan.dS,cz-uz*plan.dS]);   // 階段の下まで
+        v.castle={kind:'land',x:cx,z:cz,ry,w:2*half,d:2*half,seed:cseed,sj:plan.sj,sl,R:half};
+      }else{
+        v.roads.push([Lp[0],Lp[1],cx+ux*half,cz+uz*half]);          // 城の門まで
+        v.castle={kind:'simple',x:cx,z:cz,ry,w:VCW,d:VCW};
+      }
+      return;
+    }
+  }
+}
+function castleLandBuild(K,HT){
+  const seed=K.seed,PLAN=!!K.plan;
+  const rnd=mulberry(seed),TAU=Math.PI*2;
+  const G=PLAN?0:K.G;                                                     // 地面の高さ（斜面では城の敷地の最高点）
+  // ケーキの段: 下の段より小さく、少しずらして重ねる（大きさ・段差は seed で変動）
+  const ONE_P=.35,nT=mulberry((seed*7+3)|0)()<ONE_P?1:2,TH=1.4,WH=1.8,tiers=[];   // 城壁が一段だけになる確率 35%（それ以外は二段）
+  const r1=(nT===1?22:30)+rnd()*(nT===1?8:10);                            // 一番下の段の半径 二段:30〜40m / 一段:22〜30m（頂上が広くなりすぎないように）
+  const R_TOP_MIN=15;                                                     // 上の段の半径の下限(m)＝小さくなりすぎない   // TH=城壁の厚み / WH=城壁が段の上面より高い分
+  let cx=0,cz=0,r=r1,y=G;
+  const SQ_P=.4,SQK=.92;                                                  // 四角い段になる確率 / 四角の半辺＝半径×SQK
+  const tierR=(t,th)=>t.sq?t.r*SQK/Math.max(Math.abs(Math.cos(th-t.rot)),Math.abs(Math.sin(th-t.rot))):t.r*Math.min(1.12,Math.max(.88,1+(fbm(Math.cos(th)*1.5+t.ox,Math.sin(th)*1.5+t.oy)-.48)*.6));   // 段の輪郭（波打つ円）
+  const gapOf=(u,p)=>{let g=1e9;for(let k=0;k<72;k++){const th=k/72*TAU,x=u.cx+Math.cos(th)*tierR(u,th),z=u.cz+Math.sin(th)*tierR(u,th),dx=x-p.cx,dz=z-p.cz;g=Math.min(g,tierR(p,Math.atan2(dz,dx))-TH-Math.hypot(dx,dz))}return g};
+  for(let k=0;k<nT;k++){
+    const stepH=2.6+rnd()*3.2;                                            // 段差 2.6〜5.8m
+    y+=stepH;
+    const t={cx,cz,r,y,y0:k?tiers[k-1].y-.3:(PLAN?G-.6:K.ymin),ox:rnd()*50,oy:rnd()*50,sq:rnd()<SQ_P,rot:rnd()*TAU};
+    t.cj=t.sq?[0,1,2,3].map(c=>Math.round(((t.rot+Math.PI/4+c*Math.PI/2)%TAU+TAU)%TAU/TAU*48)%48):[];   // 四角の角にいちばん近い頂点の番号
+    if(k>0){                                                              // 隙間が GAP 以上になるまで、上の段を小さく・中心寄りにする（下限あり）
+      const p=tiers[k-1],a=rnd()*TAU,minR=Math.max(R_TOP_MIN,p.r*.5),GAP=Math.max(4,stepH*.95+1.2);   // 段差が高いほど階段が長いので隙間も広く
+      let nr=Math.max(minR,p.r*(.65+rnd()*.15)),off=rnd()*p.r*.2;
+      for(let it=0;it<80;it++){t.r=nr;t.cx=p.cx+Math.cos(a)*off;t.cz=p.cz+Math.sin(a)*off;if(gapOf(t,p)>=GAP||nr<=minR)break;nr=Math.max(minR,nr*.97);off*=.9}
+      const maxH=(gapOf(t,p)-1.2)/.95;                                    // 隙間が足りないときは段差を低くして階段が収まるようにする
+      if(stepH>maxH){t.y=p.y+Math.max(2.6,maxH);y=t.y}
+    }
+    tiers.push(t);
+  }
+  const GB=PLAN?[.42,.62,.25]:K.gc;                                      // 敷地の地面の色（その場所の地形の色）
+  const topColor=(h,tn,x,z)=>{                                            // 地面の色（面ごとのむら）
+    const n=vnoise(x*.09+5,z*.09-8)-.5,n2=vnoise(x*.8,z*.8)-.5,k=1+.3*n+.14*n2;
+    return[GB[0]*k,GB[1]*k,GB[2]*k];
+  };
+  const wallColor=(i,x,z)=>{                                             // 砂岩の石積み（段ごとに明暗が交互）
+    const n2=vnoise(x*.7+i*.3,z*.7)-.5,d=(i%2?.93:1.03)*(1+.14*n2);
+    return[.62*d,.62*d,.6*d];
+  };
+  // 三角形ごとに頂点を持つ（頂点共有なし）＝面の法線と色が1つ＝ローポリ
+  const pos=[],col=[],CIRC=[];
+  const FH=(gx,gz)=>HT(K.x+gx*K.c+gz*K.s,K.z-gx*K.s+gz*K.c);          // 城の局所座標 → 地形の高さ
+  // 色褪せ: 単色の部分（建物・屋根・塔・城壁など）の色を、彩度を落として白っぽく褪せさせ、場所ごとの汚れ・むらを付ける。草や地面（raw=1）はそのまま
+  const fadeCol=(k,x,y,z)=>{
+    const L=k[0]*.3+k[1]*.59+k[2]*.11,s=.6,n=vnoise(x*.35+y*.55+7,z*.35-y*.3)-.5,n2=vnoise(x*1.3+3,z*1.3+y*1.1)-.5,m=1+.34*n+.12*n2,f=.14*Math.min(1,L*2);   // 暗い色（窓）は褪せさせすぎない
+    return[(L+(k[0]-L)*s)*m*(1-f)+.74*f,(L+(k[1]-L)*s)*m*(1-f)+.72*f,(L+(k[2]-L)*s)*m*(1-f)+.66*f];
+  };
+  const tri=(a,b,c,k,raw)=>{if(!raw)k=fadeCol(k,(a[0]+b[0]+c[0])/3,(a[1]+b[1]+c[1])/3,(a[2]+b[2]+c[2])/3);pos.push(a[0],a[1],a[2],b[0],b[1],b[2],c[0],c[1],c[2]);for(let i=0;i<3;i++)col.push(k[0],k[1],k[2])};
+  const normalOf=(a,b,c)=>{const ux=b[0]-a[0],uy=b[1]-a[1],uz=b[2]-a[2],vx=c[0]-a[0],vy=c[1]-a[1],vz=c[2]-a[2];const nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx,l=Math.hypot(nx,ny,nz)||1;return[nx/l,ny/l,nz/l]};
+  const top=(a,b,c)=>{                                                    // 上面の三角形（上向きに揃える）
+    let n=normalOf(a,b,c);if(n[1]<0){const t=b;b=c;c=t;n=[-n[0],-n[1],-n[2]]}
+    const ny=Math.max(.05,n[1]);
+    tri(a,b,c,topColor((a[1]+b[1]+c[1])/3,Math.sqrt(1-ny*ny)/ny,(a[0]+b[0]+c[0])/3,(a[2]+b[2]+c[2])/3),1);
+  };
+  const faceOut=(a,b,c,ox,oz,colf)=>{                                     // 壁の三角形（中心(ox,oz)から見て外向きに揃える）
+    const n=normalOf(a,b,c),x=(a[0]+b[0]+c[0])/3,z=(a[2]+b[2]+c[2])/3;
+    if(n[0]*(x-ox)+n[2]*(z-oz)<0){const t=b;b=c;c=t}
+    tri(a,b,c,colf((a[1]+b[1]+c[1])/3,x,z));
+  };
+  // --- 城壁の部品（箱・円柱・円錐）。どれも凸な形なので「中心から外向き」に面の向きを揃える ---
+  const STONE=[.62,.62,.6],MER=[.73,.73,.71],DARK=[.16,.1,.07],BLUE=[.2,.42,.7],LT=[.9,.89,.84];   // LT=塔の窓枠・窓台の明るい石色
+  const ROOFC=mulberry((seed*91+5)|0)()<.5?BLUE:[.62,.28,.2];             // 屋根の色（館・城壁の塔・四隅の塔で共通）
+  const triOut=(a,b,c,ctr,k)=>{
+    const n=normalOf(a,b,c);
+    if(n[0]*((a[0]+b[0]+c[0])/3-ctr[0])+n[1]*((a[1]+b[1]+c[1])/3-ctr[1])+n[2]*((a[2]+b[2]+c[2])/3-ctr[2])<0)tri(a,c,b,k);else tri(a,b,c,k);
+  };
+  const box=(cx,cy,cz,tx,tz,sx,sy,sz,k)=>{                                // 中心・水平の向き(tx,tz)・横幅sx・高さsy・奥行sz
+    const nx=-tz,nz=tx,P=[],c0=[cx,cy,cz];
+    for(const a of[-1,1])for(const b of[-1,1])for(const c of[-1,1])P.push([cx+tx*a*sx/2+nx*c*sz/2,cy+b*sy/2,cz+tz*a*sx/2+nz*c*sz/2]);
+    for(const f of[[0,1,3,2],[4,5,7,6],[0,1,5,4],[2,3,7,6],[0,2,6,4],[1,3,7,5]]){triOut(P[f[0]],P[f[1]],P[f[2]],c0,k);triOut(P[f[0]],P[f[2]],P[f[3]],c0,k)}
+  };
+  const prism=(cx,cz,y0,y1,r,k)=>{                                        // 8角柱（側面＋上面）
+    const S=8,ctr=[cx,(y0+y1)/2,cz],P=[];
+    for(let i=0;i<S;i++){const an=i/S*TAU+.39;P.push([cx+Math.cos(an)*r,cz+Math.sin(an)*r])}
+    for(let i=0;i<S;i++){
+      const p=P[i],q=P[(i+1)%S];
+      triOut([p[0],y0,p[1]],[q[0],y0,q[1]],[q[0],y1,q[1]],ctr,k);triOut([p[0],y0,p[1]],[q[0],y1,q[1]],[p[0],y1,p[1]],ctr,k);triOut([cx,y1,cz],[p[0],y1,p[1]],[q[0],y1,q[1]],ctr,k);
+    }
+  };
+  const cone=(cx,cz,y1,r,h,k)=>{                                          // 8角錐の屋根
+    const S=8,ctr=[cx,y1+h*.3,cz];
+    for(let i=0;i<S;i++){const a1=i/S*TAU+.39,a2=(i+1)/S*TAU+.39;triOut([cx+Math.cos(a1)*r,y1,cz+Math.sin(a1)*r],[cx+Math.cos(a2)*r,y1,cz+Math.sin(a2)*r],[cx,y1+h,cz],ctr,k)}
+  };
+  const crenTower=(px,pz,yb,top,r,ya,rf)=>{                                  // 胸壁つきの塔（屋根なし）: 柱＋少し張り出した帯＋歯形の胸壁＋アーチ窓
+    prism(px,pz,yb,top,r,STONE);prism(px,pz,top,top+.8,r+.32,MER);
+    const R2=r+.32,ap=R2*Math.cos(Math.PI/8),mw=Math.min(1.1,2*R2*Math.sin(Math.PI/8)*.6);
+    for(let i=0;i<8;i++){const an=i/8*TAU+.39+Math.PI/8,c=Math.cos(an),s=Math.sin(an);box(px+c*(ap-.3),top+.8+.5,pz+s*(ap-.3),-s,c,mw,1,.55,MER)}
+    const ctr=[px,(yb+top)/2,pz],aw=Math.cos(Math.PI/8)*r,nw=top-ya>=2.6?2+Math.floor(rf()*2):0;
+    for(let k=0;k<nw;k++){                                                  // アーチ窓: 高さ・向きはランダム
+      const an=Math.floor(rf()*8)/8*TAU+.39+Math.PI/8,c=Math.cos(an),s=Math.sin(an),y=ya+(top-1.9-ya)*rf(),ww=.6,hh=1.2;
+      const P=(u,yy)=>[px+c*(aw+.04)-s*u,yy,pz+s*(aw+.04)+c*u],PF=(u,yy)=>[px+c*(aw+.015)-s*u,yy,pz+s*(aw+.015)+c*u];
+      const fp=[PF(-ww/2-.16,y-.14),PF(ww/2+.16,y-.14),PF(ww/2+.16,y+hh*.68),PF(0,y+hh+.22),PF(-ww/2-.16,y+hh*.68)];for(let i=1;i<4;i++)triOut(fp[0],fp[i],fp[i+1],ctr,LT);   // アーチ窓の枠
+      {const sp=[px+c*(aw+.12),y-.1,pz+s*(aw+.12)];box(sp[0],sp[1],sp[2],-s,c,ww+.5,.14,.3,LT)}                                                                         // 窓台
+      const pts=[P(-ww/2,y),P(ww/2,y),P(ww/2,y+hh*.68),P(0,y+hh),P(-ww/2,y+hh*.68)];
+      for(let i=1;i<4;i++)triOut(pts[0],pts[i],pts[i+1],ctr,DARK);
+    }
+  };
+  const sqTower=(px,pz,yb,top,hs,ya,rf,tx,tz,cren,rc,ch)=>{                    // 四角くて太い塔（柱＋張り出した帯＋胸壁 or 四角錐の屋根＋アーチ窓）。(tx,tz)=辺の向き
+    const nx=-tz,nz=tx,S=2*hs+.6,ctr=[px,(yb+top)/2,pz],faces=[[nx,nz],[tx,tz],[-nx,-nz],[-tx,-tz]];
+    box(px,(yb+top)/2,pz,tx,tz,2*hs,top-yb,2*hs,STONE);
+    box(px,top+.4,pz,tx,tz,S,.8,S,MER);
+    if(cren){
+      const n=Math.max(3,Math.round(S/1.6));
+      for(const[ox,oz]of faces)for(let i=0;i<n;i++){const u=-S/2+S*(i+.5)/n;box(px+ox*(S/2-.3)-oz*u,top+1.3,pz+oz*(S/2-.3)+ox*u,-oz,ox,S/n*.55,1,.6,MER)}
+    }else{
+      const hb=hs+.4,ap=[px,top+.8+ch,pz],rc2=[px,top+.8+ch*.3,pz],Cn=[[1,1],[-1,1],[-1,-1],[1,-1]].map(([a,b])=>[px+tx*a*hb+nx*b*hb,top+.8,pz+tz*a*hb+nz*b*hb]);
+      for(let i=0;i<4;i++)triOut(Cn[i],Cn[(i+1)%4],ap,rc2,rc);
+    }
+    const nw=top-ya>=2.6?2+Math.floor(rf()*2):0;
+    for(let k=0;k<nw;k++){                                                  // アーチ窓: 高さ・向き・位置はランダム
+      const[ox,oz]=faces[Math.floor(rf()*4)],u=(rf()-.5)*hs*.9,y=ya+(top-1.9-ya)*rf(),ww=.8,hh=1.5;
+      const P=(uu,yy)=>[px+ox*(hs+.04)-oz*(u+uu),yy,pz+oz*(hs+.04)+ox*(u+uu)],PF=(uu,yy)=>[px+ox*(hs+.015)-oz*(u+uu),yy,pz+oz*(hs+.015)+ox*(u+uu)];
+      const fp=[PF(-ww/2-.18,y-.16),PF(ww/2+.18,y-.16),PF(ww/2+.18,y+hh*.68),PF(0,y+hh+.25),PF(-ww/2-.18,y+hh*.68)];for(let i=1;i<4;i++)triOut(fp[0],fp[i],fp[i+1],ctr,LT);   // アーチ窓の枠
+      {const sp=[px+ox*(hs+.12)-oz*u,y-.12,pz+oz*(hs+.12)+ox*u];box(sp[0],sp[1],sp[2],-oz,ox,ww+.6,.14,.3,LT)}                                                          // 窓台
+      const pts=[P(-ww/2,y),P(ww/2,y),P(ww/2,y+hh*.68),P(0,y+hh),P(-ww/2,y+hh*.68)];
+      for(let i=1;i<4;i++)triOut(pts[0],pts[i],pts[i+1],ctr,DARK);
+    }
+    return top+.8+(cren?0:ch);                                              // 屋根の先の高さ（旗用）
+  };
+  const quadOut=(a,b,c,d,ox,oz,k,s)=>{                                      // 壁の四角形（中心(ox,oz)から見て外向き・1色）
+    for(const f of[[a,b,c],[a,c,d]]){
+      const n=normalOf(f[0],f[1],f[2]),x=(f[0][0]+f[1][0]+f[2][0])/3,z=(f[0][2]+f[1][2]+f[2][2])/3;
+      if((s||1)*(n[0]*(x-ox)+n[2]*(z-oz))<0)tri(f[0],f[2],f[1],k);else tri(f[0],f[1],f[2],k);
+    }
+  };
+  // --- ケーキの段: 平らな上面 ＋ 垂直に近い壁 ---
+  const ST=48,RT=4;
+  for(let ti=0;ti<nT;ti++){
+    const t=tiers[ti],rows=[[[t.cx,t.y,t.cz]]];
+    for(let i=1;i<=RT;i++){
+      const row=[];
+      for(let j=0;j<ST;j++){
+        const rm=i===RT,ci=t.cj.indexOf(j),th=ci>=0?t.rot+Math.PI/4+ci*Math.PI/2:(j+(rm?0:(hash(i,j,seed+11)-.5)*.5)/1)/ST*TAU,f=rm?1:i/RT+(hash(i,j,seed+12)-.5)*.3/RT,rr=f*tierR(t,th);
+        row.push([t.cx+rr*Math.cos(th),t.y,t.cz+rr*Math.sin(th)]);
+      }
+      rows.push(row);
+    }
+    for(let j=0;j<ST;j++)top(rows[0][0],rows[1][j],rows[1][(j+1)%ST]);
+    for(let i=1;i<RT;i++)for(let j=0;j<ST;j++){
+      const j2=(j+1)%ST,a=rows[i][j],b=rows[i][j2],c=rows[i+1][j2],d=rows[i+1][j];
+      if(hash(i,j,seed+13)<.5){top(a,b,c);top(a,c,d)}else{top(a,b,d);top(b,c,d)}
+    }
+    // 城壁: 段の上面より WH だけ高く立ち上げる（厚み TH・上は通路、内側にも壁面）。縁に胸壁、等間隔に塔、1か所に階段（壁を切って上の段まで上がる）
+    const yw=t.y+WH,rt=rows[RT],NR=Math.max(2,Math.ceil((yw-t.y0)/1)),lv=[];
+    for(let i=0;i<=NR;i++){
+      const yy=t.y0+(yw-t.y0)*i/NR,row=[];
+      for(let j=0;j<ST;j++){
+        const x=rt[j][0],z=rt[j][2],l=Math.hypot(x-t.cx,z-t.cz)||1,e=(i===0||i===NR)?0:(hash(j,i,seed+14)-.5)*.25;
+        row.push([x+(x-t.cx)/l*e,yy,z+(z-t.cz)/l*e]);
+      }
+      lv.push(row);
+    }
+    const inT=[],inB=[];                                                  // 壁の内側の縁（上=通路の内端 / 下=段の上面）
+    for(let j=0;j<ST;j++){
+      const x=rt[j][0],z=rt[j][2],l=Math.hypot(x-t.cx,z-t.cz)||1,ix=x-(x-t.cx)/l*TH,iz=z-(z-t.cz)/l*TH;
+      inT.push([ix,yw,iz]);inB.push([ix,t.y,iz]);
+    }
+    const nxt=tiers[ti+1],covered=(x,z,m)=>nxt&&Math.hypot(x-nxt.cx,z-nxt.cz)<tierR(nxt,Math.atan2(z-nxt.cz,x-nxt.cx))+m;   // 上の段に隠れる所には置かない
+    // 階段の位置: 塔のない場所（j%8==4,5）のうち、壁の外側に広い空間がある所（下の段の城壁にぶつからない所）
+    const midOf=j=>{
+      const a=rt[j],c=rt[j+2],mx=(a[0]+c[0])/2,mz=(a[2]+c[2])/2,l=Math.hypot(mx-t.cx,mz-t.cz)||1;
+      if(t.sq){let nx=-(c[2]-a[2]),nz=c[0]-a[0];const nl=Math.hypot(nx,nz)||1;nx/=nl;nz/=nl;if(nx*(mx-t.cx)+nz*(mz-t.cz)<0){nx=-nx;nz=-nz}return[mx,mz,nx,nz]}   // 四角は壁面に垂直
+      return[mx,mz,(mx-t.cx)/l,(mz-t.cz)/l]};
+    const clearAt=j=>{                                                    // 壁の外へ、下の段の城壁の内側までの距離
+      if(ti===0)return 60;
+      const p=tiers[ti-1],m=midOf(j);let d=0;
+      while(d<60){const x=m[0]+m[2]*d,z=m[1]+m[3]*d;if(Math.hypot(x-p.cx,z-p.cz)>tierR(p,Math.atan2(z-p.cz,x-p.cx))-TH-.8)break;d+=.25}
+      return d;
+    };
+    if(PLAN&&ti===0){                                                     // 配置の下見: 階段の向き・城の大きさだけ返す（道の向きに階段を合わせるため）
+      const cand=[];for(let q=0;q<6;q++){if(t.cj.some(c=>c>=4+8*q-1&&c<=4+8*q+3))continue;cand.push(4+8*q)}
+      const sj=cand.length?cand[Math.floor(mulberry((seed*29+7)|0)()*cand.length)]:4,m=midOf(sj);
+      let RR=0;for(let j=0;j<ST;j++)RR=Math.max(RR,Math.hypot(rt[j][0]-t.cx,rt[j][2]-t.cz));
+      return{nT,sj,dS:Math.hypot(m[0]-t.cx,m[1]-t.cz),dx:m[2],dz:m[3],R:RR+4,stepH:t.y-G};
+    }
+    let stairJ=4,bc=-1;
+    for(let q=0;q<6;q++){if(t.cj.some(c=>c>=4+8*q-1&&c<=4+8*q+3))continue;const sc=clearAt(4+8*q)+rnd()*3;if(sc>bc){bc=sc;stairJ=4+8*q}}
+    if(ti===0&&K.sj!==undefined)stairJ=K.sj;                              // 一番下の段の階段は道のほうへ向ける（向きは配置時に決めた）
+    if(ti===0){for(let j=0;j<ST;j++){const a=rt[j],b=rt[(j+1)%ST],dd=Math.hypot(b[0]-a[0],b[2]-a[2]),nn=Math.max(1,Math.ceil(dd/2));for(let q=0;q<nn;q++){const f=q/nn;CIRC.push([a[0]+(b[0]-a[0])*f,a[2]+(b[2]-a[2])*f,2.6])}}}   // 当たり判定: 一番下の城壁のまわり
+    const cut=j=>j===stairJ||j===stairJ+1;
+    for(let i=0;i<NR;i++)for(let j=0;j<ST;j++)if(!cut(j))quadOut(lv[i+1][j],lv[i+1][(j+1)%ST],lv[i][(j+1)%ST],lv[i][j],t.cx,t.cz,wallColor(i,lv[i][j][0],lv[i][j][2]));
+    for(let j=0;j<ST;j++){
+      if(cut(j))continue;
+      const j2=(j+1)%ST;
+      for(const f of[[lv[NR][j],lv[NR][j2],inT[j2]],[lv[NR][j],inT[j2],inT[j]]]){                       // 通路の上面（上向き）
+        const n=normalOf(f[0],f[1],f[2]);if(n[1]<0)tri(f[0],f[2],f[1],MER);else tri(f[0],f[1],f[2],MER);
+      }
+      quadOut(inT[j],inT[j2],inB[j2],inB[j],t.cx,t.cz,[.54,.54,.53],-1);                                // 内側の壁面（中心向き）
+    }
+    {                                                                     // 階段: 壁の切れ目の外側に、段の上面の高さまで上がる石の階段（幅は壁2区画ぶん）
+      const j=stairJ,a=rt[j],c=rt[j+2],W=Math.hypot(c[0]-a[0],c[2]-a[2])||1,tx=(c[0]-a[0])/W,tz=(c[2]-a[2])/W,m=midOf(j);
+      t.sdir=[m[2],m[3]];const yb=ti===0?Math.min(t.y-2,FH(m[0]+m[2]*K.sl,m[1]+m[3]*K.sl)):t.y0+.3,h=t.y-yb,n=Math.max(3,Math.ceil(h/.42)),run=ti===0?Math.max(.2,Math.min(1.2,K.sl/n)):Math.max(.3,Math.min(.7,(clearAt(j)-.5)/n)),SK=[[.72,.72,.7],[.66,.66,.64]];
+      for(let i=0;i<n;i++){                                               // 下の段から i 番目。地面の下まで埋めて浮かないようにする
+        const top=yb+h*(i+1)/n,d=(n-1-i+.5)*run;
+        const yl=ti===0?Math.min(yb-3,K.ymin):yb-3;                       // 斜面でも浮かないよう、一番低い地面の下まで埋める
+        box(m[0]+m[2]*d,(top+yl)/2,m[1]+m[3]*d,tx,tz,W,top-yl,run,SK[i%2]);
+      }
+      if(ti===0)for(let d=0;d<=K.sl+1;d+=2)for(let u=-W/2;u<=W/2+.01;u+=2)CIRC.push([m[0]+m[2]*d+tx*u,m[1]+m[3]*d+tz*u,2.4]);   // 当たり判定: 階段（登れない）
+      for(const[vj,sg]of[[j,-1],[j+2,1]]){                                // 切れ目の両側の断面（壁の厚み）
+        const o=lv[NR][vj],ib=inB[vj],it=inT[vj],ob=[rt[vj][0],t.y,rt[vj][2]],cc=[(o[0]+ib[0])/2+tx*sg*5,(t.y+yw)/2,(o[2]+ib[2])/2+tz*sg*5];
+        triOut(ob,o,it,cc,[.55,.55,.54]);triOut(ob,it,ib,cc,[.55,.55,.54]);
+      }
+    }
+    for(let j=0;j<ST;j++){
+      const j2=(j+1)%ST,a=rt[j],b=rt[j2],mx=(a[0]+b[0])/2,mz=(a[2]+b[2])/2,L=Math.hypot(b[0]-a[0],b[2]-a[2])||1,tx=(b[0]-a[0])/L,tz=(b[2]-a[2])/L;
+      const rl=Math.hypot(mx-t.cx,mz-t.cz)||1,ux=(mx-t.cx)/rl,uz=(mz-t.cz)/rl;
+      const isTw=t.sq?(t.cj.includes(j)||(j%8===0&&t.cj.every(c=>Math.min((j-c+ST)%ST,(c-j+ST)%ST)>=3))):j%8===0;   // 四角は角に塔
+      if(isTw&&!covered(a[0],a[2],2.2)){                               // 塔（壁より高く、壁から少しはみ出す）
+        const al=Math.hypot(a[0]-t.cx,a[2]-t.cz)||1,px=a[0]+(a[0]-t.cx)/al*.2,pz=a[2]+(a[2]-t.cz)/al*.2;
+        const hv=k=>hash(j*13+k,ti+5,seed+31);
+        if(hv(0)<.3){let n=1;crenTower(px,pz,t.y0,yw+3+hv(9)*2.2,1.9,yw+.3,()=>hv(n++))}   // 30%: 胸壁つきの丸い塔
+        else if(hv(0)<.55&&!covered(a[0],a[2],3.4)){                        // 25%: 四角くて太い塔（胸壁 or 四角錐の屋根）
+          let n=1;const q0=rt[(j+ST-1)%ST],q1=rt[(j+1)%ST],ql=Math.hypot(q1[0]-q0[0],q1[2]-q0[2])||1;
+          sqTower(px,pz,t.y0,yw+3+hv(9)*2.2,2.3,yw+.3,()=>hv(n++),(q1[0]-q0[0])/ql,(q1[2]-q0[2])/ql,hv(8)<.5,ROOFC,2.4+hv(7)*.8);
+        }
+        else{prism(px,pz,t.y0,yw+2.4,1.9,STONE);prism(px,pz,yw+2.4,yw+3.1,2.25,MER);cone(px,pz,yw+3.1,2.4,2.6,ROOFC)}
+      }else if(!cut(j)&&j%2===0&&!covered(mx,mz,1.2)){                    // 胸壁（通路の外側に載せる）
+        box(mx-ux*.55,yw+.6,mz-uz*.55,tx,tz,L*.7,1.2,.9,MER);
+      }
+    }
+  }
+
+  // --- 一番上の段のメインの建物: 切妻屋根の館。正面（破風側）がその段の階段のほうを向く。大きさ・屋根の出っ張り(ドーマー)の数と大きさはランダム ---
+  const tp0=tiers[nT-1];let pr0=1e9;for(let k=0;k<72;k++)pr0=Math.min(pr0,tierR(tp0,k/72*TAU));pr0=Math.max(3,pr0-TH-.3);
+  const bld=(()=>{
+    const fort=mulberry((seed*17+11)|0)()<.35;                                            // 要塞タイプ（平らな屋根に胸壁）になる確率 35%。正面は長い壁側
+    const wide=rnd()<.4||fort;                                                            // 横長タイプ（正面が長い壁側）になる確率 40%
+    const f0x=(tp0.sdir||[1,0])[0],f0z=(tp0.sdir||[1,0])[1];                            // 階段側の向き
+    const fx=wide?-f0z:f0x,fz=wide?f0x:f0z,sx=-fz,sz=fx;                                  // (fx,fz)=棟の向き（縦長は正面と同じ／横長は正面に直角）
+    const maxD=Math.max(5,pr0*.8-.3),D=maxD*(.85+.15*rnd()),ar=fort?1+rnd()*.2:1.25+rnd()*.7;           // 対角の半分 D が頂上の平地に収まる範囲でランダム
+    const w=Math.min(16,2*D/Math.sqrt(1+ar*ar)),L=Math.min(26,w*ar),hw=w/2,hl=L/2;
+    const bx=tp0.cx-f0x*pr0*.1,bz=tp0.cz-f0z*pr0*.1,y0=tp0.y;                              // 少し奥に置いて、正面に前庭を残す
+    const dw=Math.min(3.4,Math.max(1.4,w*.3)),dh=dw*1.9,rr=Math.min(1.5,Math.max(.55,w*.11));
+    const H=dh+.45+2*rr+.9+rnd()*.8,RH=hw*(.85+rnd()*.4);                                // 壁の高さ・屋根の高さ
+    const wi=Math.floor(rnd()*3),WALL=[[.8,.74,.62],[.84,.82,.76],[.72,.66,.58]][wi],ROOF=(rnd(),ROOFC),ROOFD=ROOF.map(v=>v*.8);
+    const TRIM=wi===1?[.38,.3,.24]:[.96,.94,.88];                                        // 窓枠・窓台・破風の縁取り色（壁が明るいときは濃い茶、それ以外はクリーム）
+    const W=(a,y,b)=>[bx+sx*a+fx*b,y0+y,bz+sz*a+fz*b],ctr=W(0,(H+RH)/2,0);
+    const Hf=H+Math.min(RH*.5,2.8);                                                                     // 要塞の壁の高さ（屋根がない分、館の軒より少し高い）
+    const Q=(p,q,r,u,c,k)=>{triOut(p,q,r,c,k);triOut(p,r,u,c,k)};
+    const fan=(pts,c,k)=>{for(let i=1;i<pts.length-1;i++)triOut(pts[0],pts[i],pts[i+1],c,k)};
+    // 本体（五角形の柱）。壁・破風・屋根
+    if(fort){box(bx,y0+(Hf-.5)/2,bz,fx,fz,L,Hf+.5,w,WALL)}                              // 要塞: 四角い箱
+    else{
+    const pent=b=>[W(-hw,-.5,b),W(hw,-.5,b),W(hw,H,b),W(0,H+RH,b),W(-hw,H,b)],pf=pent(hl),pb=pent(-hl);
+    fan(pf,ctr,WALL);fan(pb,ctr,WALL);
+    Q(pb[0],pf[0],pf[4],pb[4],ctr,WALL);Q(pb[1],pf[1],pf[2],pb[2],ctr,WALL);
+    Q(pb[4],pf[4],pf[3],pb[3],ctr,ROOF);Q(pb[2],pf[2],pf[3],pb[3],ctr,ROOF);
+    }
+    // 軒の張り出し（屋根の板）
+    const ex=.4,eaveY=fort?Hf-.25:H-ex*RH/hw+.12,apY=H+RH+.12;
+    if(!fort)for(const sg of[-1,1])Q(W(sg*(hw+ex),eaveY,-hl-ex),W(sg*(hw+ex),eaveY,hl+ex),W(0,apY,hl+ex),W(0,apY,-hl-ex),ctr,ROOF);
+    if(!fort)for(const sg of[-1,1])for(const e of[-1,1]){const bb=e*(hl+ex+.01);Q(W(sg*(hw+ex),eaveY,bb),W(0,apY,bb),W(0,apY-.45,bb),W(sg*(hw+ex),eaveY-.45,bb),ctr,TRIM)}   // 破風の縁取り（屋根の端の化粧板）
+    // サイドの建物: 正面から見て左右それぞれ50%の確率で、メインの壁にぴったりくっつけて建てる（幅・奥行き・高さ・位置・窓はランダム）
+    // 縦長（正面=破風側）→ 長い壁に直角の切妻 / 横長（正面=長い壁側）→ 左右の破風の壁に棟を伸ばす。屋根はメインの軒より低くする
+    const tr=Math.min(1.6,Math.max(1,w*.13)),trm=tr*1.4;                                           // 四隅の塔の半径
+    const bays=[],r4=mulberry((seed*211+13)|0);
+    // 壁の出っ張り（出窓）: 壁の平らな面に、裏（壁側）は面を作らずぴったりくっつける。台形の張り出し＋屋根（要塞は平ら）＋アーチ窓と窓台
+    const bay=(px,pz,nx,nz,tx,tz,wb,d,hmax,flat,rf)=>{                              // (px,pz)=壁の上の位置, n=壁の外向き, t=壁に沿う向き
+      const rh=flat?0:wb*.42,hb=Math.min(hmax-rh-.1,hmax*(.55+.3*rf()));
+      if(hb<1.8)return false;
+      const yb=y0-.5,yt=y0+hb,wf=wb*.62,V=(u,r,y)=>[px+tx*u+nx*r,y,pz+tz*u+nz*r];
+      const bl=V(-wb/2,0,yb),br=V(wb/2,0,yb),fl=V(-wf/2,d,yb),fr=V(wf/2,d,yb),blt=V(-wb/2,0,yt),brt=V(wb/2,0,yt),flt=V(-wf/2,d,yt),frt=V(wf/2,d,yt);
+      const c=[px+nx*d*.5,(yb+yt)/2,pz+nz*d*.5];
+      Q(fl,fr,frt,flt,c,WALL);Q(bl,fl,flt,blt,c,WALL);Q(br,fr,frt,brt,c,WALL);
+      if(flat){const lc=[c[0],yt-1,c[2]];triOut(blt,brt,frt,lc,MER);triOut(blt,frt,flt,lc,MER)}
+      else{const ap=V(0,d*.4,yt+rh),rc=[c[0],yt+rh*.3,c[2]];triOut(blt,flt,ap,rc,ROOF);triOut(flt,frt,ap,rc,ROOF);triOut(frt,brt,ap,rc,ROOF);triOut(brt,blt,ap,rc,ROOF)}
+      const P=(u,y,o)=>[px+tx*u+nx*(d+.03+o),y,pz+tz*u+nz*(d+.03+o)],ww=Math.min(1.1,wf*.5),wb0=y0+hb*.35,hh=Math.min(1.7,hb*.45);
+      const ar=(m,o,k,dy)=>{const p=[P(-ww/2*m,wb0-dy,o),P(ww/2*m,wb0-dy,o),P(ww/2*m,wb0+hh*.68,o),P(0,wb0+hh+dy,o),P(-ww/2*m,wb0+hh*.68,o)];for(let i=1;i<4;i++)triOut(p[0],p[i],p[i+1],c,k)};
+      ar(1.3,0,STONE,.1);ar(1,.02,DARK,0);
+      const sp=P(0,wb0-.12,.25);box(sp[0],sp[1],sp[2],tx,tz,ww*1.7,.16,.5,STONE);
+      return true;
+    };
+    const ann=[];
+    {
+      const r2=mulberry((seed*131+7)|0),span=wide?w:L,Hmax=eaveY-.25;
+      for(const sg of[-1,1]){
+        const want=r2()<.5,p1=r2(),p2=r2(),p3=r2(),p4=r2(),p5=r2(),p6=r2(),p7=r2(),p8=r2();
+        if(!want)continue;
+        const avail=span-2*(trm+.3);                                                    // 四隅の塔を避けた壁の幅
+        if(avail<2.4)continue;
+        const wA=Math.min(avail,Math.max(2.4,avail*(.45+.5*p1))),hwA=wA/2,bc=(p2-.5)*Math.max(0,avail-wA),base=wide?hl:hw;
+        const A=(q,y,r)=>wide?W(bc+q,y,sg*(base+r)):W(sg*(base+r),y,bc+q);          // q=幅方向, r=メインの壁から外への距離
+        const fits=d=>[-1,1].every(s=>{const P=A(s*(hwA+.25),0,d+.25);return Math.hypot(P[0]-tp0.cx,P[2]-tp0.cz)<=pr0-.2});   // 頂上の平地に収める
+        let dA=3+p3*3.5;
+        while(dA>2.2&&!fits(dA))dA-=.25;
+        if(!fits(dA))continue;
+        let H2=Math.min(Hmax-.9,Math.max(2.4,H*(.45+.2*p4)));
+        const RH2=Math.max(.8,Math.min(Hmax-H2,hwA*(.75+.35*p5)));H2=Math.min(H2,Hmax-RH2);
+        const c2=A(0,(H2+RH2)/2,dA/2),pent2=r=>[A(-hwA,-.5,r),A(hwA,-.5,r),A(hwA,H2,r),A(0,H2+RH2,r),A(-hwA,H2,r)];
+        const pf2=pent2(dA),pb2=pent2(0);
+        fan(pf2,c2,WALL);                                                              // 外側の破風の壁（メイン側の面は作らない）
+        Q(pb2[0],pf2[0],pf2[4],pb2[4],c2,WALL);Q(pb2[1],pf2[1],pf2[2],pb2[2],c2,WALL);
+        const ox=.25,ey=H2-ox*RH2/hwA+.1,ay=H2+RH2+.1;
+        for(const s of[-1,1])Q(A(s*(hwA+ox),ey,0),A(s*(hwA+ox),ey,dA+ox),A(0,ay,dA+ox),A(0,ay,0),c2,ROOF);
+        // 外側の破風の窓（四角・アーチ・丸のどれか）
+        const FA=(u,y,o)=>A(u,y,dA+.03+o),GL=[.35,.5,.65],ty=Math.floor(p6*3);
+        const ww=Math.min(1.6,Math.max(.8,hwA*(.35+.3*p7))),wb=Math.max(.7,H2*.3),wh=Math.min(H2-wb-.5,1.1+p8*.9);
+        const arch=(m,o,k,dy)=>fan([FA(-ww/2*m,wb-dy,o),FA(ww/2*m,wb-dy,o),FA(ww/2*m,wb+wh*.68,o),FA(0,wb+wh+dy,o),FA(-ww/2*m,wb+wh*.68,o)],c2,k);
+        const ring=(R,o,k)=>{const P=[];for(let i=0;i<12;i++){const an=i/12*TAU;P.push(FA(Math.cos(an)*R,wb+wh/2+Math.sin(an)*R,o))}fan(P,c2,k)};
+        if(ty===0){
+          Q(FA(-ww/2-.15,wb-.15,0),FA(ww/2+.15,wb-.15,0),FA(ww/2+.15,wb+wh+.15,0),FA(-ww/2-.15,wb+wh+.15,0),c2,STONE);
+          Q(FA(-ww/2,wb,.02),FA(ww/2,wb,.02),FA(ww/2,wb+wh,.02),FA(-ww/2,wb+wh,.02),c2,GL);
+        }else if(ty===1){arch(1.3,0,STONE,.15);arch(1,.02,GL,0)}
+        else{const R=Math.min(ww*.6,wh*.6+.1);ring(R+.15,0,STONE);ring(R,.02,GL)}
+        Q(FA(-.04,wb-.1,.04),FA(.04,wb-.1,.04),FA(.04,wb+wh+.1,.04),FA(-.04,wb+wh+.1,.04),c2,DARK);   // 窓の桟
+        // 側面の窓（数・幅はランダム）
+        const nsw=Math.floor(dA/2.4);
+        for(const s of[-1,1])for(let k=0;k<nsw;k++){
+          if(r2()<.2)continue;
+          const r=dA*(k+.5)/nsw,sw=.3+r2()*.25,a=s*(hwA+.03);
+          {const a1=s*(hwA+.012),e=.12;Q(A(a1,wb-e,r-sw-e),A(a1,wb-e,r+sw+e),A(a1,wb+wh+e,r+sw+e),A(a1,wb+wh+e,r-sw-e),c2,TRIM)}   // 側面の窓枠
+          Q(A(a,wb,r-sw),A(a,wb,r+sw),A(a,wb+wh,r+sw),A(a,wb+wh,r-sw),c2,DARK);
+        }
+        for(const s of[-1,1]){                                                        // サイドの建物の側面にも出窓（30%）
+          if(r4()>=.3)continue;
+          const wbv=1.2+r4()*.8,dv=.8+r4()*.4,lo=wbv/2+.5,hi=dA-wbv/2-.3;
+          if(hi<=lo)continue;
+          const rc=lo+(hi-lo)*r4(),P=A(s*hwA,0,rc),o0=A(0,0,0),qv=A(1,0,0),rv=A(0,0,1);
+          if(bay(P[0],P[2],(qv[0]-o0[0])*s,(qv[2]-o0[2])*s,rv[0]-o0[0],rv[2]-o0[2],wbv,dv,H2-.5,false,r4))bays.push({k:'x',sg:0,u:0,wb:wbv});
+        }
+        ann.push({sg,bc,wA});
+      }
+    }
+    // 四隅の塔: 城壁の塔と同じ作り（石の柱＋胸壁の張り出し＋青い円錐屋根）。高さは塔ごとにランダム
+    {
+      const r3=mulberry((seed*57+3)|0);
+      const wa=hash(1,2,seed+51)*TAU,wx=Math.cos(wa),wz=Math.sin(wa),FLAG=ROOF===BLUE?[.82,.14,.12]:[.95,.8,.2],POLE=[.25,.2,.15];
+      const flag=(px,pz,yt)=>{                                               // 円錐屋根の先に旗（ポール＋ゆらぎのある長方形。風向きは全部そろえる）
+        box(px,yt+.85,pz,1,0,.1,1.7,.1,POLE);
+        const yb=yt+1.65,pt=(i,h)=>{const l=Math.sin(i*1.6+px)*.13;return[px+wx*(.05+i*.5)-wz*l,yb-.75*h,pz+wz*(.05+i*.5)+wx*l]};
+        for(let i=0;i<3;i++){const a=pt(i,0),b=pt(i+1,0),c=pt(i+1,1),d=pt(i,1);tri(a,b,c,FLAG);tri(a,c,b,FLAG);tri(a,c,d,FLAG);tri(a,d,c,FLAG)}
+      };
+      for(const sa of[-1,1])for(const sb of[-1,1]){
+        const P=W(sa*hw,0,sb*hl),top=y0+(fort?Hf+1:H+.8)+r3()*(RH+2.5);
+        const ch=2.2+r3()*.8,ty=r3(),sb2=r3()<.5;
+        if(ty<.25)crenTower(P[0],P[2],y0-.5,top,tr,y0+1.2,r3);                       // 25%: 胸壁つきの丸い塔
+        else if(ty<.5){const ap=sqTower(P[0],P[2],y0-.5,top,tr*1.35,y0+1.2,r3,fx,fz,sb2,ROOF,ch);if(!sb2)flag(P[0],P[2],ap)}   // 25%: 四角くて太い塔
+        else{prism(P[0],P[2],y0-.5,top,tr,STONE);prism(P[0],P[2],top,top+.7,tr+.35,MER);cone(P[0],P[2],top+.7,tr+.4,ch,ROOF);flag(P[0],P[2],top+.7+ch)}
+      }
+    }
+    {                                                                                 // メインの壁の出窓: 正面（扉の壁）以外の壁ごとに40%。サイドの建物・四隅の塔とは重ねない
+      const walls=wide?[{k:'a',sg:1,len:L},{k:'b',sg:-1,len:w},{k:'b',sg:1,len:w}]:[{k:'a',sg:-1,len:L},{k:'a',sg:1,len:L},{k:'b',sg:-1,len:w}];
+      for(const wl of walls){
+        const p0=r4(),wbv=1.6+r4()*1.6,dv=1+r4()*.5;
+        if(p0>=.4)continue;
+        const hu=wl.len/2-(trm+.3)-wbv/2;if(hu<=0)continue;
+        const an=ann.find(q=>q.sg===wl.sg&&(wide?wl.k==='b':wl.k==='a'));
+        let u=null;
+        for(let it=0;it<6&&u===null;it++){const cc=(r4()*2-1)*hu;if(!an||Math.abs(cc-an.bc)>an.wA/2+wbv/2+.4)u=cc}
+        if(u===null)continue;
+        const A0=wl.k==='a',P=A0?W(wl.sg*hw,0,u):W(u,0,wl.sg*hl),n=A0?[wl.sg*sx,wl.sg*sz]:[wl.sg*fx,wl.sg*fz],tg=A0?[fx,fz]:[sx,sz];
+        if(bay(P[0],P[2],n[0],n[1],tg[0],tg[1],wbv,dv,eaveY-.5,fort,r4))bays.push({k:wl.k,sg:wl.sg,u,wb:wbv});
+      }
+    }
+    // 正面: 階段・アーチ形の扉・放射状の丸窓（縦長は破風側、横長は長い壁側）
+    const FP=(u,y,o)=>wide?W(-(hw+.03+o),y,u):W(u,y,hl+.03+o);                           // 正面の面上の点（u=横位置, o=手前への浮かし）
+    if(wide)box(bx-f0x*(hw+.5),y0+.12,bz-f0z*(hw+.5),fx,fz,dw+1.2,.3,1.0,STONE);
+    else box(bx+fx*(hl+.5),y0+.12,bz+fz*(hl+.5),sx,sz,dw+1.2,.3,1.0,STONE);
+    const arch=(m,ww,hh,o,k)=>fan([FP(-ww/2*m,0,o),FP(ww/2*m,0,o),FP(ww/2*m,hh*.68,o),FP(0,hh,o),FP(-ww/2*m,hh*.68,o)],ctr,k);
+    arch(1.28,dw,dh*1.08,0,STONE);arch(1,dw,dh,.02,DARK);
+    const wy=dh+.45+rr,ring=(R,o,k)=>{const P=[];for(let i=0;i<12;i++){const an=i/12*TAU;P.push(FP(Math.cos(an)*R,wy+Math.sin(an)*R,o))}fan(P,ctr,k)};
+    ring(rr+.16,0,STONE);ring(rr,.02,[.35,.5,.65]);
+    for(let i=0;i<4;i++){const an=i/4*Math.PI,ca=Math.cos(an),sa=Math.sin(an),tw=.05;                                  // 丸窓の桟
+      Q(FP(ca*rr-sa*tw,wy+sa*rr+ca*tw,.04),FP(-ca*rr-sa*tw,wy-sa*rr+ca*tw,.04),FP(-ca*rr+sa*tw,wy-sa*rr-ca*tw,.04),FP(ca*rr+sa*tw,wy+sa*rr-ca*tw,.04),ctr,DARK)}
+    if(fort){
+      // 要塞: 正面の扉の左右にアーチ窓（下に窓台）
+      const fw=Math.min(1.3,Math.max(.8,w*.1)),fh=fw*1.7,fy=wy-fh*.45,u1=Math.min(hl-tr-1.2,Math.max(dw/2*1.28+fw/2+.9,L*.27));
+      if(u1>dw/2*1.28+fw/2+.3)for(const s of[-1,1]){
+        const u0=s*u1,ar2=(m,o,k,dy)=>fan([FP(u0-fw/2*m,fy-dy,o),FP(u0+fw/2*m,fy-dy,o),FP(u0+fw/2*m,fy+fh*.68,o),FP(u0,fy+fh+dy,o),FP(u0-fw/2*m,fy+fh*.68,o)],ctr,k);
+        ar2(1.3,0,STONE,.12);ar2(1,.02,DARK,0);
+        const sp=FP(u0,fy-.2,.3);box(sp[0],sp[1],sp[2],fx,fz,fw*1.7,.2,.6,STONE);
+      }
+      // 平らな屋根の縁に胸壁（歯形）をぐるっと並べる
+      const sl=W(0,Hf+.06,0);box(sl[0],sl[1],sl[2],fx,fz,L,.12,w,MER);
+      const nm=Math.max(3,Math.round(L/2.4)),nm2=Math.max(2,Math.round(w/2.4));
+      for(const sg of[-1,1]){
+        for(let i=0;i<nm;i++){const p=W(sg*(hw-.3),Hf+.62,-hl+L*(i+.5)/nm);box(p[0],p[1],p[2],fx,fz,L/nm*.55,1,.6,MER)}
+        for(let i=0;i<nm2;i++){const p=W(-hw+w*(i+.5)/nm2,Hf+.62,sg*(hl-.3));box(p[0],p[1],p[2],sx,sz,w/nm2*.55,1,.6,MER)}
+      }
+    }
+    // 長い壁の窓
+    const nw=Math.max(1,Math.floor(L/3.2));
+    for(const sg of[-1,1])for(let k=0;k<nw;k++){const b=-hl+L*(k+.5)/nw,a=sg*(hw+.03);
+      if(fort&&sg<0)continue;                                                            // 要塞は正面に別の窓を付ける
+      if(wide&&sg<0&&Math.abs(b)<Math.max(dw*.9,rr+.3))continue;                         // 横長は正面の扉・丸窓と重なる窓を省く
+      if(bays.some(y=>y.k==='a'&&y.sg===sg&&Math.abs(b-y.u)<y.wb/2+.6))continue;          // 出窓で隠れる窓は省く
+      if(!wide&&ann.some(an=>an.sg===sg&&Math.abs(b-an.bc)<an.wA/2+.5))continue;         // サイドの建物で隠れる窓は省く
+      {const wy0=H*.34,fe=.13,a0=sg*(hw+.012),a1=sg*(hw+.045);
+      Q(W(a0,wy0-fe,b-.35-fe),W(a0,wy0-fe,b+.35+fe),W(a0,wy0+1.1+fe,b+.35+fe),W(a0,wy0+1.1+fe,b-.35-fe),ctr,TRIM);                 // 窓枠
+      Q(W(a,wy0,b-.35),W(a,wy0,b+.35),W(a,wy0+1.1,b+.35),W(a,wy0+1.1,b-.35),ctr,DARK);
+      Q(W(a1,wy0+.52,b-.35),W(a1,wy0+.52,b+.35),W(a1,wy0+.58,b+.35),W(a1,wy0+.58,b-.35),ctr,TRIM);                                // 横桟
+      Q(W(a1,wy0,b-.03),W(a1,wy0,b+.03),W(a1,wy0+1.1,b+.03),W(a1,wy0+1.1,b-.03),ctr,TRIM);                                        // 縦桟
+      const sp=W(sg*(hw+.12),wy0-fe-.06,b);box(sp[0],sp[1],sp[2],fx,fz,1.2,.12,.3,TRIM);                                          // 窓台
+      const hd=W(sg*(hw+.09),wy0+1.1+fe+.05,b);box(hd[0],hd[1],hd[2],fx,fz,1.1,.1,.22,TRIM)}}                                     // 窓の上の庇石
+    // 屋根の出っ張り（ドーマー）: 両側の屋根に 1〜3 個ずつ、大きさもランダム
+    const roofY=a=>H+RH*(1-Math.abs(a)/hw)+.12;let nd=0;
+    for(const sg of fort?[]:[-1,1]){
+      const n=Math.min(1+Math.floor(rnd()*3),Math.max(1,Math.floor(L/2.6))),sp=L/n,af=hw*.66,ab=af-hw*.28;
+      for(let k=0;k<n;k++){
+        const dwid=Math.min(sp*.62,(.9+rnd()*1.1)*Math.min(1.3,Math.max(.8,w/7))),bk=-hl+sp*(k+.5)+(rnd()-.5)*Math.max(0,sp-dwid-.9)*.6,hd=.5+rnd()*.5;
+        const y1=roofY(af)-.35,y2=roofY(ab)+hd,ac=sg*(af+ab)/2,dc=W(ac,(y1+y2)/2,bk);
+        box(dc[0],dc[1],dc[2],fx,fz,dwid,y2-y1,af-ab,WALL);
+        const wb=roofY(af)+.2,wt=Math.max(wb+.3,y2-.25),a=sg*(af+.03);
+        {const a1=sg*(af+.012),e=.12;Q(W(a1,wb-e,bk-dwid*.3-e),W(a1,wb-e,bk+dwid*.3+e),W(a1,wt+e,bk+dwid*.3+e),W(a1,wt+e,bk-dwid*.3-e),ctr,TRIM)}   // ドーマーの窓枠
+        Q(W(a,wb,bk-dwid*.3),W(a,wb,bk+dwid*.3),W(a,wt,bk+dwid*.3),W(a,wt,bk-dwid*.3),ctr,DARK);
+        const ph=dwid*.5+.1,hb=dwid/2+.15,ao=sg*(af+.22),ai=sg*ab,rc=W((ao+ai)/2,y2+ph/3,bk);
+        const o1=W(ao,y2,bk-hb),o2=W(ao,y2,bk+hb),o3=W(ao,y2+ph,bk),i1=W(ai,y2,bk-hb),i2=W(ai,y2,bk+hb),i3=W(ai,y2+ph,bk);
+        triOut(o1,o2,o3,rc,WALL);triOut(i1,i2,i3,rc,WALL);Q(o1,o3,i3,i1,rc,ROOFD);Q(o2,o3,i3,i2,rc,ROOFD);nd++;
+      }
+    }
+    return{cx:bx,cz:bz,front:[f0x,f0z],w,L,h:fort?Hf:H+RH,dormers:nd,wide,fort,annex:ann.length,bays:bays.length};
+  })();
+  return{pos,col,circs:CIRC};
+}
+// ---------- 'land' タイプの城（castle_land.html の生成を、村・港町の城の場所に合わせたもの）----------
+// 一番下の段は地形の最高点より段差ぶん高く、低い側は土台が地面の下まで届く。階段は道のほう（局所+z）へ向け、足もとの高さに合わせる。
+// 階段・城壁・塔・館は村の他の建物と同じメッシュに入る（登れない障害物。当たり判定は一番下の城壁と階段のまわり）。
+function drawCastleLand(k,tri3,H){
+  const c=Math.cos(k.ry),s=Math.sin(k.ry),R=k.R;
+  let mx=-1e9,mn=1e9;
+  for(let a=-1;a<=1.001;a+=.25)for(let b=-1;b<=1.001;b+=.25){if(a*a+b*b>1.04)continue;const hh=H(k.x+a*R*c+b*R*s,k.z-a*R*s+b*R*c);mx=Math.max(mx,hh);mn=Math.min(mn,hh)}
+  let gc=null;try{gc=colorFor(mx,0,k.x,k.z)}catch(e){}
+  if(!gc||!(gc.length>=3)||gc.some(v=>!isFinite(v)))gc=[.42,.62,.25];
+  const o=castleLandBuild({seed:k.seed,x:k.x,z:k.z,c,s,G:mx,ymin:mn-1.2,sj:k.sj,sl:k.sl,gc},H);
+  const M=(gx,gy,gz)=>[k.x+gx*c+gz*s,gy,k.z-gx*s+gz*c],P=o.pos,C=o.col;
+  for(let i=0;i+8<P.length;i+=9)tri3(M(P[i],P[i+1],P[i+2]),M(P[i+3],P[i+4],P[i+5]),M(P[i+6],P[i+7],P[i+8]),[C[i],C[i+1],C[i+2]]);
+  return o.circs.map(q=>{const w=M(q[0],0,q[1]);return[w[0],w[2],q[2]]});
+}
+function drawVillageCastle(k,quad,H){                              // 大きな正方形の城。k={x,z,ry,w,d}。戻り値は当たり判定の円
+  const c=Math.cos(k.ry),s=Math.sin(k.ry),w=k.w,d=k.d,hw=w/2,hd=d/2;
+  let mx=-1e9,mn=1e9;for(let a=-1.3;a<=1.301;a+=.1)for(let b=-1.3;b<=1.301;b+=.1){const lx=a*hw,lz=b*hd,hh=H(k.x+lx*c+lz*s,k.z-lx*s+lz*c);if(Math.abs(a)<=1.1&&Math.abs(b)<=1.1)mx=Math.max(mx,hh);mn=Math.min(mn,hh)}   // 土台の外側まで約2m刻みで調べ、一番低い地面を見つける
+  const gH=H(k.x+(hd+3)*s,k.z+(hd+3)*c),y0=Math.max(gH,mx-5)+.25,T=(lx,ly,lz)=>[k.x+lx*c+lz*s,y0+ly,k.z-lx*s+lz*c];   // 床の高さは門（道）側に合わせる。高い側の地面は最大5mまで城壁に埋まる
+  const STONE=0x9a968c,DARK2=0x8a867c,LIGHT=0xc8c0ae,SLATE=0x3e4553,DK=0x1d1a18,GL=0x2a3544;
+  const box=(cx,cy,cz,sx,sy,sz,color)=>{const V=(i,j,l)=>T(cx+(i-.5)*sx,cy+(j-.5)*sy,cz+(l-.5)*sz),R=T(cx,cy,cz);
+    quad(V(0,0,0),V(1,0,0),V(1,1,0),V(0,1,0),color,R);quad(V(0,0,1),V(1,0,1),V(1,1,1),V(0,1,1),color,R);
+    quad(V(0,0,0),V(0,0,1),V(0,1,1),V(0,1,0),color,R);quad(V(1,0,0),V(1,0,1),V(1,1,1),V(1,1,0),color,R);
+    quad(V(0,1,0),V(1,1,0),V(1,1,1),V(0,1,1),color,R);quad(V(0,0,0),V(1,0,0),V(1,0,1),V(0,0,1),color,R)};
+  const pyr=(cx,cz,half,y,rise,color)=>{const A=T(cx,y+rise,cz),R=T(cx,y+rise/2,cz);for(const[a,b]of[[[-1,-1],[1,-1]],[[1,-1],[1,1]],[[1,1],[-1,1]],[[-1,1],[-1,-1]]])quad(T(cx+a[0]*half,y,cz+a[1]*half),T(cx+b[0]*half,y,cz+b[1]*half),A,A,color,R)};
+  const PT=(f,u,y,p)=>f===0?T(u,y,p):f===1?T(u,y,-p):f===2?T(p,y,u):T(-p,y,u);
+  const rect=(f,u,y,ww,hh,p,color)=>quad(PT(f,u-ww/2,y-hh/2,p),PT(f,u+ww/2,y-hh/2,p),PT(f,u+ww/2,y+hh/2,p),PT(f,u-ww/2,y+hh/2,p),color,T(0,y,0));
+  const arch=(f,u,y,ww,hh,p,color)=>{const r0=ww/2,yc=y+hh-r0;rect(f,u,(y+yc)/2,ww,yc-y,p,color);for(let i=0;i<7;i++){const a0=Math.PI*i/7,a1=Math.PI*(i+1)/7;quad(PT(f,u,yc,p),PT(f,u+r0*Math.cos(a0),yc+r0*Math.sin(a0),p),PT(f,u+r0*Math.cos(a1),yc+r0*Math.sin(a1),p),PT(f,u+r0*Math.cos(a1),yc+r0*Math.sin(a1),p),color,T(0,yc,0))}};
+  const BH=16,TH=27,KH=31;                                      // 城壁の高さ・四隅の塔の高さ・主塔の高さ
+  const fy=Math.min(mn-y0-7,-10);   // 城壁・塔そのものを地面の下まで伸ばす（斜面でも浮かない）   // 石の基礎（斜面では一番低い地面の2m下まで伸ばして浮かさない）
+  box(0,(fy+BH)/2,0,w,BH-fy,d,STONE);                          // 城壁（大きな正方形）
+  box(0,BH,0,w+.8,.5,d+.8,LIGHT);                                 // 張り出した胸壁の帯
+  for(let u=-hw+6;u<=hw-5;u+=3.6){for(const sz of[-1,1])box(u,BH+1.35,sz*(hd+.1),2,1.8,1.1,DARK2);for(const sx of[-1,1])box(sx*(hw+.1),BH+1.35,u,1.1,1.8,2,DARK2)}   // 狭間（ぎざぎざ）
+  for(const sx of[-1,1])for(const sz of[-1,1]){box(sx*hw,(fy+TH)/2,sz*hd,10,TH-fy,10,STONE);box(sx*hw,TH+.3,sz*hd,11,.6,11,LIGHT);pyr(sx*hw,sz*hd,5.8,TH+.6,10,SLATE)}   // 四隅の塔
+  box(0,BH+(KH-BH)/2,0,18,KH-BH,18,STONE);box(0,KH+.3,0,19,.6,19,LIGHT);pyr(0,0,10,KH+.6,12,SLATE);   // 中央の主塔
+  arch(0,0,.3,8.6,10.6,hd+.05,LIGHT);arch(0,0,.3,6.8,9.8,hd+.09,DK);    // 正面の門
+  for(const f of[0,1,2,3]){const len=f<2?w:d,p=f<2?hd:hw;for(const y of[7.5,12]){for(let u=-len/2+11;u<=len/2-10;u+=5.5){if(f===0&&Math.abs(u)<7&&y<11)continue;rect(f,u,y,.9,2.4,p+.05,LIGHT);rect(f,u,y,.6,2.1,p+.08,GL)}}}   // 窓（細長い）
+  const circs=[];for(let t=-hw+1;t<=hw-1;t+=3.4){for(const sz of[-1,1])circs.push([k.x+t*c+sz*(hd-1.2)*s,k.z-t*s+sz*(hd-1.2)*c,2.4]);for(const sx of[-1,1])circs.push([k.x+sx*(hw-1.2)*c+t*s,k.z-sx*(hw-1.2)*s+t*c,2.4])}
+  for(const sx of[-1,1])for(const sz of[-1,1])circs.push([k.x+sx*hw*c+sz*hd*s,k.z-sx*hw*s+sz*hd*c,6.5]);   // 四隅の塔
+  return circs;
+}
 function vFields(P,trunks,branches,net,starts,C,fr){                  // 畑は道を引いたあとに置く。土の小道は ①枝道の先の延長 ②主道の外側の空き（枝道の根元から30m以上）から引き、その両脇に畑を並べる。畑は ゆるい斜面(高低差5m未満)・居住可能地・他の道から10m以上・川から14m以上
   const fields=[],lanes=[];
   const okf=f=>{
-    if(Math.hypot(f.cx-C[0],f.cz-C[1])>VRMAX+35)return false;
+    if(Math.hypot(f.cx-C[0],f.cz-C[1])>VRMAX*VX+35)return false;
     if(!habRaw(f.cx,f.cz))return false;
     for(const[x,z]of[[f.cx,f.cz],...fieldCorners(f)])if(netDist(net,x,z)<10)return false;
     if(villageDist(f.cx,f.cz)<12)return false;
@@ -803,9 +1329,9 @@ function villageHouseCount(v,heightAt){
     for(const sd of(L.main?[L.main]:[-1,1])){                       // 主道は川と反対側(外側)だけに家を建てる
       const nx=-uz*sd,nz=ux*sd;
       for(let p=L.cross?7:2.5;;){
-        const wh=v.port&&L.main?r()<.4:false,w=wh?10+r()*5:6+r()*2.6,d=wh?8+r()*2:7+r()*2.2,gap=.8+r()*2.2,wc=wh?0x8b6b4a:WALL[Math.floor(r()*WALL.length)],rc=wh?0x4a4a52:ROOF[Math.floor(r()*ROOF.length)],ch=r()<.5?-1:1,dr=r()<.5?-1:1;
+        const wh=v.port&&L.main?r()<.4:false,hl=!wh&&r()<.12,tn=!wh&&!hl&&r()<.35,w=wh?10+r()*5:hl?11+r()*3:6+r()*2.6,d=wh?8+r()*2:hl?8+r()*1.5:7+r()*2.2,gap=.8+r()*2.2,wc=wh?0x8b6b4a:WALL[Math.floor(r()*WALL.length)],rc=wh?0x4a4a52:ROOF[Math.floor(r()*ROOF.length)],ch=r()<.5?-1:1,dr=r()<.5?-1:1;
         if(p+w>len-(L.cross?7:1.5))break;
-        const off=3.1+d/2,h={x:L.a[0]+ux*(p+w/2)+nx*off,z:L.a[1]+uz*(p+w/2)+nz*off,ry:Math.atan2(-nx,-nz),w,d,wc,rc,ch,dr};   // 玄関は道の側を向く
+        const off=3.1+d/2,h={x:L.a[0]+ux*(p+w/2)+nx*off,z:L.a[1]+uz*(p+w/2)+nz*off,ry:Math.atan2(-nx,-nz),w,d,wc,rc,ch,dr,hall:hl,town:tn};   // 玄関は道の側を向く
         p+=w+gap;
         h.cn=cornersOf(h);
         let ok=true;
@@ -813,10 +1339,12 @@ function villageHouseCount(v,heightAt){
         if(!ok)continue;
         if(chu&&polyHit(h.cn,rectPoly(chu.ox,chu.oz,chu.c,chu.s,-12,17,-15,16.5)))continue
         if(v.manor&&polyHit(h.cn,rectPoly(v.manor.ox,v.manor.oz,v.manor.c,v.manor.s,-30*MS,30*MS,-34*MS,38*MS)))continue
+        if(v.castle&&polyHit(h.cn,rectPoly(v.castle.x,v.castle.z,Math.cos(v.castle.ry),Math.sin(v.castle.ry),-v.castle.w/2-4,v.castle.w/2+4,-v.castle.d/2-4,v.castle.d/2+4)))continue
+        if(v.wall&&pwallHit(v.wall,h.cn))continue
         const hs=[heightAt(h.x,h.z)];for(const q of h.cn)hs.push(heightAt(q[0],q[1]));
         const mx=Math.max(...hs),mn=Math.min(...hs);
-        if(mx-mn>(v.lines?3.5:4.5)||mn<WATER+1.5)continue;
-        if(v.lines&&(!habK(h.x,h.z,v.k)||hitField(h.cn,v.fields)))continue;   // 川沿いの村: 居住可能地の中で、畑には建てない（地形は平らにしないので、段差の小さい所だけ）
+        if(mx-mn>(v.lines||L.inl?3.5:4.5)||mn<WATER+1.5)continue;
+        if((v.lines||L.inl)&&(!habK(h.x,h.z,v.k)||hitField(h.cn,v.fields||[])))continue;   // 川沿いの村: 居住可能地の中で、畑には建てない（地形は平らにしないので、段差の小さい所だけ）
         for(const o of houses)if(overlap(h,o)){ok=false;break}
         if(!ok)continue;
         h.y0=mx+.25;h.ymin=mn;houses.push(h);
@@ -831,6 +1359,7 @@ function findSites(RV,m){
   for(let i0=6;i0+LEN<N-8&&cnt<5;i0+=2){
     if(i0<last+LEN+4)continue;
     VK=1.15+.5*mulberry(hash(Math.round(P[i0+6].x),Math.round(P[i0+6].z),SEED+7171)*1e9|0)();   // 村ごとに条件の緩さを変える（1.15〜1.65）
+    VX=mulberry(hash(Math.round(P[i0+6].x),Math.round(P[i0+6].z),SEED+8181)*1e9|0)()<.3?1.7:1;if(VX>1)VK*=1.25;   // 30%: 内陸にも広がる村（範囲を広げ、条件をゆるめる）
     if(P[i0].b-P[i0+LEN].b>28||P[i0+LEN].b<WATER+2)continue;    // 急流・河口は避ける
     const mid=P[i0+6],c=climateAt(mid.x,mid.z);if(c.de>=.5||c.gr+c.bf+c.ta+c.tf+c.cg<.4)continue;   // 砂漠を除外し、草原か森にだけ村を作る（CVはすぐ読む）
     const dv={};
@@ -858,13 +1387,23 @@ function findSites(RV,m){
     for(const q of FL.lanes)roads.push(q.seg);                   // 畑が残った小道だけ道にする
     for(const[A,B]of bridges)roads.push([A[0],A[1],B[0],B[1]]);
     for(const pl of trunks)vLines(P,pl,true,lines);for(const pl of br)vLines(P,pl,false,lines);   // ③ 家は buildVillage が、この小片（lines）に沿って置く
-    const v={k:VK,cx:C[0],cz:C[1],s:bs,lines,bridges,roads,P,i0,houses:null,deck:null,fields,fcircs:null,manor:null};
+    const v={k:VK,vx:VX,cx:C[0],cz:C[1],s:bs,lines,bridges,roads,P,i0,houses:null,deck:null,fields,fcircs:null,manor:null};
     v.settlementType='village';v.label=settlementLabel(v,'village');
     if(villageHouseCount(v,vhRoad)<=VMINH){last=i0;continue}     // 家が少なすぎる村は破棄（この区間は飛ばして次へ）
     for(const f of fields)fieldRegister(f);
+    const nr0=roads.length;
+    {const ends=[];for(const pl of br)if(pl.length>=2){const a=pl[pl.length-1],b=pl[pl.length-2];ends.push({p:a,th:Math.atan2(a[1]-b[1],a[0]-b[0])})}
+      for(const pl of trunks)if(pl.length>=2){const a=pl[pl.length-1],b=pl[pl.length-2],c2=pl[0],d2=pl[1];ends.push({p:a,th:Math.atan2(a[1]-b[1],a[0]-b[0])},{p:c2,th:Math.atan2(c2[1]-d2[1],c2[0]-d2[0])})}
+      try{villageCastle(v,ends,vhRoad)}catch(err){console.error(err)}}     // 確率で、道を少し伸ばした先に城を置く
+    try{                                                                // 道・畑・城をぐるっと囲む壁。段差があれば高い所に寄せる（川は無視）。城へ向かう道の先は城の中なので門は作らない
+      const cs=roads.length>nr0?[roads[nr0][0],roads[nr0][1]]:null,ge=[];
+      for(const pl of br)ge.push(pl[pl.length-1]);for(const pl of trunks){ge.push(pl[pl.length-1]);ge.push(pl[0])}
+      const wl=villageWallPath(v,vhRoad,ge.filter(e=>!(cs&&Math.hypot(e[0]-cs[0],e[1]-cs[1])<3)));
+      if(wl){v.wall={pts:wl.pts,gates:wl.gates,closed:true,c:wl.c};for(const g of wl.roads)roads.push(g)}
+    }catch(err){console.error(err)}
     VLIST.push(v);vRegister(v);last=i0;cnt++;
   }
-  VK=1.45;
+  VK=1.45;VX=1;
 }
 function villageChurchSite(v){                                   // 村の教会の場所（村ごとに1回だけ決めて覚える。木を生やさない範囲にも使う）
   if(v.chs!==undefined)return v.chs;
@@ -888,6 +1427,8 @@ function villageChurchSite(v){                                   // 村の教会
 }
 function churchTreeBlock(x,z){                                   // 村の教会と墓地・屋敷の敷地の中か
   for(const v of VLIST){
+    if(v.castle){const k=v.castle,dx=x-k.x,dz=z-k.z;if(Math.hypot(dx,dz)<k.w*.8+10){const c=Math.cos(k.ry),s=Math.sin(k.ry),lx=dx*c-dz*s,lz=dx*s+dz*c;if(Math.abs(lx)<k.w/2+6&&Math.abs(lz)<k.d/2+6)return true}}   // 城の敷地
+    if(v.wall&&Math.hypot(v.cx-x,v.cz-z)<400&&pwallD(v.wall,x,z)<6)return true;   // 港町の壁
     if(v.manor&&Math.hypot(v.manor.ox-x,v.manor.oz-z)<90*MS&&inManor(v.manor,x,z,4))return true;
     if(Math.hypot(v.cx-x,v.cz-z)>90)continue;
     const c=villageChurchSite(v);if(!c)continue;
@@ -896,7 +1437,13 @@ function churchTreeBlock(x,z){                                   // 村の教会
   }
   return false;
 }
-function drawVillageHouse(h,quad){                              // 村の家1軒（二階建て・木骨・尖った切妻屋根・煙突）。h={x,z,ry,w,d,wc,rc,ch,dr,y0,ymin}。玄関は局所+z側
+function drawVillageHouse(h,quad){
+  if(h.town){                                                       // 西洋の王都・公国の街と同じ家（石の1階＋木骨の上階・屋根窓・日よけ・鎧戸など）を村にも混ぜる（約35%）
+    const c=Math.cos(h.ry),s=Math.sin(h.ry),T=(lx,ly,lz)=>[h.x+lx*c+lz*s,h.y0+ly,h.z-lx*s+lz*c],hw=h.w/2+.1,hd=h.d/2+.1,fh=Math.max(.3,h.y0-(h.ymin===undefined?h.y0:h.ymin)+.5),R=T(0,-fh/2,0),V=(i,j,k)=>T(i?hw:-hw,j?.1:-fh,k?hd:-hd);
+    quad(V(0,0,0),V(1,0,0),V(1,1,0),V(0,1,0),0x8d8a82,R);quad(V(0,0,1),V(1,0,1),V(1,1,1),V(0,1,1),0x8d8a82,R);quad(V(0,0,0),V(0,0,1),V(0,1,1),V(0,1,0),0x8d8a82,R);quad(V(1,0,0),V(1,0,1),V(1,1,1),V(1,1,0),0x8d8a82,R);   // 斜面の下の石の基礎
+    drawTownHouse(h,quad,mulberry(hash(Math.round(h.x*7),Math.round(h.z*7),SEED+5961)*1e9|0));return}
+  if(h.hall){drawStoneBaseHall(h,quad,mulberry(hash(Math.round(h.x*7),Math.round(h.z*7),SEED+5960)*1e9|0));return}   // 村に混ぜる、石の台の横長の建物（約12%）
+                                // 村の家1軒（二階建て・木骨・尖った切妻屋根・煙突）。h={x,z,ry,w,d,wc,rc,ch,dr,y0,ymin}。玄関は局所+z側
     const c=Math.cos(h.ry),s=Math.sin(h.ry),T=(lx,ly,lz)=>[h.x+lx*c+lz*s,h.y0+ly,h.z-lx*s+lz*c];
     const W=6.2,rh=Math.min(6,(h.d/2+.6)*1.15),ref=T(0,W/2,0);
     const box=(cx,cy,cz,sx,sy,sz,color)=>{
@@ -963,9 +1510,9 @@ function buildVillage(v){
     for(const sd of(L.main?[L.main]:[-1,1])){                       // 主道は川と反対側(外側)だけに家を建てる
       const nx=-uz*sd,nz=ux*sd;
       for(let p=L.cross?7:2.5;;){
-        const wh=v.port&&L.main?r()<.4:false,w=wh?10+r()*5:6+r()*2.6,d=wh?8+r()*2:7+r()*2.2,gap=.8+r()*2.2,wc=wh?0x8b6b4a:WALL[Math.floor(r()*WALL.length)],rc=wh?0x4a4a52:ROOF[Math.floor(r()*ROOF.length)],ch=r()<.5?-1:1,dr=r()<.5?-1:1;
+        const wh=v.port&&L.main?r()<.4:false,hl=!wh&&r()<.12,tn=!wh&&!hl&&r()<.35,w=wh?10+r()*5:hl?11+r()*3:6+r()*2.6,d=wh?8+r()*2:hl?8+r()*1.5:7+r()*2.2,gap=.8+r()*2.2,wc=wh?0x8b6b4a:WALL[Math.floor(r()*WALL.length)],rc=wh?0x4a4a52:ROOF[Math.floor(r()*ROOF.length)],ch=r()<.5?-1:1,dr=r()<.5?-1:1;
         if(p+w>len-(L.cross?7:1.5))break;
-        const off=3.1+d/2,h={x:L.a[0]+ux*(p+w/2)+nx*off,z:L.a[1]+uz*(p+w/2)+nz*off,ry:Math.atan2(-nx,-nz),w,d,wc,rc,ch,dr};   // 玄関は道の側を向く
+        const off=3.1+d/2,h={x:L.a[0]+ux*(p+w/2)+nx*off,z:L.a[1]+uz*(p+w/2)+nz*off,ry:Math.atan2(-nx,-nz),w,d,wc,rc,ch,dr,hall:hl,town:tn};   // 玄関は道の側を向く
         p+=w+gap;
         h.cn=cornersOf(h);
         let ok=true;
@@ -973,10 +1520,12 @@ function buildVillage(v){
         if(!ok)continue;
         if(chu&&polyHit(h.cn,rectPoly(chu.ox,chu.oz,chu.c,chu.s,-12,17,-15,16.5)))continue
         if(v.manor&&polyHit(h.cn,rectPoly(v.manor.ox,v.manor.oz,v.manor.c,v.manor.s,-30*MS,30*MS,-34*MS,38*MS)))continue
+        if(v.castle&&polyHit(h.cn,rectPoly(v.castle.x,v.castle.z,Math.cos(v.castle.ry),Math.sin(v.castle.ry),-v.castle.w/2-4,v.castle.w/2+4,-v.castle.d/2-4,v.castle.d/2+4)))continue
+        if(v.wall&&pwallHit(v.wall,h.cn))continue
         const hs=[heightAt(h.x,h.z)];for(const q of h.cn)hs.push(heightAt(q[0],q[1]));
         const mx=Math.max(...hs),mn=Math.min(...hs);
-        if(mx-mn>(v.lines?3.5:4.5)||mn<WATER+1.5)continue;
-        if(v.lines&&(!habK(h.x,h.z,v.k)||hitField(h.cn,v.fields)))continue;   // 川沿いの村: 居住可能地の中で、畑には建てない（地形は平らにしないので、段差の小さい所だけ）
+        if(mx-mn>(v.lines||L.inl?3.5:4.5)||mn<WATER+1.5)continue;
+        if((v.lines||L.inl)&&(!habK(h.x,h.z,v.k)||hitField(h.cn,v.fields||[])))continue;   // 川沿いの村: 居住可能地の中で、畑には建てない（地形は平らにしないので、段差の小さい所だけ）
         for(const o of houses)if(overlap(h,o)){ok=false;break}
         if(!ok)continue;
         h.y0=mx+.25;h.ymin=mn;houses.push(h);
@@ -993,10 +1542,17 @@ function buildVillage(v){
     const l=Math.hypot(n[0],n[1],n[2])||1;C.setHex(color);
     for(const q of vs){pos.push(q[0],q[1],q[2]);nor.push(n[0]/l,n[1]/l,n[2]/l);col.push(C.r,C.g,C.b)}
   };
+  const tri3=(A,B,Cc,k)=>{                                                  // 三角形1枚（面の向きは頂点の並び順のまま。色は[r,g,b]）
+    const ux=B[0]-A[0],uy=B[1]-A[1],uz=B[2]-A[2],wx=Cc[0]-A[0],wy=Cc[1]-A[1],wz=Cc[2]-A[2];
+    const nx=uy*wz-uz*wy,ny=uz*wx-ux*wz,nz=ux*wy-uy*wx,l=Math.hypot(nx,ny,nz)||1;
+    for(const q of[A,B,Cc]){pos.push(q[0],q[1],q[2]);nor.push(nx/l,ny/l,nz/l);col.push(k[0],k[1],k[2])}
+  };
   for(const h of houses)drawVillageHouse(h,quad);
   v.deck=[];
   let pcirc=[];
   if(v.port)try{pcirc=portBuild(v.port,quad,v.deck)}catch(err){console.error(err);EU_ERR='港: '+(err&&err.message)}
+  if(v.castle)try{pcirc=pcirc.concat(v.castle.kind==='land'?drawCastleLand(v.castle,tri3,heightAt):drawVillageCastle(v.castle,quad,heightAt))}catch(err){console.error(err);EU_ERR='村の城: '+(err&&err.message)}
+  if(v.wall)try{pcirc=pcirc.concat(drawPortWall(v,quad,heightAt))}catch(err){console.error(err);EU_ERR='港の城壁: '+(err&&err.message)}
   for(const[a,b]of(v.bridges||(v.twin?v.bk.map(k=>[v.M[k],v.M2[k]]):[]))){                                       // 橋: 両岸の主道の高さをなめらかにつなぐ木の床と欄干（歩ける）
     const ya=heightAt(a[0],a[1])+.25,yb=heightAt(b[0],b[1])+.25,len=Math.hypot(b[0]-a[0],b[1]-a[1]),ux=(b[0]-a[0])/len,uz=(b[1]-a[1])/len,lx=-uz*2.2,lz=ux*2.2;
     const P3=(x,y,z)=>[x,y,z],mid=[(a[0]+b[0])/2,(ya+yb)/2,(a[1]+b[1])/2];
@@ -1041,7 +1597,7 @@ function updateVillages(){
     else if(d>450&&VG.has(v)){const m=VG.get(v);if(m){scene.remove(m);m.geometry.dispose();m.children.forEach(c=>c.geometry.dispose())}VG.delete(v);v.houses=null;v.deck=null;v.fcircs=null;v.church=null}
   }
 }
-function clearVillages(){FLDV.clear();for(const m of VG.values())if(m){scene.remove(m);m.geometry.dispose();m.children.forEach(c=>c.geometry.dispose())}VG.clear();VVH.clear();FLD.clear();VLIST.length=0;PRH.clear();PORTS.length=0;empCache.forEach(E=>{if(E){E.portsDone=false;E.ports=null}})}
+function clearVillages(){FLDV.clear();for(const m of VG.values())if(m){scene.remove(m);m.geometry.dispose();m.children.forEach(c=>c.geometry.dispose())}VG.clear();VVH.clear();FLD.clear();VLIST.length=0;PRH.clear();PORTS.length=0;portCells.clear();empCache.forEach(E=>{if(E){E.portsDone=false;E.ports=null}})}
 // ---------- 帝国の港町 ----------
 // 帝国の領土の中で海に面した場所に、港を中心とした街を作る（川沿いの村の海岸版）。水の上は今までどおり歩ける。
 // 局所座標 a=岸に沿う向き, b=陸側へ向かう距離（b=0が海岸線の目安）。場所は rawH と帝国の領土だけで決まる。
@@ -1074,15 +1630,46 @@ function portQuay(x,z){                                          // 岸壁の石
 }
 function portNear(x,z,m){                                        // 港町の敷地（岸壁の帯＋m）の中か。木を生やさない範囲に使う
   const L=PRH.get(Math.floor(x/PRC)+','+Math.floor(z/PRC));if(!L)return false;
-  for(const p of L){const dx=x-p.ox,dz=z-p.oz,a=dx*p.tx+dz*p.tz,b=dx*p.nx+dz*p.nz;if(Math.abs(a)<PA+m+14&&b>-20&&b<PB1+m)return true}
+  for(const p of L){const dx=x-p.ox,dz=z-p.oz,a=dx*p.tx+dz*p.tz,b=dx*p.nx+dz*p.nz;if(Math.abs(a)<PA+m+14&&b>-20&&b<(p.inl?PB1+75:PB1)+m)return true}
   return false;
 }
 function coastNear(x,z){                                         // 1〜1.5km先に深い海があるか（帝国の諸侯の街を海沿いに寄せる）
   for(let j=0;j<12;j++){const c=Math.cos(j*.5236),s=Math.sin(j*.5236);for(const d of[1000,1250,1500])if(rawH(x+c*d,z+s*d)<WATER-1.5)return true}
   return false;
 }
+const portCells=new Set(),PTC=TCELL;                              // 単独の港町: TCELL四方のセルごとに1か所まで
+function findPortCell(cx,cz){                                    // セル(cx,cz)の中で、海岸を探して港町を1つ作る（帝国は使わない）
+  const k=cx+','+cz;if(portCells.has(k))return;portCells.add(k);
+  const r=mulberry(hash(cx,cz,SEED+6363)*1e9|0);
+  let made=0;
+  const sx=(cx+.2+r()*.6)*PTC,sz=(cz+.2+r()*.6)*PTC,a0=r()*6.2832;
+  for(let k2=0;k2<36;k2++){
+    const ang=a0+k2*6.2832/36,cs=Math.cos(ang),sn=Math.sin(ang);
+    let hit=-1,prevLand=rawH(sx,sz)>=WATER-1.5;
+    for(let d=60;d<=1700;d+=60){
+      const h=rawH(sx+cs*d,sz+sn*d);
+      if(h<WATER-1.5){if(prevLand){hit=d;break}}else prevLand=true;
+    }
+    if(hit<0)continue;
+    let lo=hit-60,hi=hit;for(let i=0;i<8;i++){const m=(lo+hi)/2;if(rawH(sx+cs*m,sz+sn*m)<WATER-1.5)hi=m;else lo=m}
+    const Px=sx+cs*hi,Pz=sz+sn*hi;
+    let ax=0,az=0;for(let j=0;j<16;j++){const aj=j*.3927,qx=Px+Math.cos(aj)*90,qz=Pz+Math.sin(aj)*90;if(rawH(qx,qz)<WATER-1){ax+=Math.cos(aj);az+=Math.sin(aj)}}   // 海のある向き（岸の法線）
+    const base=Math.hypot(ax,az)>2?Math.atan2(az,ax):ang;
+    site:for(const da of[0,.26,-.26,.52,-.52])for(const s of[0,8,-8,16,-16,24,-24,32,-32,40,-40,48,-48,56,-56,64,-64,72,-72,80,-80]){
+      const a2=base+da,ns=[Math.cos(a2),Math.sin(a2)],p=tryPort(null,Px+ns[0]*s,Pz+ns[1]*s,-ns[0],-ns[1]);
+      if(p){PORTS.push(p);portRegister(p);makePortTown(p);if(++made>=2)return;break site}
+    }
+  }
+}
 function ensurePorts(ix,iz){
-  if(!GEN_OTHER_TOWNS)return;                                    // 港町（生成停止中）                                     // この位置の周り(MC区画3x3)に重なる帝国の港町を作っておく
+  if(!GEN_OTHER_TOWNS){
+    if(!GEN_PORT_TOWNS)return;
+    const x0=(ix-1)*MC,x1=(ix+2)*MC,z0=(iz-1)*MC,z1=(iz+2)*MC;      // 周り3x3区画に重なるセルの港町を作っておく
+    for(let cx=Math.floor(x0/PTC);cx<=Math.floor((x1-1)/PTC);cx++)for(let cz=Math.floor(z0/PTC);cz<=Math.floor((z1-1)/PTC);cz++){
+      try{findPortCell(cx,cz)}catch(err){console.error(err);EU_ERR='港町: '+(err&&err.message)}
+    }
+    return;
+  }                                    // 港町（生成停止中）                                     // この位置の周り(MC区画3x3)に重なる帝国の港町を作っておく
   const B=EMB*TCELL,x0=(ix-1)*MC,x1=(ix+2)*MC,z0=(iz-1)*MC,z1=(iz+2)*MC;
   for(let bx=Math.floor(x0/B);bx<=Math.floor((x1-1)/B);bx++)for(let bz=Math.floor(z0/B);bz<=Math.floor((z1-1)/B);bz++){
     const E=empireOf(bx,bz);if(!E||!E.seats||E.portsDone)continue;
@@ -1090,7 +1677,8 @@ function ensurePorts(ix,iz){
     try{findPorts(E)}catch(err){console.error(err);EU_ERR='港町: '+(err&&err.message)}
   }
 }
-function tryPort(E,ox,oz,nx,nz){                                 // (ox,oz)=海岸線の目安の点, (nx,nz)=陸側の向き。条件を満たせば港を返す
+function tryPort(E,ox,oz,nx,nz){
+  let vk0=1.45,inl0=false;                                 // (ox,oz)=海岸線の目安の点, (nx,nz)=陸側の向き。条件を満たせば港を返す
   const tx=nz,tz=-nx,W=(a,b)=>[ox+a*tx+b*nx,oz+a*tz+b*nz];
   let q;
   let noSea=0,noLand=0;                                           // 海岸線は多少ギザギザでよい（9本の筋のうち2本までは外れてよい）
@@ -1100,14 +1688,26 @@ function tryPort(E,ox,oz,nx,nz){                                 // (ox,oz)=海�
   }
   if(noSea>2||noLand>2)return null;
   for(const[a,b]of[[0,-90],[-70,-70],[70,-70]]){q=W(a,b);if(rawH(q[0],q[1])>=WATER-1)return null}   // 沖は広い海
-  for(const[a,b]of[[-PA,PB1],[0,PB1],[PA,PB1],[-PA,0],[PA,0],[0,0]]){q=W(a,b);if(empD(E,q[0],q[1])>-120)return null}   // 領土の内側（国境の水路から離れる）
-  for(const s of E.seats)if(Math.hypot(ox-s.x,oz-s.z)<1100)return null;                              // 王都・諸侯の街から離れる
-  for(const p of E.ports)if(Math.hypot(ox-p.ox,oz-p.oz)<600)return null;
+  if(E){
+    for(const[a,b]of[[-PA,PB1],[0,PB1],[PA,PB1],[-PA,0],[PA,0],[0,0]]){q=W(a,b);if(empD(E,q[0],q[1])>-120)return null}   // 領土の内側（国境の水路から離れる）
+    for(const s of E.seats)if(Math.hypot(ox-s.x,oz-s.z)<1100)return null;                              // 王都・諸侯の街から離れる
+    for(const p of E.ports)if(Math.hypot(ox-p.ox,oz-p.oz)<600)return null;
+  }else{                                                           // 単独の港町: 砂漠・他の港・砂漠の街・川の街と重ならない
+    const c0=W(0,36),cl=climateAt(c0[0],c0[1]);if(cl.de>=.5||cl.gr+cl.bf+cl.ta+cl.tf+cl.cg<.4)return null;   // 村と同じ: 砂漠を除外し、草原か森にだけ作る
+    for(const p of PORTS)if(Math.hypot(ox-p.ox,oz-p.oz)<350)return null;
+    for(const a of[-PA,0,PA])for(const b of[0,44,88]){q=W(a,b);if(townW(q[0],q[1])>0)return null}
+    const inl=inl0=mulberry(hash(Math.round(ox),Math.round(oz),SEED+8181)*1e9|0)()<.3;      // 30%: 内陸にも広がる港町（奥に通りを足し、条件をゆるめる）
+    const vk=vk0=(1.15+.5*mulberry(hash(Math.round(ox),Math.round(oz),SEED+7171)*1e9|0)())*(inl?1.25:1);   // 村ごとに条件の緩さを変える（1.15〜1.65）
+    let miss=0,tot=0;                                                // 村と同じ「居住可能エリア」(habRaw)か。陸側の街の敷地を調べ、居住不可の割合が小さいこと
+    for(const a of[-84,-42,0,42,84])for(const b of[14,36,58,80]){q=W(a,b);tot++;if(!habK(q[0],q[1],vk))miss++}
+    if(miss/tot>.55*vk/1.45)return null;
+    for(const a of[-PA,-56,0,56,PA])for(const b of[6,36,66]){q=W(a,b);if(villageSep(q[0],q[1])<VSEP)return null}   // 川沿いの村の道から離す
+  }
   for(const a of[-PA,0,PA])for(const b of[-10,6,36,66]){q=W(a,b);if(riverScan(q[0],q[1])&&RN_E<40)return null}   // 河口は避ける
   const hs=[];for(const a of[-84,0,84])for(const b of[20,50,80]){q=W(a,b);hs.push(rawH(q[0],q[1]))}
   const so=hs.slice().sort((u,v)=>u-v),Hq=Math.max(WATER+2.2,Math.min(WATER+3.6,so[4]));
   for(const h of hs)if(Math.abs(h-Hq)>11)return null;               // 切り土・盛り土が大きすぎる所は避ける
-  return{ox,oz,tx,tz,nx,nz,Hq,E};
+  return{ox,oz,tx,tz,nx,nz,Hq,E,vk:E?1.45:vk0,inl:E?false:inl0};
 }
 function findPorts(E){
   E.ports=[];
@@ -1134,16 +1734,222 @@ function findPorts(E){
     }
   }
 }
-function makePortTown(p){                                        // 港町の「村」データ（道・家の並ぶ線）。家や港の設備は近づいた時に buildVillage が描く
-  const W=(a,b)=>[p.ox+a*p.tx+b*p.nx,p.oz+a*p.tz+b*p.nz],N=17,ck=[0,4,8,12,16];
-  const line=b=>{const R=[];for(let i=0;i<N;i++)R.push(W(-PA+i*PA*2/(N-1),b));return R};
-  const M=line(6),C=line(36),D=line(66),roads=[],extra=[];
-  for(const R of[M,C,D])for(let i=0;i<N-1;i++)roads.push([R[i][0],R[i][1],R[i+1][0],R[i+1][1]]);
-  for(const k of ck){roads.push([M[k][0],M[k][1],C[k][0],C[k][1]],[C[k][0],C[k][1],D[k][0],D[k][1]]);extra.push({a:C[k],b:D[k],cross:true})}
-  for(let j=0;j<N-1;j+=2)extra.push({a:D[j],b:D[Math.min(j+2,N-1)]});   // 奥の通り（両側に家）
-  const c=W(0,36),v={cx:c[0],cz:c[1],s:1,M,B:C,M2:null,B2:null,twin:false,ck,bk:[],roads,P:M.map(q=>({x:q[0],z:q[1]})),i0:0,houses:null,deck:null,fields:[],fcircs:null,manor:null,port:p,extra};
+function makePortTown(p){                                        // 港町の「村」データ。海岸線にある程度沿った岸壁通りを元に、地形（高低差）に沿った道を内陸へ伸ばし、先の方をつなぐ。家は近づいた時に buildVillage が道に沿って置く
+  const W=(a,b)=>[p.ox+a*p.tx+b*p.nx,p.oz+a*p.tz+b*p.nz];
+  const LA=(x,z)=>{const dx=x-p.ox,dz=z-p.oz;return[dx*p.tx+dz*p.tz,dx*p.nx+dz*p.nz]};          // 世界座標→局所(a,b)
+  const r=mulberry(hash(Math.round(p.ox),Math.round(p.oz),SEED+6464)*1e9|0);
+  const hf=(x,z)=>{const h=rawH(x,z),pf=portFlat(x,z);return pf?h+(pf[1]-h)*pf[0]:h};          // 岸壁の平らな帯を含む地面の高さ（heightAtを呼ばない）
+  const maxB=p.inl?230:150,maxA=PA+(p.inl?70:36),th0=Math.atan2(p.nz,p.nx),ang=(a,b)=>Math.atan2(Math.sin(a-b),Math.cos(a-b));
+  const okPt=(x,z)=>{const[a,b]=LA(x,z);return Math.abs(a)<=maxA&&b>=2&&b<=maxB};              // 街の範囲（局所座標）
+  // ① 岸壁通り: 海岸線（海との境）をなぞり、平らにならした帯の中でゆるやかに曲げる
+  const sh=[];for(let a=-PA;a<=PA;a+=8){let b=-14;while(b<44&&rawH(...W(a,b))<WATER-.5)b+=2;sh.push(b)}
+  const sm=sh.map((v,i)=>{let t=0,n=0;for(let j=-2;j<=2;j++){const q=sh[i+j];if(q!==undefined){t+=q;n++}}return t/n});
+  const M=sm.map((v,i)=>{const a=-PA+i*8,w=(vnoise(a*.035+p.ox*.001,p.oz*.001+3.3)-.5)*7;return W(a,Math.max(4,Math.min(18,6+Math.max(-5,Math.min(8,v*.4))+w)))});
+  const net=[M],polys=[],roads=[],extra=[];
+  // ② 内陸への道: 岸壁通りから、高低差の小さい向きを選んで曲がりながら伸ばす（枝道どうしは離す）
+  const grow=(s0,t0,maxLen)=>{
+    const pl=[[s0[0],s0[1]]];let th=t0,x=s0[0],z=s0[1],h=hf(x,z),len=0;
+    while(len<maxLen){
+      let best=null,bc=1e9;
+      for(let k=-3;k<=3;k++){
+        const a=th+k*.21,qx=x+Math.cos(a)*VST,qz=z+Math.sin(a)*VST;
+        if(Math.abs(ang(a,t0))>1.05||!okPt(qx,qz))continue;
+        const hq=hf(qx,qz);if(hq<WATER+1.8||Math.abs(hq-h)>VDH*1.25)continue;                  // 水・段差を避ける
+        if(netDist(net,qx,qz,[s0[0],s0[1],VGAP*1.4])<VGAP)continue;                              // 他の道に近すぎる
+        if(villageSep(qx,qz)<60)continue;
+        const cost=Math.abs(hq-h)*2.5+Math.abs(k)*.45+r()*.6;
+        if(cost<bc){bc=cost;best=[a,qx,qz,hq]}
+      }
+      if(!best)break;
+      th=best[0];x=best[1];z=best[2];h=best[3];pl.push([x,z]);len+=VST;
+    }
+    return pl;
+  };
+  const br=[];
+  for(let i=2+Math.floor(r()*3);i<M.length-2;i+=4+Math.floor(r()*3)){
+    const pl=grow(M[i],th0+(r()-.5)*.5,(p.inl?110:62)+r()*(p.inl?110:50));
+    if(pl.length>=4){net.push(pl);br.push({i,pl})}
+  }
+  // ③ 枝道の先どうしを、地形に沿った道でつなぐ（行き止まりを減らし、ぐるっと回れるようにする）
+  const link=(A,B)=>{
+    const pl=[[A[0],A[1]]];let x=A[0],z=A[1],h=hf(x,z);
+    for(let n=0;n<44;n++){
+      const dx=B[0]-x,dz=B[1]-z,d=Math.hypot(dx,dz);if(d<=VST*1.2){pl.push([B[0],B[1]]);return pl}
+      const t=Math.atan2(dz,dx);let best=null,bc=1e9;
+      for(let k=-3;k<=3;k++){
+        const a=t+k*.3,qx=x+Math.cos(a)*VST,qz=z+Math.sin(a)*VST;
+        if(!okPt(qx,qz))continue;const hq=hf(qx,qz);if(hq<WATER+1.8||Math.abs(hq-h)>VDH*1.25)continue;
+        const cost=Math.abs(hq-h)*2.5+Math.abs(k)*.5+r()*.4;if(cost<bc){bc=cost;best=[qx,qz,hq]}
+      }
+      if(!best)return null;
+      x=best[0];z=best[1];h=best[2];pl.push([x,z]);
+    }
+    return null;
+  };
+  const lk=[];
+  for(let j=0;j+1<br.length;j++){
+    const A=br[j].pl,B=br[j+1].pl,a0=A[A.length-1],b0=B[B.length-1];
+    if(Math.hypot(a0[0]-b0[0],a0[1]-b0[1])>(p.inl?190:130))continue;
+    const pl=link(a0,b0);if(pl&&pl.length>=3){lk.push(pl);net.push(pl)}
+    else{const m=Math.min(A.length,B.length)>>1,pl2=link(A[m],B[m]);if(pl2&&pl2.length>=3){lk.push(pl2);net.push(pl2)}}   // 先がつながらなければ中ほどでつなぐ
+  }
+  // 道（見た目・当たり）と、家を並べる線に変換
+  const addPoly=(pl,house)=>{
+    for(let i=0;i+1<pl.length;i++)roads.push([pl[i][0],pl[i][1],pl[i+1][0],pl[i+1][1]]);
+    if(house)for(let i=0;i+1<pl.length;i+=3){const a=pl[i],b=pl[Math.min(i+3,pl.length-1)];if(Math.hypot(b[0]-a[0],b[1]-a[1])>=8)extra.push({a,b,inl:LA(a[0],a[1])[1]>PB1-10})}
+  };
+  addPoly(M,false);for(const q of br)addPoly(q.pl,true);for(const pl of lk)addPoly(pl,true);
+  const c=W(0,40),v={cx:c[0],cz:c[1],s:1,vx:p.inl?1.7:1,M,B:null,M2:null,B2:null,twin:false,ck:[],bk:[],roads,P:M.map(q=>({x:q[0],z:q[1]})),i0:0,houses:null,deck:null,fields:[],fcircs:null,manor:null,port:p,extra,k:p.vk};
   v.settlementType='port';v.label=settlementLabel(v,'port');
+  const nr0=roads.length;
+  {const ends=[];for(const q of br){const pl=q.pl,a=pl[pl.length-1],b=pl[pl.length-2];ends.push({p:a,th:Math.atan2(a[1]-b[1],a[0]-b[0])})}
+    try{villageCastle(v,ends,hf)}catch(err){console.error(err)}}       // 確率で、道を少し伸ばした先に城を置く
+  try{                                                                  // 街と城をぐるっと囲む壁（城の有無に関わらず）。城へ向かう道の先は城の中なので門は作らない
+    const cs=roads.length>nr0?[roads[nr0][0],roads[nr0][1]]:null,brEnds=br.map(q=>q.pl[q.pl.length-1]).filter(e=>!(cs&&Math.hypot(e[0]-cs[0],e[1]-cs[1])<3));
+    const wl=portWallPath(p,v,hf,brEnds);if(wl){v.wall={pts:wl.pts,gates:wl.gates};for(const g of wl.roads)roads.push(g)}
+  }catch(err){console.error(err)}
   VLIST.push(v);vRegister(v);p.v=v;
+}
+// ---------- 港町の城壁 ----------
+// 街の道と城をぐるっと囲む壁（海から海へ。城の有無に関わらず作る）。岸に沿う向きaごとに「陸側へどこまで道があるか」を調べて輪郭を作り、
+// 両端は岸（水）まで下ろす。壁は地面より約6.5m高く、地面の下4mまで埋める（斜面でも浮かない）。道の先の近くに門を最大2か所。
+const PW_S=5,PW_R=22,PW_T=1.3,PW_H=6.5;
+function portWallPath(p,v,hf,brEnds){
+  const LA=(x,z)=>{const dx=x-p.ox,dz=z-p.oz;return[dx*p.tx+dz*p.tz,dx*p.nx+dz*p.nz]};
+  const W=(a,b)=>[p.ox+a*p.tx+b*p.nx,p.oz+a*p.tz+b*p.nz];
+  const pts=[];
+  for(const s of v.roads){const l=Math.hypot(s[2]-s[0],s[3]-s[1]),n=Math.max(1,Math.ceil(l/8));for(let k=0;k<=n;k++)pts.push(LA(s[0]+(s[2]-s[0])*k/n,s[1]+(s[3]-s[1])*k/n))}
+  if(v.castle){const k=v.castle,c=Math.cos(k.ry),s=Math.sin(k.ry);for(const[u,w]of[[-1,-1],[0,-1],[1,-1],[1,0],[1,1],[0,1],[-1,1],[-1,0]]){const lx=u*k.w/2,lz=w*k.d/2;pts.push(LA(k.x+lx*c+lz*s,k.z-lx*s+lz*c))}}
+  if(pts.length<4)return null;
+  let mnA=1e9,mxA=-1e9;for(const q of pts){mnA=Math.min(mnA,q[0]);mxA=Math.max(mxA,q[0])}
+  const a0=mnA-PW_R+.5,n=Math.floor((mxA+PW_R-.5-a0)/PW_S);
+  const E=[];
+  for(let i=0;i<=n;i++){const a=a0+i*PW_S;let e=-1e9;for(const q of pts){const da=a-q[0];if(Math.abs(da)<PW_R){const b=q[1]+Math.sqrt(PW_R*PW_R-da*da);if(b>e)e=b}}E.push(e)}
+  for(let i=0;i<=n;i++)if(E[i]<-1e8){let j=i;while(j>=0&&E[j]<-1e8)j--;let k=i;while(k<=n&&E[k]<-1e8)k++;E[i]=Math.max(E[j]===undefined?-1e9:E[j],E[k]===undefined?-1e9:E[k])}
+  const E2=E.map((e,i)=>i>0&&i<n?(E[i-1]+e+E[i+1])/3:e);
+  const top=E2.map((e,i)=>W(a0+i*PW_S,Math.max(e,24)));
+  const leg=(a,b0)=>{const out=[];for(let b=b0-PW_S;b>=-14;b-=PW_S){const q=W(a,b);if(hf(q[0],q[1])<WATER+.3)break;out.push(q)}return out};
+  const Lg=leg(a0,Math.max(E2[0],24)).reverse(),Rg=leg(a0+n*PW_S,Math.max(E2[n],24));
+  const path=Lg.concat(top,Rg);
+  const rs=[path[0]];let carry=0;
+  for(let i=1;i<path.length;i++){const A=path[i-1],B=path[i],l=Math.hypot(B[0]-A[0],B[1]-A[1]);let t=PW_S-carry;while(t<=l){rs.push([A[0]+(B[0]-A[0])*t/l,A[1]+(B[1]-A[1])*t/l]);t+=PW_S}carry=l-(t-PW_S)}
+  if(carry>1.5)rs.push(path[path.length-1]);
+  if(rs.length<10)return null;
+  const cand=[];
+  for(const e of brEnds){let bj=-1,bd=1e9;for(let j=3;j<rs.length-4;j++){const d=Math.hypot(rs[j][0]-e[0],rs[j][1]-e[1]);if(d<bd){bd=d;bj=j}}if(bj>=0&&bd<80)cand.push({e,j:bj,d:bd})}
+  cand.sort((u,w)=>u.d-w.d);
+  const gates=[],roads=[];
+  for(const c of cand){if(gates.length>=2)break;if(gates.some(g=>Math.abs(g-c.j)<8))continue;
+    const gi=c.j,A=rs[gi],B=rs[gi+1],mx=(A[0]+B[0])/2,mz=(A[1]+B[1])/2,dx=mx-c.e[0],dz=mz-c.e[1],l=Math.hypot(dx,dz)||1;
+    gates.push(gi);roads.push([c.e[0],c.e[1],mx,mz]);roads.push([mx,mz,mx+dx/l*14,mz+dz/l*14]);
+  }
+  return{pts:rs,gates,roads};
+}
+function villageWallPath(v,hf,ends,skipEnd){                      // 川沿いの村: 道・畑・城をぐるっと囲む輪郭（閉じた輪）。段差があれば高い所（上の縁）に壁を寄せ、なければそのまま一周する
+  const R=18,N=72,pts=[];
+  for(const s of v.roads){const l=Math.hypot(s[2]-s[0],s[3]-s[1]),n=Math.max(1,Math.ceil(l/8));for(let k=0;k<=n;k++)pts.push([s[0]+(s[2]-s[0])*k/n,s[1]+(s[3]-s[1])*k/n])}
+  for(const f of(v.fields||[])){pts.push([f.cx,f.cz]);for(const q of fieldCorners(f))pts.push(q)}
+  if(v.castle){const k=v.castle,c=Math.cos(k.ry),s=Math.sin(k.ry);for(const[u,w]of[[-1,-1],[0,-1],[1,-1],[1,0],[1,1],[0,1],[-1,1],[-1,0]]){const lx=u*k.w/2,lz=w*k.d/2;pts.push([k.x+lx*c+lz*s,k.z-lx*s+lz*c])}}
+  if(pts.length<4)return null;
+  let cx=0,cz=0;for(const q of pts){cx+=q[0];cz+=q[1]}cx/=pts.length;cz/=pts.length;
+  const r=[];
+  for(let k=0;k<N;k++){const th=k/N*6.2832,ux=Math.cos(th),uz=Math.sin(th);let best=-1e9;
+    for(const q of pts){const dx=q[0]-cx,dz=q[1]-cz,perp=-dx*uz+dz*ux;if(Math.abs(perp)<R){const e=dx*ux+dz*uz+Math.sqrt(R*R-perp*perp);if(e>best)best=e}}
+    r.push(best)}
+  for(let k=0;k<N;k++)if(r[k]<-1e8){let a=k,b=k,i=0;while(r[(a+N)%N]<-1e8&&i<N){a--;i++}i=0;while(r[b%N]<-1e8&&i<N){b++;i++}r[k]=Math.max(r[(a+N)%N],r[b%N])}
+  const r2=r.map((e,k)=>Math.max(24,(r[(k+N-1)%N]+e+r[(k+1)%N])/3));
+  const r3=r2.map((e,k)=>{                                         // 段差（窓の高低差が5m超）があれば、最も高い所（上の縁）に寄せる。内側へは8m、外側へは24mまで
+    const th=k/N*6.2832,ux=Math.cos(th),uz=Math.sin(th),hs=[];let mx=-1e9,mn=1e9;
+    for(let d=-8;d<=24;d+=3){const h=hf(cx+ux*(e+d),cz+uz*(e+d));hs.push([d,h]);if(h>WATER+.3){mx=Math.max(mx,h);mn=Math.min(mn,h)}}
+    if(mx<-1e8||mx-mn<=5)return e;
+    let bd=1e9;for(const[d,h]of hs)if(h>WATER+.3&&h>=mx-1.5&&Math.abs(d)<Math.abs(bd))bd=d;
+    return bd===1e9?e:e+bd;
+  });
+  for(let it=0;it<2*N;it++){const k=it%N,p=r3[(k+N-1)%N];r3[k]=Math.max(r2[k]-8,Math.min(p+12,Math.max(p-12,r3[k])))}   // 隣どうしの飛びを抑える
+  const path=r3.map((e,k)=>{const th=k/N*6.2832;return[cx+Math.cos(th)*e,cz+Math.sin(th)*e]});path.push(path[0]);
+  const rs=[path[0]];let carry=0;
+  for(let i=1;i<path.length;i++){const A=path[i-1],B=path[i],l=Math.hypot(B[0]-A[0],B[1]-A[1]);let t=PW_S-carry;while(t<=l){rs.push([A[0]+(B[0]-A[0])*t/l,A[1]+(B[1]-A[1])*t/l]);t+=PW_S}carry=l-(t-PW_S)}
+  if(Math.hypot(rs[rs.length-1][0]-rs[0][0],rs[rs.length-1][1]-rs[0][1])<2.5)rs.pop();
+  if(rs.length<12)return null;
+  const cand=[];
+  for(const e of ends){let bj=-1,bd=1e9;for(let j=0;j<rs.length;j++){const d=Math.hypot(rs[j][0]-e[0],rs[j][1]-e[1]);if(d<bd){bd=d;bj=j}}if(bj>=0&&bd<80)cand.push({e,j:bj,d:bd})}
+  cand.sort((u,w)=>u.d-w.d);
+  const gates=[],roads=[],nn=rs.length;
+  for(const c of cand){if(gates.length>=3)break;if(gates.some(g=>{const dd=Math.abs(g-c.j);return Math.min(dd,nn-dd)<8}))continue;
+    const gi=c.j,A=rs[gi],B=rs[(gi+1)%nn],mx=(A[0]+B[0])/2,mz=(A[1]+B[1])/2,dx=mx-c.e[0],dz=mz-c.e[1],l=Math.hypot(dx,dz)||1;
+    gates.push(gi);roads.push([c.e[0],c.e[1],mx,mz]);roads.push([mx,mz,mx+dx/l*14,mz+dz/l*14]);
+  }
+  return{pts:rs,gates,roads,closed:true,c:[cx,cz]};
+}
+function pwallD(w,x,z){const P=w.pts,n=P.length;let d=1e9;for(let i=0;i<(w.closed?n:n-1);i++){const B=P[(i+1)%n],ax=P[i][0],az=P[i][1],dx=B[0]-ax,dz=B[1]-az;let t=((x-ax)*dx+(z-az)*dz)/(dx*dx+dz*dz||1);t=t<0?0:t>1?1:t;const e=Math.hypot(x-ax-dx*t,z-az-dz*t);if(e<d)d=e}return d}
+function pwallHit(w,cn){                                          // 家(4隅)が壁にかかるか
+  const cx=(cn[0][0]+cn[2][0])/2,cz=(cn[0][1]+cn[2][1])/2;if(pwallD(w,cx,cz)<5.5)return true;
+  for(let k=0;k<4;k++){const a=cn[k],b=cn[(k+1)%4];if(pwallD(w,a[0],a[1])<4.5||pwallD(w,(a[0]+b[0])/2,(a[1]+b[1])/2)<4.5)return true}
+  return false;
+}
+function drawPortWall(v,quad,H){                                  // 港町・村の壁・塔・門（開いた線も閉じた輪も）。戻り値は当たり判定の円
+  const w=v.wall,P=w.pts,n=P.length,circs=[],gs=new Set(w.gates||[]),cl=!!w.closed,cc=w.c||[v.cx,v.cz],md=k=>cl?((k%n)+n)%n:k;
+  const STONES=[0x9a968c,0x928e84,0x9f9b90],DARK2=0x8a867c,LIGHT=0xc8c0ae,TOPC=0xb8b2a2,SLATE=0x3e4553,DK=0x1d1a18,IRON=0x2e2d30;
+  const RV=P.map(q=>{const e=riverEff(q[0],q[1]);return e<.8?RN_B+.95+.06*RN_HW:null});   // 川の中の点は水面の高さ（なければnull）。川を横切る所は壁の下を開けて格子にする
+  const rvNear=i=>{for(let k=-2;k<=2;k++){const m=cl?md(i+k):i+k;if(m>=0&&m<n&&RV[m]!==null)return true}return false};
+  const G=P.map(q=>H(q[0],q[1])),gAt=k=>Math.max(G[md(k)],WATER),wat=G.map(g=>g<WATER+.3);   // 湖・海に入った所は壁を切る（港の壁の端と同じ: 岸で終わらせて塔を建てる）
+  const drawn=i=>{if(!cl&&(i<0||i>=n-1))return false;return!wat[md(i)]&&!wat[md(i+1)]};
+  const top=G.map((g,i)=>{let s=0,c=0;for(let j=-3;j<=3;j++){const q=cl||(i+j>=0&&i+j<n)?gAt(i+j):undefined;if(q!==undefined){s+=q;c++}}return Math.max(s/c+PW_H,Math.max(g,WATER)+5.5)});
+  const lo=G.map((g,i)=>Math.min(g,cl||i>0?gAt(i-1):g,cl||i<n-1?gAt(i+1):g)-4);
+  const dirAt=i=>{const A=P[cl?md(i-1):Math.max(0,i-1)],B=P[cl?md(i+1):Math.min(n-1,i+1)],dx=B[0]-A[0],dz=B[1]-A[1],l=Math.hypot(dx,dz)||1;return[dx/l,dz/l]};
+  const near=(a,b)=>{const d=Math.abs(a-b);return cl?Math.min(d,n-d):d};
+  const bx=(cx,cz,ux,uz,sx,sz,y0,y1,color)=>{                       // 向き(ux,uz)の直方体（底面なし）
+    const vx=-uz,vz=ux,hx=sx/2,hz=sz/2,c=[[-hx,-hz],[hx,-hz],[hx,hz],[-hx,hz]].map(([a,b])=>[cx+ux*a+vx*b,cz+uz*a+vz*b]),R=[cx,(y0+y1)/2,cz];
+    for(let k=0;k<4;k++){const a=c[k],b=c[(k+1)%4];quad([a[0],y0,a[1]],[b[0],y0,b[1]],[b[0],y1,b[1]],[a[0],y1,a[1]],color,R)}
+    quad([c[0][0],y1,c[0][1]],[c[1][0],y1,c[1][1]],[c[2][0],y1,c[2][1]],[c[3][0],y1,c[3][1]],color,R);
+  };
+  const pyr=(cx,cz,ux,uz,half,y,rise,color)=>{const vx=-uz,vz=ux,A=[cx,y+rise,cz],R=[cx,y+rise/2,cz],K=[[-1,-1],[1,-1],[1,1],[-1,1]].map(([a,b])=>[cx+ux*a*half+vx*b*half,y,cz+uz*a*half+vz*b*half]);for(let k=0;k<4;k++)quad(K[k],K[(k+1)%4],A,A,color,R)};
+  const tower=(cx,cz,ux,uz,yTop)=>{
+    const vx=-uz,vz=ux;let g=H(cx,cz);for(const[a,b]of[[-3.2,-3.2],[3.2,-3.2],[3.2,3.2],[-3.2,3.2]])g=Math.min(g,H(cx+ux*a+vx*b,cz+uz*a+vz*b));
+    const yb=g-4,y1=yTop+4.5;
+    bx(cx,cz,ux,uz,6.4,6.4,yb,y1,STONES[0]);bx(cx,cz,ux,uz,7.2,7.2,y1,y1+.6,LIGHT);pyr(cx,cz,ux,uz,4.1,y1+.6,7,SLATE);
+    for(const[du,dv]of[[1,0],[-1,0],[0,1],[0,-1]]){const fx=du*ux+dv*vx,fz=du*uz+dv*vz,px=-fz,pz=fx,qx=cx+fx*3.25,qz=cz+fz*3.25,ys=yTop+1.2;
+      quad([qx-px*.3,ys,qz-pz*.3],[qx+px*.3,ys,qz+pz*.3],[qx+px*.3,ys+1.9,qz+pz*.3],[qx-px*.3,ys+1.9,qz-pz*.3],DK,[cx,ys,cz])}
+    circs.push([cx,cz,3.3]);for(const[a,b]of[[-2.4,-2.4],[2.4,-2.4],[2.4,2.4],[-2.4,2.4]])circs.push([cx+ux*a+vx*b,cz+uz*a+vz*b,1.7]);
+  };
+  const capT=new Set();
+  for(let i=0;i<(cl?n:n-1);i++){
+    const j=md(i+1),A=P[i],B=P[j];if(!drawn(i))continue;
+    const dx=B[0]-A[0],dz=B[1]-A[1],l=Math.hypot(dx,dz)||1,ux=dx/l,uz=dz/l,nx=-uz,nz=ux,mx=(A[0]+B[0])/2,mz=(A[1]+B[1])/2,gate=gs.has(i);
+    const s=((mx-cc[0])*nx+(mz-cc[1])*nz)>=0?1:-1,rvr=!gate&&(RV[i]!==null||RV[j]!==null),sw=Math.max(RV[i]===null?-1e9:RV[i],RV[j]===null?-1e9:RV[j]),op=gate||rvr;
+    const gy=gate?Math.max(G[i],G[j])+4.8:Math.min(Math.max(top[i],top[j])-1.2,sw+3.4);   // 門・川の開口の上端
+    const yA=op?gy:lo[i],yB=op?gy:lo[j],tA=top[i],tB=top[j],R=[mx,((yA+yB)/2+(tA+tB)/2)/2,mz],col=STONES[i%3];
+    const pa=(o,y)=>[A[0]+nx*o,y,A[1]+nz*o],pb=(o,y)=>[B[0]+nx*o,y,B[1]+nz*o];
+    quad(pa(PW_T,yA),pb(PW_T,yB),pb(PW_T,tB),pa(PW_T,tA),col,R);
+    quad(pa(-PW_T,yA),pb(-PW_T,yB),pb(-PW_T,tB),pa(-PW_T,tA),col,R);
+    quad(pa(PW_T,tA),pb(PW_T,tB),pb(-PW_T,tB),pa(-PW_T,tA),TOPC,R);
+    if(op)quad(pa(PW_T,yA),pb(PW_T,yB),pb(-PW_T,yB),pa(-PW_T,yA),DARK2,R);
+    if(rvr){                                                       // 川: 壁の下に鉄格子（縦棒と横棒2本）。水は格子の間を通る
+      for(let t=.45;t<l;t+=.9){const g0=G[i]+(G[j]-G[i])*t/l-.6;bx(A[0]+ux*t,A[1]+uz*t,ux,uz,.2,.2,g0,gy+.1,IRON)}
+      for(const hy of[sw+.6,sw+2])bx(mx,mz,ux,uz,l,.2,Math.min(hy,gy-.4),Math.min(hy,gy-.4)+.2,IRON);
+    }
+    if(rvr){const pi=md(i-1),ni=md(i+1),pOpen=drawn(i-1)&&(gs.has(pi)||RV[pi]!==null||RV[i]!==null),nOpen=drawn(i+1)&&(gs.has(ni)||RV[ni]!==null||RV[j]!==null);   // 開口の両端の壁の断面（袖）
+      if(!pOpen&&drawn(i-1))quad(pa(PW_T,lo[i]),pa(-PW_T,lo[i]),pa(-PW_T,yA),pa(PW_T,yA),col,R);
+      if(!nOpen&&drawn(i+1))quad(pb(PW_T,lo[j]),pb(-PW_T,lo[j]),pb(-PW_T,yB),pb(PW_T,yB),col,R)}
+    if(!drawn(i-1)){quad(pa(PW_T,yA),pa(-PW_T,yA),pa(-PW_T,tA),pa(PW_T,tA),col,R);capT.add(i)}
+    if(!drawn(i+1)){quad(pb(PW_T,yB),pb(-PW_T,yB),pb(-PW_T,tB),pb(PW_T,tB),col,R);capT.add(j)}
+    if(!gate){
+      for(const t of[1.25,3.75]){if(t>l)continue;const yb=tA+(tB-tA)*t/l-.3;bx(A[0]+ux*t+nx*s*(PW_T-.45),A[1]+uz*t+nz*s*(PW_T-.45),ux,uz,1.5,.9,yb,yb+1.6,DARK2);circs.push([A[0]+ux*t,A[1]+uz*t,1.9])}
+    }
+  }
+  for(let i=cl?0:1;i<(cl?n:n-1);i++){                              // 継ぎ目の控え壁（折れ曲がりのすき間を隠す）
+    if(gs.has(i)||gs.has(md(i-1))||!drawn(i-1)||!drawn(i))continue;const d=dirAt(i);bx(P[i][0],P[i][1],d[0],d[1],3,3,lo[i],top[i]+.25,DARK2);
+  }
+  for(let i=0;i<n;i++){                                            // 塔: （開いた線は両端と）約45mごと。門の近くは門の塔にまかせる
+    if(wat[i])continue;const cap=capT.has(i);if(!cap&&(i%9!==4||w.gates.some(g=>near(g,i)<=3)||!drawn(i-1)||!drawn(i)||rvNear(i)))continue;   // 川の近くは塔を建てず壁だけにする
+    const d=dirAt(i);tower(P[i][0],P[i][1],d[0],d[1],top[i]);
+  }
+  for(const gi of w.gates){                                        // 門の左右の塔
+    const gj=md(gi+1),A=P[gi],B=P[gj],l=Math.hypot(B[0]-A[0],B[1]-A[1])||1,ux=(B[0]-A[0])/l,uz=(B[1]-A[1])/l,mx=(A[0]+B[0])/2,mz=(A[1]+B[1])/2,yT=Math.max(top[gi],top[gj]);
+    if(rvNear(gi)||rvNear(gj))continue;
+    for(const sg of[-1,1])tower(mx+ux*sg*(l/2+3.2),mz+uz*sg*(l/2+3.2),ux,uz,yT);
+  }
+  return circs;
 }
 function portBuild(p,quad,deck){                                 // 桟橋・岸壁の縁石・防波堤と灯台・船・積み荷。戻り値は当たり判定の円
   const H=p.Hq,WY=WATER,circs=[],r=mulberry(hash(Math.round(p.ox),Math.round(p.oz),SEED+6464)*1e9|0);
@@ -3069,7 +3875,58 @@ function addEuro(g,geos,e){
   try{addEuroVillageHouses(g,geos,e)}catch(err){EU_ERR='村の家: '+(err&&err.message||err);console.error(err)}
   if(!vil&&!e.capital&&!e.abbey)try{addEuroDeco(g,geos,e)}catch(err){EU_ERR='装飾エラー: '+(err&&err.message||err);console.error(err)}
 }
+function drawStoneBaseHall(h,quad,r){                             // 横長で下が石造りの台（背の高い石の1階＋アーチ窓）の上に、木骨の上階（×の筋交い・アーチ窓）と大きな屋根・煙突がのる建物。h={x,z,ry,w,d,y0}。玄関は局所+z側
+  const c=Math.cos(h.ry),s=Math.sin(h.ry),T=(lx,ly,lz)=>[h.x+lx*c+lz*s,h.y0+ly,h.z-lx*s+lz*c];
+  const w=h.w,d=h.d,hw=w/2,hd=d/2,pk=a=>a[Math.floor(r()*a.length)];
+  const STONE=pk([0x9a968c,0xa6a195,0x8d8a82]),LIGHT=0xc8c0ae,PLAS=pk([0xe8dcc0,0xf0e6d0,0xd9c49a,0xf2efe6]),TIM=0x4a3322,GLASS=0x2a3544,DARK=0x1d1a18;
+  const ROOFC=pk([0xa8432c,0xb5503a,0x9a3a28,0x555a62,0x7a6a50]);
+  const PL=.45,G=4.2,U=3.2,H=G+U,J=.6;                              // PL=台の石の段 G=石の1階の高さ U=上階の高さ J=上階の張り出し
+  const box=(cx,cy,cz,sx,sy,sz,color)=>{const V=(i,j,k)=>T(cx+(i-.5)*sx,cy+(j-.5)*sy,cz+(k-.5)*sz),R=T(cx,cy,cz);
+    quad(V(0,0,0),V(1,0,0),V(1,1,0),V(0,1,0),color,R);quad(V(0,0,1),V(1,0,1),V(1,1,1),V(0,1,1),color,R);
+    quad(V(0,0,0),V(0,0,1),V(0,1,1),V(0,1,0),color,R);quad(V(1,0,0),V(1,0,1),V(1,1,1),V(1,1,0),color,R);
+    quad(V(0,1,0),V(1,1,0),V(1,1,1),V(0,1,1),color,R);quad(V(0,0,0),V(1,0,0),V(1,0,1),V(0,0,1),color,R)};
+  const PT=(f,u,y,p)=>f===0?T(u,y,p):f===1?T(u,y,-p):f===2?T(p,y,u):T(-p,y,u);
+  const rect=(f,u,y,ww,hh,p,color)=>quad(PT(f,u-ww/2,y-hh/2,p),PT(f,u+ww/2,y-hh/2,p),PT(f,u+ww/2,y+hh/2,p),PT(f,u-ww/2,y+hh/2,p),color,T(0,y,0));
+  const strip=(f,u0,y0,u1,y1,p,t,color)=>{const dx=u1-u0,dy=y1-y0,l=Math.hypot(dx,dy)||1,nx=-dy/l*t/2,ny=dx/l*t/2;quad(PT(f,u0+nx,y0+ny,p),PT(f,u1+nx,y1+ny,p),PT(f,u1-nx,y1-ny,p),PT(f,u0-nx,y0-ny,p),color,T(0,(y0+y1)/2,0))};
+  const arch=(f,u,y0,ww,hh,p,color)=>{const r0=ww/2,yc=y0+hh-r0;rect(f,u,(y0+yc)/2,ww,yc-y0,p,color);   // アーチ形（下は四角、上は半円）
+    const N=7;for(let i=0;i<N;i++){const a0=Math.PI*i/N,a1=Math.PI*(i+1)/N,C=PT(f,u,yc,p),A=PT(f,u+r0*Math.cos(a0),yc+r0*Math.sin(a0),p),B=PT(f,u+r0*Math.cos(a1),yc+r0*Math.sin(a1),p);quad(C,A,B,B,color,T(0,yc,0))}};
+  const archWin=(f,u,y0,ww,hh,p,sill)=>{arch(f,u,y0-.15,ww+.5,hh+.3,p+.02,LIGHT);arch(f,u,y0,ww,hh,p+.05,GLASS);rect(f,u,y0+hh*.45,ww,.07,p+.08,LIGHT);rect(f,u,y0+hh*.5,.07,hh*.9,p+.08,LIGHT);if(sill)rect(f,u,y0-.2,ww+.8,.18,p+.12,LIGHT)};
+  // 本体: 石の台（段）→ 石の1階 → 木骨の上階（前へ少し張り出す）
+  const yd=Math.min(0,(h.ymin!==undefined?h.ymin-h.y0:0))-.3;   // 斜面では石の台を低い側の地面まで延ばす
+  box(0,(PL+yd)/2,0,w+.7,PL-yd,d+.7,0x7d7a72);
+  box(0,PL+(G-PL)/2,0,w,G-PL,d,STONE);
+  box(0,G+.1,J/2,w+.1,.3,d+J+.1,TIM);
+  box(0,(G+H)/2+.1,J/2,w,U-.1,d+J,PLAS);
+  box(0,H,J/2,w+.14,.24,d+J+.14,TIM);
+  for(const sx of[-1,1])for(const sz of[-1,1]){box(sx*hw,(G+H)/2+.1,J/2+sz*(d+J)/2,.3,U-.1,.3,TIM)}
+  for(const x of[-hw+.5,0,hw-.5])box(x,G-.3,hd+J/2,.22,.5,J,TIM);   // 張り出しの腕木
+  const pF=hd,pU=hd+J,n=Math.max(3,Math.round(w/3.7)),du=w/n,xs=[];for(let i=0;i<n;i++)xs.push(-hw+du*(i+.5));
+  // 石の1階: 隅石と、アーチ窓（1つは玄関）
+  for(const sx of[-1,1])for(let j=0;j<7;j++){const y=PL+.3+j*.58;rect(0,sx*(hw-.28),y,j%2?.6:.4,.5,pF+.015,LIGHT);rect(sx>0?2:3,hd-.25,y,j%2?.4:.6,.5,hw+.015,LIGHT)}
+  const di=Math.floor(n/2);
+  for(let i=0;i<n;i++){
+    if(i===di){arch(0,xs[i],PL,1.7,3.0,pF+.04,LIGHT);arch(0,xs[i],PL,1.35,2.85,pF+.07,pk([0x3b281a,0x5a1f1f,0x1f2f4f]));box(xs[i],PL+.1,pF+.5,2.2,.2,1.0,0x8d8a82)}   // 玄関
+    else archWin(0,xs[i],1.4,1.2,2.4,pF,true);
+  }
+  for(const f of[1,2,3]){const nn=f===1?n:Math.max(2,Math.round(d/3.6)),dd=f===1?du:d/nn;for(let i=0;i<nn;i++){const u=(f===1?-hw:-hd)+dd*(i+.5);archWin(f,u,1.4,1.0,2.2,f===1?hd:hw,false)}}
+  // 木骨の上階: 柱・梁・×の筋交い（下半分）とアーチ窓（上半分）
+  const yb0=G+.25,yb1=G+1.3;
+  const frame=(f,p,u0,u1,nn,win)=>{const dd=(u1-u0)/nn;
+    rect(f,(u0+u1)/2,yb0,u1-u0,.2,p+.012,TIM);rect(f,(u0+u1)/2,yb1,u1-u0,.2,p+.012,TIM);rect(f,(u0+u1)/2,H-.2,u1-u0,.2,p+.012,TIM);
+    for(let i=0;i<=nn;i++)rect(f,u0+dd*i,(G+H)/2+.1,.22,U-.2,p+.012,TIM);
+    for(let i=0;i<nn;i++){const a=u0+dd*i,b=a+dd;strip(f,a,yb0,b,yb1,p+.014,.15,TIM);strip(f,a,yb1,b,yb0,p+.014,.15,TIM);
+      if(win)archWin(f,(a+b)/2,G+1.55,1.0,1.4,p,true);}};
+  frame(0,pU,-hw,hw,n,true);frame(1,hd,-hw,hw,n,true);
+  frame(2,hw,-hd,hd+J,Math.max(2,Math.round((d+J)/3.4)),false);frame(3,hw,-hd,hd+J,Math.max(2,Math.round((d+J)/3.4)),false);
+  // 大きな屋根（棟は横長の向き）・妻の三角・煙突
+  const ov=.55,X=hw+.5,zc=J/2,hz=(d+J)/2+ov,rh=Math.max(3.2,Math.min(6.2,hz*1.05));
+  quad(T(-X,H,zc+hz),T(X,H,zc+hz),T(X,H+rh,zc),T(-X,H+rh,zc),ROOFC,T(0,H-1,zc));quad(T(-X,H,zc-hz),T(X,H,zc-hz),T(X,H+rh,zc),T(-X,H+rh,zc),ROOFC,T(0,H-1,zc));
+  for(const sx of[-1,1])quad(T(sx*hw,H,zc-(d+J)/2),T(sx*hw,H,zc+(d+J)/2),T(sx*hw,H+rh,zc),T(sx*hw,H+rh,zc),PLAS,T(0,H,zc));
+  box(0,H+rh+.06,zc,w+1.1,.16,.34,0x7a2d20);
+  const cxp=hw*.6;box(cxp,H+(rh+1.6)/2,zc,1.0,rh+1.6,1.0,0x9a4a38);box(cxp,H+rh+1.7,zc,1.3,.22,1.3,0x55555a);
+}
 function drawTownHouse(h,quad,r){                                 // 公国の街の家1軒。石の1階＋木骨の上階・張り出し・多様な屋根・屋根窓・日よけ・鎧戸など。h={x,z,ry,w,d,y0}。玄関は局所+z側
+  if(h.w>=9&&h.d>=6&&hash(Math.round(h.x*7),Math.round(h.z*7),SEED+5959)<.3){drawStoneBaseHall(h,quad,r);return}   // 横幅のある区画の約30%は、石の台の上に木骨の上階がのる横長の建物
   const c=Math.cos(h.ry),s=Math.sin(h.ry),T=(lx,ly,lz)=>[h.x+lx*c+lz*s,h.y0+ly,h.z-lx*s+lz*c];
   const w=h.w,d=h.d,hw=w/2,hd=d/2,pk=a=>a[Math.floor(r()*a.length)];
   const STONE=[0x9a968c,0xa6a195,0x8d8a82,0xb0aa9a],PLAS=[0xe8dcc0,0xf0e6d0,0xd9c49a,0xe0cfae,0xcdb98f,0xf2efe6,0xd8b88a],TIM=0x4a3322,CRM=0xe6dcc4;
@@ -4538,11 +5395,15 @@ function warpVillage(){
   dbgMsg.textContent=`${pick.label||settlementLabel(pick,'village')}へ移動（${vis.size}/${list.length}か所目）`;
 }
 function warpPort(){                                                // 帝国の海沿いの港町。沖（水の上）から街を向く。押すたびに次の港へ
-  const es=dbgFind(EMB*TCELL,empireOf,2,12);
-  for(const E of es)if(!E.portsDone){E.portsDone=true;try{findPorts(E)}catch(err){console.error(err)}}
-  const list=[];for(const E of es)for(const p of E.ports||[])list.push(p);
+  const list=[];
+  if(GEN_OTHER_TOWNS){const es=dbgFind(EMB*TCELL,empireOf,2,12);
+    for(const E of es)if(!E.portsDone){E.portsDone=true;try{findPorts(E)}catch(err){console.error(err)}}
+    for(const E of es)for(const p of E.ports||[])list.push(p)}
+  else if(GEN_PORT_TOWNS){const pc=Math.floor(player.x/PTC),pz=Math.floor(player.z/PTC);   // 周り約25km四方のセルを調べる
+    for(let a=-4;a<=4;a++)for(let b=-4;b<=4;b++){try{findPortCell(pc+a,pz+b)}catch(err){console.error(err)}}
+    for(const p of PORTS)list.push(p)}
   list.sort((p,q)=>Math.hypot(p.ox-player.x,p.oz-player.z)-Math.hypot(q.ox-player.x,q.oz-player.z));
-  if(!list.length){dbgMsg.textContent='港町: この付近の帝国には、海に面した場所が見つからない';return}
+  if(!list.length){dbgMsg.textContent='港町: この付近には、海に面した場所が見つからない';return}
   const vis=dbgVisited.port||(dbgVisited.port=new Set()),key=p=>Math.round(p.ox)+','+Math.round(p.oz);
   let pick=list.find(p=>!vis.has(key(p)));if(!pick){vis.clear();pick=list[0]}
   vis.add(key(pick));
@@ -4676,9 +5537,9 @@ function villageHousesOf(v){                                    // 村の家の�
     for(const sd of(L.main?[L.main]:[-1,1])){                       // 主道は川と反対側(外側)だけに家を建てる
       const nx=-uz*sd,nz=ux*sd;
       for(let p=L.cross?7:2.5;;){
-        const wh=v.port&&L.main?r()<.4:false,w=wh?10+r()*5:6+r()*2.6,d=wh?8+r()*2:7+r()*2.2,gap=.8+r()*2.2,wc=wh?0x8b6b4a:WALL[Math.floor(r()*WALL.length)],rc=wh?0x4a4a52:ROOF[Math.floor(r()*ROOF.length)],ch=r()<.5?-1:1,dr=r()<.5?-1:1;
+        const wh=v.port&&L.main?r()<.4:false,hl=!wh&&r()<.12,tn=!wh&&!hl&&r()<.35,w=wh?10+r()*5:hl?11+r()*3:6+r()*2.6,d=wh?8+r()*2:hl?8+r()*1.5:7+r()*2.2,gap=.8+r()*2.2,wc=wh?0x8b6b4a:WALL[Math.floor(r()*WALL.length)],rc=wh?0x4a4a52:ROOF[Math.floor(r()*ROOF.length)],ch=r()<.5?-1:1,dr=r()<.5?-1:1;
         if(p+w>len-(L.cross?7:1.5))break;
-        const off=3.1+d/2,h={x:L.a[0]+ux*(p+w/2)+nx*off,z:L.a[1]+uz*(p+w/2)+nz*off,ry:Math.atan2(-nx,-nz),w,d,wc,rc,ch,dr};   // 玄関は道の側を向く
+        const off=3.1+d/2,h={x:L.a[0]+ux*(p+w/2)+nx*off,z:L.a[1]+uz*(p+w/2)+nz*off,ry:Math.atan2(-nx,-nz),w,d,wc,rc,ch,dr,hall:hl,town:tn};   // 玄関は道の側を向く
         p+=w+gap;
         h.cn=cornersOf(h);
         let ok=true;
@@ -4686,10 +5547,12 @@ function villageHousesOf(v){                                    // 村の家の�
         if(!ok)continue;
         if(chu&&polyHit(h.cn,rectPoly(chu.ox,chu.oz,chu.c,chu.s,-12,17,-15,16.5)))continue
         if(v.manor&&polyHit(h.cn,rectPoly(v.manor.ox,v.manor.oz,v.manor.c,v.manor.s,-30*MS,30*MS,-34*MS,38*MS)))continue
+        if(v.castle&&polyHit(h.cn,rectPoly(v.castle.x,v.castle.z,Math.cos(v.castle.ry),Math.sin(v.castle.ry),-v.castle.w/2-4,v.castle.w/2+4,-v.castle.d/2-4,v.castle.d/2+4)))continue
+        if(v.wall&&pwallHit(v.wall,h.cn))continue
         const hs=[heightAt(h.x,h.z)];for(const q of h.cn)hs.push(heightAt(q[0],q[1]));
         const mx=Math.max(...hs),mn=Math.min(...hs);
-        if(mx-mn>(v.lines?3.5:4.5)||mn<WATER+1.5)continue;
-        if(v.lines&&(!habK(h.x,h.z,v.k)||hitField(h.cn,v.fields)))continue;   // 川沿いの村: 居住可能地の中で、畑には建てない（地形は平らにしないので、段差の小さい所だけ）
+        if(mx-mn>(v.lines||L.inl?3.5:4.5)||mn<WATER+1.5)continue;
+        if((v.lines||L.inl)&&(!habK(h.x,h.z,v.k)||hitField(h.cn,v.fields||[])))continue;   // 川沿いの村: 居住可能地の中で、畑には建てない（地形は平らにしないので、段差の小さい所だけ）
         for(const o of houses)if(overlap(h,o)){ok=false;break}
         if(!ok)continue;
         h.y0=mx+.25;h.ymin=mn;houses.push(h);
@@ -4830,6 +5693,8 @@ function miniVillage(D,v){                                      // 川沿いの�
   miniFields(c,v.fields,D);
   c.strokeStyle='#d9c9a0';c.lineWidth=4;c.lineCap='butt';c.beginPath();for(const s of v.roads){c.moveTo(s[0],s[1]);c.lineTo(s[2],s[3])}c.stroke();
   for(const h of villageHousesOf(v))miniRect(c,h.x,h.z,h.w,h.d,h.ry,miniHex(h.rc));
+  if(v.castle)miniRect(c,v.castle.x,v.castle.z,v.castle.w,v.castle.d,v.castle.ry,'#8d8a82');   // 城（大きな正方形）
+  if(v.wall){const P=v.wall.pts,gs=new Set(v.wall.gates||[]);c.strokeStyle='#5e5a52';c.lineWidth=3.5;c.lineCap='butt';c.beginPath();for(let i=0;i<(v.wall.closed?P.length:P.length-1);i++){if(gs.has(i))continue;const B=P[(i+1)%P.length];c.moveTo(P[i][0],P[i][1]);c.lineTo(B[0],B[1])}c.stroke()}   // 港町・村の壁
   const ch=villageChurchSite(v);if(ch)miniChurch(c,ch.ox,ch.oz,ch.ry,CH_PARTS.v);
 }
 function miniCaravans(D){                                       // キャラバンサライ
