@@ -3,6 +3,64 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="screen-orientation" content="landscape">
+<meta name="x5-orientation" content="landscape">
+<style id="landscapeCss">
+  /* 縦向きのまま開かれた時は、画面全体を90度回して横向きの画面として表示する */
+  html.rot body{position:fixed;left:0;top:0;width:var(--lw);height:var(--lh);overflow:hidden;transform-origin:0 0;transform:translateY(var(--lw)) rotate(-90deg)}
+  html.rot #dbg{max-height:calc(var(--lh) - 150px)}
+  html.rot #dbgItems{max-height:calc(var(--lh) - 230px)}
+</style>
+<script>
+/* ===== 最初から横向き =====
+   縦向きの画面を、最初から90度回して横向きとして表示する（スマホの上側が右に来る持ち方）
+   スティック: 右に倒す=前進 / 左=後退 / 下=右へ横移動 / 上=左へ横移動  （STICK_RIGHT_FORWARD=false で通常の「上=前進」に戻る） */
+window.STICK_RIGHT_FORWARD=true;
+(function(){
+  const de=document.documentElement;
+  const rawW=()=>de.clientWidth||screen.width, rawH=()=>de.clientHeight||screen.height;
+  let ROT=false;
+  const defW=Object.getOwnPropertyDescriptor(window,'innerWidth'),defH=Object.getOwnPropertyDescriptor(window,'innerHeight');
+  const wRaw=()=>defW&&defW.get?defW.get.call(window):rawW(), hRaw=()=>defH&&defH.get?defH.get.call(window):rawH();
+  try{
+    Object.defineProperty(window,'innerWidth',{configurable:true,get:()=>ROT?hRaw():wRaw()});
+    Object.defineProperty(window,'innerHeight',{configurable:true,get:()=>ROT?wRaw():hRaw()});
+  }catch(_){}
+  function apply(){
+    const w=rawW()||screen.width,h=rawH()||screen.height,want=h>w;                              // 縦長なら回す
+    if(want===ROT&&de.classList.contains('rot')===ROT){if(ROT){de.style.setProperty('--lw',h+'px');de.style.setProperty('--lh',w+'px')}return false}
+    ROT=want;de.classList.toggle('rot',ROT);
+    de.style.setProperty('--lw',h+'px');de.style.setProperty('--lh',w+'px');
+    return true;
+  }
+  apply();
+  const refit=()=>{const ch=apply();if(ch)setTimeout(()=>dispatchEvent(new Event('resize')),0)};
+  addEventListener('resize',refit,true);
+  addEventListener('orientationchange',()=>{setTimeout(refit,120);setTimeout(refit,400)},true);
+  /* 回転表示中は、画面上の指の位置を「回した後の座標」に直す */
+  window.__rotOn=()=>ROT;
+  window.__L=(x,y)=>ROT?{x:rawH()-y,y:x}:{x,y};                     // 位置
+  window.__LD=(dx,dy)=>ROT?{x:-dy,y:dx}:{x:dx,y:dy};                // 移動量
+  const TOUCH={touchstart:1,touchmove:1,touchend:1,touchcancel:1};
+  const mapT=t=>new Proxy(t,{get(o,k){
+    if(ROT&&k==='clientX')return rawH()-o.clientY;
+    if(ROT&&k==='clientY')return o.clientX;
+    const v=Reflect.get(o,k,o);return typeof v==='function'?v.bind(o):v}});
+  const mapE=e=>new Proxy(e,{get(o,k){
+    if(k==='changedTouches'||k==='touches'||k==='targetTouches')return Array.from(o[k]).map(mapT);
+    const v=Reflect.get(o,k,o);return typeof v==='function'?v.bind(o):v}});
+  const _add=window.addEventListener;
+  window.addEventListener=function(type,fn,opt){
+    if(TOUCH[type]&&typeof fn==='function'){
+      const wrapped=function(e){return fn.call(this,ROT?mapE(e):e)};
+      return _add.call(this,type,wrapped,opt);
+    }
+    return _add.call(this,type,fn,opt);
+  };
+  /* 最初から回すため、読み込み中・読み込み後にも向きを確認する */
+  document.addEventListener('DOMContentLoaded',refit);_add.call(window,'load',refit);
+})();
+</script>
 <title>プロシージャルマップ</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -9340,7 +9398,7 @@ MINI.setBig=on=>{
   m.addEventListener('pointerdown',e=>{if(!MINI.big||e.target.tagName==='BUTTON')return;drag={x:e.clientX,y:e.clientY,id:e.pointerId};MINI.moved=false;m.setPointerCapture(e.pointerId)});
   m.addEventListener('pointermove',e=>{
     if(!drag||e.pointerId!==drag.id)return;
-    const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(!MINI.moved&&Math.hypot(dx,dy)<6)return;
+    const dd=__LD(e.clientX-drag.x,e.clientY-drag.y),dx=dd.x,dy=dd.y;if(!MINI.moved&&Math.hypot(dx,dy)<6)return;
     MINI.moved=true;const w=MINI.R*2/MINI.cv.getBoundingClientRect().width;           // 画面1pxが何mか
     MINI.vx-=dx*w;MINI.vz-=dy*w;drag.x=e.clientX;drag.y=e.clientY;
   });
@@ -9640,12 +9698,12 @@ const INV=(()=>{
       lpT=setTimeout(()=>{                                          // 長押し(0.5秒)でアイテムを持ち上げる
         const it=slots[i];if(MINI.big||!it)return;
         carry=i;dragging=true;
-        if(it.icon){fl.src=it.icon;fl.style.left=lpX+'px';fl.style.top=lpY+'px';fl.style.display='block'}
+        if(it.icon){fl.src=it.icon;{const p=__L(lpX,lpY);fl.style.left=p.x+'px';fl.style.top=p.y+'px'}fl.style.display='block'}
         if(navigator.vibrate)navigator.vibrate(20);draw();
       },500);
     });
     b.addEventListener('pointermove',e=>{
-      if(dragging){fl.style.left=e.clientX+'px';fl.style.top=e.clientY+'px';overClear();const j=slotAt(e.clientX,e.clientY);if(j>=0&&j!==carry)els[j].classList.add('over');return}
+      if(dragging){{const p=__L(e.clientX,e.clientY);fl.style.left=p.x+'px';fl.style.top=p.y+'px'}overClear();const j=slotAt(e.clientX,e.clientY);if(j>=0&&j!==carry)els[j].classList.add('over');return}
       if(lpT&&Math.hypot(e.clientX-lpX,e.clientY-lpY)>14)lpClear();   // 長押しの前に指が動いたら長押しではない
     });
     b.addEventListener('pointerup',e=>{
@@ -12110,7 +12168,7 @@ function loop(now){
   updatePlayerStatus(dt);
   if(player.stunT>0)player.stunT=Math.max(0,player.stunT-dt);
   if(STAT.frozenT>0){STAT.frozenT=Math.max(0,STAT.frozenT-dt);if(STAT.frozenT<=0)iceEl.style.opacity=0}   // 氷で固まっている間は動けない（時間がたつと解ける）
-  let fx=(keys.KeyD?1:0)-(keys.KeyA?1:0)+joy.x,fz=(keys.KeyS?1:0)-(keys.KeyW?1:0)+joy.y;
+  let fx=(keys.KeyD?1:0)-(keys.KeyA?1:0)+(STICK_RIGHT_FORWARD?joy.y:joy.x),fz=(keys.KeyS?1:0)-(keys.KeyW?1:0)+(STICK_RIGHT_FORWARD?-joy.x:joy.y);   // 横向き: スティックを右に倒す=前進（下=右へ横移動）
   if(MINI.big||STAT.dead||STAT.frozenT>0){fx=0;fz=0}
   const l=Math.hypot(fx,fz);if(l>1){fx/=l;fz/=l}
   const wdT=waterDepthAt(player.x,player.z,player.gy);player.wdep=(player.wdep||0)+(wdT-(player.wdep||0))*Math.min(1,dt*6);   // 水の深さ（なめらかに変える）
