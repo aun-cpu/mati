@@ -6074,8 +6074,10 @@ function updateLms(){                                                    // ãƒ—ã
 }
 function clearLms(){for(const g of lmGroups.values())scene.remove(g);lmGroups.clear()}
 function lmAnimate(t){for(const g of lmGroups.values())for(const b of g.userData.bob){b[0].position.y=b[1]+Math.sin(t*.8+b[2])*.8;b[0].rotation.y+=.003}}
+function terrainReset(){
   nempCache.clear();placeObj=null;ruinCache.clear();mtRuinCache.clear();skyReset();clearVillages();FLD.clear();FLDV.clear();mtCache.clear();contCache.clear();_ctI=NaN;_ctJ=NaN;RVH.clear();LKH.clear();waterReset();_mbIx=NaN;_rvIx=NaN;
   lotCache.clear();townCache.clear();cvCache.clear();_cvIx=NaN;empCache.clear();clearPalaces();clearCaravans();twCache.clear();_twIx=NaN;clearTowerCities();nmCache.clear();_nmIx=NaN;clearNomads();cpCache.clear();fireCache.clear();clearFires();iceCache.clear();clearIces();thuCache.clear();clearThus();drkCache.clear();clearDrks();lmCache.clear();clearLms();_cpIx=NaN;clearCamps();tbCache.clear();_tbIx=NaN;clearTribes();rgCache.clear();_rgIx=NaN;clearRGates();
+}
 return {PAL_M,GATE_M,updatePalaces,colorFor,ruinSite,ruinSolidsAt,mtRuinSite,skySite,updateSkyRuins,fireSite,updateFires,fireAnimate,iceSite,updateIces,iceAnimate,thuSite,updateThus,thuAnimate,drkSite,drkEnv,updateDrks,drkAnimate,makeChunk,lmSite,updateLms,lmAnimate,terrainReset};
  }
 };
