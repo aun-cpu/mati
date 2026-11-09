@@ -2651,12 +2651,12 @@ const DW={SCALE:1.8,ATK:45,REACH:3.4,ARC:.7,START:3.6,STOP:2.6,WIND:.45,SLASH:.1
 const DW_REST=[-.2,-1.1,0,-.12,0],DW_READY=[-1,-.65,0,-.3,0],DW_UP=[-2.4,-.74,-.2,-.7,0],DW_END=[-.5,-.7,.3,.55,0],DW_SUP=[-1.1,-.47,-.12,-1.7,1],DW_SEND=[-1.1,-.47,.1,1.2,1];   // 腕の姿勢（右手。左手は左右の振りを反転）: 下げて持つ / 構え（剣先を正面・少し開く） / 頭上でV字（斬り下ろす前・魔法） / 前で交差（斬り下ろしの終わり） / 薙ぎの引き（左右へ開く） / 薙ぎの振り抜き（交差）
 // ---------- ゲートキーパーの四刀流（腕が4本の時だけ）: 4本の手すべてに剣。攻撃は「2本を使うクロス」を、上の2本 → 下の2本の順で二連続で行う（上の2本が振り下ろす間に、下の2本が頭上で構えて待ち、すぐ続けて振る）。魔法は4本とも頭上へ掲げる ----------
 const QD={K:.65,GAP:.18,YAW:.16};   // K=剣1本あたりのダメージ倍率（双剣の攻撃力DW.ATKに対して。4本ぶん当たるので小さめ） / GAP=上の2本が振り終わってから下の2本が振り始めるまでの間(秒) / YAW=下の2本が上の2本より外へ開く量(rad)
-let gkSpearModel=null,gkAxeModel=null;
+let gkSpearModel=null,gkAxeModel=null,gkGreatModel=null;
 // ---------- 軍人系ゲートキーパー（剣・槍・双剣・四刀流・斧）の「動く攻撃」: 棒立ちで振るだけでなく、①突進(dash): 構えて一気に駆け寄り、勢いのまま武器ごとの攻撃（剣=叩きつけ / 槍=突き / 双剣・四刀流=クロス斬り / 斧=叩き割り）を当てる ②跳躍叩きつけ(leap): しゃがんで大きく跳び、相手のいた所へ落ちて武器を叩きつける（着地点のまわり全体に当たる）----------
-const MV={DASH:{WIND:.4,SPD:19,MAX:.55,R:12,MIN:4.8,REC:.5},LEAP:{WIND:.45,V0:8.8,R:11,MIN:4.5,REC:.7,RAD:4.3,K:1.15}};   // DASH: WIND=構える秒 SPD=駆ける速さ(m/s) MAX=駆ける最長(秒) R=この距離以内から出す(m) MIN=これより近い時は出さない(m) REC=当てたあとの隙(秒) / LEAP: V0=跳び上がる初速(上へ・重力22) R・MIN=出す距離 RAD=着地の衝撃が当たる半径(m) K=ダメージ倍率（武器の攻撃力に対して）
+const MV={DASH:{WIND:.4,SPD:19,MAX:.7,OVER:1.2,R:12,MIN:4.8,REC:.5},LEAP:{WIND:.25,V0:20.5,G:64,R:11,MIN:4.5,REC:.5,RAD:5,K:1.15}};   // DASH: OVER=相手の位置を通り過ぎて走る距離(m。向きは構えの終わりで固定＝横へ動けばかわせる) WIND=構える秒 SPD=駆ける速さ(m/s) MAX=駆ける最長(秒) R=この距離以内から出す(m) MIN=これより近い時は出さない(m) REC=当てたあとの隙(秒) / LEAP: WIND=しゃがむ秒 V0=跳び上がる初速(上へ) G=跳躍中の重力（大きいほど速く跳んで落ちる。高さ=V0²/2G≒3.3m・滞空≒0.64秒） R・MIN=出す距離 RAD=着地の衝撃が当たる半径(m) K=ダメージ倍率（武器の攻撃力に対して）
 const SPR_DOWN=[-.9,.55,.3,0,0];   // 槍を斜め下へ向けて落ちる姿勢
 function mvWeapon(c){                                                // 武器ごとの値: atk=1回ぶんの攻撃力 / stop=駆け寄って止まる距離 / wind=構え / rush=駆けている時 / air=跳んでいる間 / slam=叩きつけ
-  return c.gkAxe?{atk:AXE.ATK,stop:AXE.STOP,wind:AX_UP,rush:AX_END,air:AX_UP,slam:AX_END}
+  return c.gkAxe?{atk:gswK(c).ATK,stop:gswK(c).STOP,wind:AX_UP,rush:AX_END,air:AX_UP,slam:AX_END}
     :c.gkSpear?{atk:SPR.ATK,stop:SPR.STOP,wind:SPR_WIND,rush:SPR_THR,air:SPR_UP,slam:SPR_DOWN}
     :(c.gkDual||c.gkQuad)?{atk:DW.ATK*2,stop:DW.STOP,wind:DW_UP,rush:DW_END,air:DW_UP,slam:DW_END}
     :{atk:SSW.ATK,stop:SSW.STOP,wind:SSW_UP,rush:SSW_END,air:SSW_UP,slam:SSW_END}}
@@ -2681,20 +2681,20 @@ function mvSwing(c,dt,face){                                         // 突進(d
     face(.9);if(c.swT<W)return;
     c.mvT=0;if(typeof swingSound==='function')swingSound({id:'sword'},0);
     for(let i=0;i<6;i++)addSmoke(c.x+(Math.random()-.5)*1.4,c.y+.2+Math.random()*.3,c.z+(Math.random()-.5)*1.4,.25+Math.random()*.25,GOLEM.DUST);
-    if(dash){c.mvPh='rush';return}
-    const Ta=2*L.V0/22,dd=Math.max(0,Math.min(d-1.8,L.R)),vh=dd/Ta;   // 跳躍: 相手のいる所（いまの位置）を目がけて、1回の跳びで届く速さで進む
-    c.mvVx=dx/d*vh;c.mvVz=dz/d*vh;c.jv=L.V0;c.jy=.02;c.mvPh='air';return}
+    if(dash){c.mvPh='rush';c.mvDx=dx/d;c.mvDz=dz/d;c.mvLen=Math.max(0,d-wp.stop)+D.OVER;c.yaw=pwYawTo(dx,dz);return}   // 突進の向きと距離はここで固定（追いかけて曲がらない）
+    const Ta=2*L.V0/L.G,dd=Math.max(0,Math.min(d-1.8,L.R)),vh=dd/Ta;   // 跳躍: 相手のいる所（いまの位置）を目がけて、1回の跳びで届く速さで進む
+    c.mvVx=dx/d*vh;c.mvVz=dz/d*vh;c.jg=L.G;c.jv=L.V0;c.jy=.02;c.mvPh='air';return}
   if(c.mvPh==='rush'){                                               // 突進: 相手を追って向きを変えながら、止まる距離まで駆け寄る
-    c.mvT+=dt;face(1.3);
-    let moved=false;if(d>wp.stop){moved=mvStep(c,dx/d,dz/d,Math.min(D.SPD*dt,d-wp.stop));
-      addSmoke(c.x-dx/d*.8+(Math.random()-.5)*.8,c.y+.2,c.z-dz/d*.8+(Math.random()-.5)*.8,.2+Math.random()*.2,GOLEM.DUST);   // 足元の砂煙が後ろへ流れる
-      try{const el=sswElem(c);gkPart(el,c.x,c.y+1.2+Math.random(),c.z,-dx/d*2,Math.random(),-dz/d*2,.3,.18,gkFlameMats(GKA_COL[el]||0xffffff))}catch(er){}}
-    if(d<=wp.stop+.05||!moved||c.mvT>D.MAX){
-      c.yaw=pwYawTo(dx,dz);mvStrike(c);shakeT=Math.max(shakeT||0,.15);shakeA=Math.max(shakeA||0,.05);c.mvPh='rec';c.mvT=0}
+    c.mvT+=dt;
+    let moved=false;if(d>wp.stop&&c.mvLen>0){const st=Math.min(D.SPD*dt,c.mvLen);moved=mvStep(c,c.mvDx,c.mvDz,st);if(moved)c.mvLen-=st;
+      addSmoke(c.x-c.mvDx*.8+(Math.random()-.5)*.8,c.y+.2,c.z-c.mvDz*.8+(Math.random()-.5)*.8,.2+Math.random()*.2,GOLEM.DUST);   // 足元の砂煙が後ろへ流れる
+      try{const el=sswElem(c);gkPart(el,c.x,c.y+1.2+Math.random(),c.z,-c.mvDx*2,Math.random(),-c.mvDz*2,.3,.18,gkFlameMats(GKA_COL[el]||0xffffff))}catch(er){}}
+    if(d<=wp.stop+.05||!moved||c.mvLen<=0||c.mvT>D.MAX){
+      if(d<=wp.stop+.5)c.yaw=pwYawTo(dx,dz);mvStrike(c);shakeT=Math.max(shakeT||0,.15);shakeA=Math.max(shakeA||0,.05);c.mvPh='rec';c.mvT=0}
     return}
   if(c.mvPh==='air'){                                                // 跳躍: 空中で前へ進み、着地したら叩きつけ
     c.mvT+=dt;if(!mvStep(c,c.mvVx,c.mvVz,dt)){c.mvVx=0;c.mvVz=0}
-    if((c.mvT>.15&&!(c.jy>0))||c.mvT>1.6){c.jy=0;c.jv=0;mvSlam(c);c.mvPh='rec';c.mvT=0}
+    if((c.mvT>.15&&!(c.jy>0))||c.mvT>1.6){c.jy=0;c.jv=0;c.jg=0;mvSlam(c);c.mvPh='rec';c.mvT=0}
     return}
   c.mvT+=dt;if(c.mvT>=(dash?D.REC:L.REC))end()                       // rec: 当てたあとの隙
 }
@@ -2702,30 +2702,48 @@ function mvPose(c,dt,READYP){                                        // 突進�
   const wp=mvWeapon(c),L=MV.LEAP,D=MV.DASH,ph=c.mvPh,dash=c.swKind==='dash';let P;
   if(ph==='wind')P=sswMix(READYP,dash?wp.wind:wp.air,pwSmooth(Math.min(1,c.swT/(dash?D.WIND:L.WIND))));
   else if(ph==='rush')P=sswMix(c.sPose,wp.rush,Math.min(1,dt*16));
-  else if(ph==='air'){const u=Math.min(1,c.mvT/(2*L.V0/22));P=u<.4?wp.air.slice():sswMix(wp.air,wp.slam,pwSmooth(Math.min(1,(u-.4)/.45)))}   // 上がる間は掲げ、落ちながら叩きつけの姿勢へ
+  else if(ph==='air'){const u=Math.min(1,c.mvT/(2*L.V0/L.G));P=u<.4?wp.air.slice():sswMix(wp.air,wp.slam,pwSmooth(Math.min(1,(u-.4)/.45)))}   // 上がる間は掲げ、落ちながら叩きつけの姿勢へ
   else P=sswMix(dash?wp.rush:wp.slam,READYP,pwSmooth(Math.min(1,c.mvT/(dash?D.REC:L.REC))));
   c.sPose=P;if(c.gkQuad){c.q2Act=true;c.sPose2=P.slice()}}
 // ---------- ゲートキーパーの戦闘斧型: 右手に大きな両刃の戦闘斧。通常攻撃は2つ ①振り下ろし(adown): 頭上へ振りかぶって地面ごと叩き割る（正面の扇形に当たる・砂煙と衝撃） ②斧投げ(throw): 振り下ろしの途中で斧を回しながら投げる（遠距離・投げた斧は戻るまで手元に無い）。魔法は斧を頭上へ掲げる。姿勢は槍型と同じ [腕の前後の回転, 斧の曲がり, 体の傾き, 腕の左右の振り, 刃の寝かせ具合] ----------
 const AXE={SCALE:1.55,WIDE:1.25,GRIP:.5,ATK:90,REACH:4.0,ARC:.75,START:3.6,STOP:2.8,WIND:.6,CHOP:.13,HIT:.55,RECOV:.5};   // SCALE=斧の大きさ / WIDE=柄と頭の太さの倍率 / GRIP=握る位置 / ATK=振り下ろしの物理攻撃力 / REACH・ARC=振り下ろしの当たる距離(m)と角度(rad) / START=この距離で振り始める(m) / STOP=この距離まで近づく / WIND=振りかぶる秒 / CHOP=振り下ろす秒 / HIT=振り下ろしの何割で当たるか / RECOV=振ったあとの戻り(秒)
 const AX_REST=[-.25,-2.7,0,0,0],AX_READY=[-.7,-1.9,0,0,0],AX_UP=[-2.7,-1.15,-.22,0,0],AX_END=[-.4,-.9,.32,0,0];   // 担ぎ(普通) / 構え(敵対中) / 振りかぶり / 振り下ろし
+// ---------- ゲートキーパーの大剣型: 幅広で長い大剣を肩に担ぐ。構え・振りかぶり・振り下ろしの姿勢は斧型と同じ（c.gkAxe の仕組みをそのまま使い、c.gkGreat で数値・攻撃を差し替える）。通常攻撃は2つ ①叩き割り(adown): 重く振りかぶって地面ごと叩き割る（斧より遅いが、正面の広い扇形・強い） ②薙ぎ払い(gsweep): 剣を寝かせて右へ引き、左へ大きく払う（広い範囲・距離が長い）。魔法は大剣を頭上へ掲げる ----------
+const GSW={SCALE:2.5,WIDE:1.3,GRIP:.18,ATK:115,REACH:4.9,ARC:.95,START:4.3,STOP:3.4,WIND:.8,CHOP:.12,HIT:.55,RECOV:.75,SW_WIND:.7,SWEEP:.3,SREACH:5.6,SARC:.55,SK:.85,SRECOV:.7};   // SCALE=大剣の大きさ / WIDE=太さの倍率 / GRIP=握る位置 / ATK=叩き割りの物理攻撃力 / REACH・ARC=叩き割りの当たる距離(m)と角度(rad) / START=この距離で振り始める(m) / STOP=この距離まで近づく / WIND=振りかぶる秒 / CHOP=振り下ろす秒 / HIT=振り下ろしの何割で当たるか / RECOV=戻り(秒) / SW_WIND=薙ぎ払いの引き(秒) SWEEP=払う秒 SREACH・SARC=薙ぎ払いの距離(m)と刃が相手の向きを通る時の当たり幅(rad) SK=薙ぎ払いのダメージ倍率 SRECOV=払ったあとの戻り(秒)
+const GS_REST=[-.95,-1.45,0,0,0],GS_READY=[-1.15,-1.09,0,0,0];   // 大剣の持ち方: 肩に担がず、両手で前へ伸ばして持つ（普通=切っ先が前上へ・構え=腕を少し高く）
+const _gt2=new THREE.Vector3();
+function gkTwoHand(c){   // 大剣型: 左腕を、右手の握りの柄頭側へ伸ばして添える（両手持ち。毎フレーム、右手の握りの位置へ左腕を向ける）
+  const G=c.G;if(!G||!G.arms||!G.arms[0]||!G.arms[1]||!G.swB)return;
+  const L=G.arms[1],Pa=L.parent;if(!Pa)return;
+  G.arms[0].updateWorldMatrix(true,true);Pa.updateWorldMatrix(true,false);
+  _gt2.set(0,.09,0);G.swB.localToWorld(_gt2);Pa.worldToLocal(_gt2);_gt2.sub(L.position);const d=_gt2.length();if(d<1e-4)return;_gt2.divideScalar(d);
+  L.rotation.order='YXZ';L.rotation.x=-Math.acos(Math.max(-1,Math.min(1,-_gt2.y)));L.rotation.y=Math.atan2(_gt2.x,_gt2.z);L.rotation.z=0}
+function gswK(c){return c.gkGreat?GSW:AXE}   // 斧と大剣で数値を切り替える（同じ名前の項目: ATK REACH ARC START STOP WIND CHOP HIT RECOV）
 function axeHit(c){                                                  // 振り下ろした瞬間: 地面を叩き割る（正面へ砂煙が走る）。正面の扇形にプレイヤーがいれば当たる
   const ry=c.yaw-PEASANT_FLIP,px=c.x+Math.sin(ry)*3.2,pz=c.z+Math.cos(ry)*3.2;
   for(let i=0;i<10;i++)addSmoke(px+(Math.random()-.5)*2,c.y+.2+Math.random()*.5,pz+(Math.random()-.5)*2,.3+Math.random()*.35,GOLEM.DUST);
   for(let k=1;k<=4;k++)addSmoke(c.x+Math.sin(ry)*(3.2+k*1.4)+(Math.random()-.5)*.8,c.y+.2,c.z+Math.cos(ry)*(3.2+k*1.4)+(Math.random()-.5)*.8,.25+Math.random()*.2,GOLEM.DUST);   // 割れ目に沿った砂煙
   if(audioSamples.armorSample)playSample('armorSample',.7);
-  {const el=sswElem(c);if(el!=='dark'){try{JFX.impact(px,c.y,pz,{cols:gkPal(el),power:1.4,shards:14,spikes:(el==='fire'||el==='ice'||el==='d')?7:0,arcs:el==='thunder'?5:0,dome:true,shake:false})}catch(e){}}}
+  {const el=sswElem(c);if(el!=='dark'){try{JFX.impact(px,c.y,pz,{cols:gkPal(el),power:c.gkGreat?1.9:1.4,shards:c.gkGreat?18:14,spikes:(el==='fire'||el==='ice'||el==='d')?7:0,arcs:el==='thunder'?5:0,dome:true,shake:false})}catch(e){}}}
   if(STAT.dead)return;
   const dx=player.x-c.x,dz=player.z-c.z,d=Math.hypot(dx,dz);let df=pwYawTo(dx,dz)-c.yaw;df=Math.atan2(Math.sin(df),Math.cos(df));
-  if(d<AXE.REACH&&Math.abs(df)<AXE.ARC&&Math.abs((player.gy!==undefined?player.gy:c.y)-c.y)<2.5){playerPhys(AXE.ATK*(c.swDmgK||1),c);soldierElem(c)}
+  {const K=gswK(c);if(d<K.REACH&&Math.abs(df)<K.ARC&&Math.abs((player.gy!==undefined?player.gy:c.y)-c.y)<2.5){playerPhys(K.ATK*(c.swDmgK||1),c);soldierElem(c)}}
 }
 function axeSwing(c,dt,face){                                        // 戦闘斧の攻撃の進行（毎フレーム）。swKind: 'adown'=振り下ろし（c.swRanged='throw'なら斧投げ）
   c.swT+=dt*(c.swSpd||1);const T=c.swT,wait=()=>{c.swRanged=null;c.cmbLeft=0;c.swSpd=1;c.swT=-1;c.swWait=(SSW.WAIT[0]+Math.random()*SSW.WAIT[1])*(c.gk?GKA.WAITK:1)};
-  if(c.swKind==='adown'){const W=AXE.WIND,S=AXE.CHOP;
+  if(c.swKind==='gsweep'){const G2=GSW,W=G2.SW_WIND,S=G2.SWEEP;   // 大剣の薙ぎ払い: 引いている間は相手を追って向く。払っている間、刃が相手のいる向きを通った瞬間に当たる
+    if(T<W)face(.5);
+    if(!c.swSnd&&T>=W){c.swSnd=true;if(typeof swingSound==='function')swingSound({id:'sword'},0)}
+    if(!c.swHit&&T>=W&&T<W+S&&!STAT.dead&&c.sPose){
+      const dx=player.x-c.x,dz=player.z-c.z,d=Math.hypot(dx,dz);let df=pwYawTo(dx,dz)-c.yaw;df=Math.atan2(Math.sin(df),Math.cos(df));
+      if(d<G2.SREACH&&Math.abs(df-c.sPose[3])<G2.SARC&&Math.abs((player.gy!==undefined?player.gy:c.y)-c.y)<2.5){c.swHit=true;if(audioSamples.armorSample)playSample('armorSample',.6);shakeT=Math.max(shakeT||0,.2);shakeA=Math.max(shakeA||0,.07);playerPhys(G2.ATK*G2.SK*(c.swDmgK||1),c);soldierElem(c)}}
+    if(T>=W+S+G2.SRECOV)wait();return}
+  if(c.swKind==='adown'){const K=gswK(c),W=K.WIND,S=K.CHOP;
     if(T<W){face(.5);c.swRangedDone=false}                           // 振りかぶっている間は相手を追って向く
     if(!c.swSnd&&T>=W){c.swSnd=true;if(typeof swingSound==='function')swingSound({id:'sword'},0)}
     if(c.swRanged&&!c.swRangedDone&&T>=W+S*.3){c.swRangedDone=true;gkSwFire(c)}   // 斧投げ: 振り下ろしの途中で飛ばす
-    if(!c.swHit&&T>=W+S*AXE.HIT){c.swHit=true;if(!c.swRanged)axeHit(c)}
-    if(T>=W+S+AXE.RECOV)wait();return}
+    if(!c.swHit&&T>=W+S*K.HIT){c.swHit=true;if(!c.swRanged)axeHit(c)}
+    if(T>=W+S+K.RECOV)wait();return}
 }
 const SSW_HOLD=[-2.7,-.44,-.1,0,0];   // 魔法の間、剣を掲げる姿勢: 剣を持つ右腕だけを頭上へ上げ、剣先が真上を向く（刃の向きは 腕の回転＋剣の曲がり が -π のとき真上。-2.7 + -.44 ≒ -π）
 function sswMix(A,B,k){return A.map((v,i)=>v+(B[i]-v)*k)}   // 姿勢は [腕の前後の回転, 剣の曲がり, 体の傾き, 腕の左右の振り(rad。+=左へ), 刃の寝かせ具合(0=縦なぎ 1=横なぎ)]
@@ -2763,7 +2781,7 @@ function soldierSwingFx(c,dt,side,W,S){                              // 振り�
 function soldierBody(c,dt){                                          // 体の動き c.sBody=[前後の傾き(+前),ひねり(+で右肩が前),上下(m)]: 振りかぶりで反って沈む → 振り下ろしで前へ傾いてひねり、跳ねる → 戻る
   if(!c.sBody)c.sBody=[0,0,0];const B=c.sBody;let a=0,b=0,h=0,k=Math.min(1,dt*6);
   if(c.swT>=0&&!c.fl){
-    const side=c.swKind==='side',swp=c.swKind==='sweep',xd=c.swKind==='xdown'||c.swKind==='qdown',xs=c.swKind==='xside'||c.swKind==='qside',th2=c.swKind==='thrust'||swp||xd||xs,T=c.swT,W=(xd||xs)?DW.WIND:swp?SPR.SWP_WIND:th2?SPR.WIND:SSW.WIND,S=side?SSW.SSLASH*2:xd?DW.SLASH:xs?DW.SWEEP:swp?SPR.SWEEP:th2?SPR.THRUST:SSW.SLASH,Rc=(xd||xs)?DW.RECOV:th2?SPR.RECOV:SSW.RECOV;k=Math.min(1,dt*22);
+    const gs2=c.gkGreat&&(c.swKind==='adown'||c.swKind==='gsweep'),gsw2=gs2&&c.swKind==='gsweep',side=c.swKind==='side'||gsw2,swp=c.swKind==='sweep',xd=c.swKind==='xdown'||c.swKind==='qdown',xs=c.swKind==='xside'||c.swKind==='qside',th2=c.swKind==='thrust'||swp||xd||xs,T=c.swT,W=gs2?(gsw2?GSW.SW_WIND:GSW.WIND):(xd||xs)?DW.WIND:swp?SPR.SWP_WIND:th2?SPR.WIND:SSW.WIND,S=gs2?(gsw2?GSW.SWEEP:GSW.CHOP):side?SSW.SSLASH*2:xd?DW.SLASH:xs?DW.SWEEP:swp?SPR.SWEEP:th2?SPR.THRUST:SSW.SLASH,Rc=gs2?(gsw2?GSW.SRECOV:GSW.RECOV):(xd||xs)?DW.RECOV:th2?SPR.RECOV:SSW.RECOV;k=Math.min(1,dt*22);
     if(T<W){const u=pwSmooth(T/W);a=-.15*u;b=(side?-.6:-.35)*u;h=-.12*u}                         // 反って、右肩を引いて、沈む
     else if(T<W+S){const u=(T-W)/S;a=-.15+.35*u*u;h=-.12*(1-u)+.18*Math.sin(u*Math.PI);          // 一気に前へ傾き、跳ねる
       b=side?(u<.5?-.6+1.2*(u*2)*(u*2):.6-1.1*pwSmooth((u-.5)*2)):-.35+.6*u*u}                    // 縦=右肩を前へ / 横=右へ引く→左へ振り抜く→戻す
@@ -2772,7 +2790,7 @@ function soldierBody(c,dt){                                          // 体の�
   B[0]+=(a-B[0])*k;B[1]+=(b-B[1])*k;B[2]+=(h-B[2])*k;
 }
 // ---------- 軍人の通常攻撃その3「その場で前宙叩きつけ」: 構えてすぐ、その場で素早く前宙しながら剣を頭上へ掲げ、着地と同時に叩きつける（叩きつけは普通の「叩きつけ」と同じ当たり判定・ダメージ・属性の追加効果）。前宙の姿勢は追加属性の「前宙の飛び叩き」と同じ仕組み。宙返りの間は体のまわりに属性の粒が輪を描く ----------
-Object.assign(SSW,{FLIPP:.2,FLIP:{WIND:.18,AIR:.42,REC:.4,H:1.7}});   // FLIPP=軍人（ゲートキーパー以外）が前宙叩きつけを選ぶ確率（ゲートキーパーは通常攻撃の3つから同じ確率で抽選） / FLIP: WIND=しゃがんで構える秒 / AIR=宙返りの秒 / REC=着地後の隙(秒) / H=跳ぶ高さ(m)
+Object.assign(SSW,{FLIPP:.2,FLIP:{WIND:.14,AIR:.42,REC:.4,H:2.8}});   // FLIPP=軍人（ゲートキーパー以外）が前宙叩きつけを選ぶ確率（ゲートキーパーは通常攻撃の3つから同じ確率で抽選） / FLIP: WIND=しゃがんで構える秒 / AIR=宙返りの秒 / REC=着地後の隙(秒) / H=跳ぶ高さ(m)
 function sswPickKind(){const r=Math.random();return r<SSW.SIDE?'side':r<SSW.SIDE+SSW.FLIPP?'flip':'down'}   // 通常の軍人の攻撃の種類の抽選（横 / 前宙 / 叩きつけ）
 function sflipRing(c,F,u){                                           // 宙返りの輪: 体の中心を通る縦の円を、回った分だけ属性の粒で描く（体と同じ速さで動く）
   const el=sswElem(c),M=gkFlameMats(GKA_COL[el]||0xffffff),P=GKA.FL,s=c.g.scale.y,R=P.RING*s*.9,ry=c.yaw-PEASANT_FLIP,hx=Math.sin(ry),hz=Math.cos(ry),
@@ -2889,6 +2907,77 @@ function gkMagicAura(c,dt){
       else if(dk){vy=.1+R()*.3;life=1.1+R()*.5}                                 // 闇: ゆっくり漂う
       addFirePart(x,y,z,vx,vy,vz,life,s*(th?.8:1),M,ice?iceGeo:k==='b'?squareGeo:k==='c'?ringGeo:k==='e'?spikeGeo:undefined)}}
 }
+// ---------- ゲートキーパーの「溶けて属性になる」: 回転（前宙・ドリル）・ジャンプ・素早い移動（突進・跳躍・踏み込み・瞬間移動・闇の飛行）の間は、体が半透明になって属性の光と一体化する（火なら体が溶けて炎になる）。通った道すじには、その時の姿勢の属性色の残像が残り、粒が尾を引く。止まると体が元に戻る。使う属性は、追加属性の攻撃の最中ならその属性・それ以外は第一属性 ----------
+const GKMELT={SPD:6,IN:14,OUT:9,HOLD:.12,A:.8,EM:1.8,RATE:120,NEAR:90,GH_DT:.05,GH_LIFE:.45,GH_OP:.55,GH_MAX:28,TP:4.5};   // SPD=この速さ(m/秒)を超えたら素早い移動 / IN・OUT=溶ける・戻る速さ / HOLD=動きが終わってから戻り始めるまで(秒) / A=溶けきった時の透け具合(0〜1) / EM=光り具合 / RATE=粒の数(個/秒) / NEAR=この距離(m)より遠いと粒・残像は出さない / GH_DT=残像を置く間隔(秒) GH_LIFE=残像が消えるまで(秒) GH_OP=残像の濃さ GH_MAX=画面内の残像の最大数 / TP=これ以上一瞬で動いたら瞬間移動(m)
+const gkGhosts=[],_gkMv=new THREE.Vector3();
+function gkMeltEl(c){let k=(c.spT>=0&&c.spAtk&&c.spAtk.el)||c.gkFirst||'fire';if(k==='blast')k='a';return k}
+function gkMeltCol(k){return k==='dark'?0x8a45e0:(GKA_COL[k]!==undefined?GKA_COL[k]:0xffffff)}
+function gkMeltMats(c){const out=[],seen=new Set();   // 体・鎧・武器の材質（光る演出用の MeshBasic などは除く）
+  c.g.traverse(o=>{if(!o.isMesh||o.userData.gkNoMelt)return;const arr=Array.isArray(o.material)?o.material:[o.material];for(const m of arr)if(m&&!seen.has(m)&&m.emissive&&m.blending===THREE.NormalBlending){seen.add(m);out.push(m)}});return out}
+function gkMeltRestore(c){const S=c.gkMelt;c.gkMeltOn=false;if(!S||!S.saved)return;
+  for(const v of S.saved){const m=v.m;m.opacity=v.op;m.transparent=v.tr;m.depthWrite=v.dw;m.emissive.copy(v.em);m.emissiveIntensity=v.ei;m.needsUpdate=true}
+  S.saved=null;S.m=0}
+function gkMeltApply(c,S,k){
+  if(!S.saved){S.saved=gkMeltMats(c).map(m=>({m,tr:m.transparent,op:m.opacity,dw:m.depthWrite,em:m.emissive.clone(),ei:m.emissiveIntensity}));for(const v of S.saved){v.m.transparent=true;v.m.needsUpdate=true}c.gkMeltOn=true}
+  const mm=S.m,col=new THREE.Color(gkMeltCol(k));
+  for(const v of S.saved){const m=v.m;m.opacity=v.op*(1-GKMELT.A*mm);m.depthWrite=mm<.05?v.dw:false;m.emissive.copy(col);m.emissiveIntensity=v.ei+GKMELT.EM*mm}}
+function gkGhostGeo(c){   // いまの姿勢（体・鎧・武器）を、足もとを原点にした1つの形にまとめる（描画は残像1つにつき1回）
+  c.g.updateMatrixWorld(true);const ox=c.g.position.x,oy=c.g.position.y,oz=c.g.position.z,list=[];let tot=0;
+  c.g.traverse(o=>{if(!o.isMesh||!o.geometry||!o.geometry.attributes.position||o.userData.gkNoMelt)return;
+    for(let p=o;p;p=p.parent){if(!p.visible)return;if(p===c.g)break}   // 隠れている部品（投げて手元に無い武器など）は写さない
+    const m=o.material;if(!m||Array.isArray(m)||!m.emissive||m.blending!==THREE.NormalBlending)return;
+    const n=o.geometry.index?o.geometry.index.count:o.geometry.attributes.position.count;list.push(o,n);tot+=n});
+  if(!tot)return null;
+  const arr=new Float32Array(tot*3);let w=0;
+  for(let q=0;q<list.length;q+=2){const o=list[q],n=list[q+1],ps=o.geometry.attributes.position,ix=o.geometry.index;
+    for(let i=0;i<n;i++){_gkMv.fromBufferAttribute(ps,ix?ix.getX(i):i).applyMatrix4(o.matrixWorld);arr[w++]=_gkMv.x-ox;arr[w++]=_gkMv.y-oy;arr[w++]=_gkMv.z-oz}}
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(arr,3));return g}
+function gkGhostKill(n){const e=gkGhosts[n];scene.remove(e.mesh);e.mat.dispose();if(--e.ref.n<=0)e.ref.geo.dispose();gkGhosts.splice(n,1)}
+function gkGhostAdd(k,x,y,z,ref,life,op){
+  const mat=new THREE.MeshBasicMaterial({color:gkMeltCol(k),transparent:true,opacity:op,blending:k==='dark'?THREE.NormalBlending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,fog:false}),
+    mesh=new THREE.Mesh(ref.geo,mat);mesh.position.set(x,y,z);mesh.frustumCulled=false;scene.add(mesh);ref.n++;
+  while(gkGhosts.length>=GKMELT.GH_MAX)gkGhostKill(0);
+  gkGhosts.push({mesh,mat,ref,t:0,life,op,k,y0:y})}
+function gkGhostTick(dt){   // 残像: だんだん薄くなり、火などは昇りながら細く伸びて消える（氷は沈み、雷はちらつく）
+  for(let n=gkGhosts.length-1;n>=0;n--){const e=gkGhosts[n];e.t+=dt;const u=e.t/e.life;if(u>=1){gkGhostKill(n);continue}
+    const f=1-u,th=e.k==='thunder';e.mat.opacity=e.op*f*f*(th?.55+.45*Math.sin(e.t*70):1);
+    e.mesh.position.y=e.y0+(e.k==='ice'?-.3:th?0:1.1)*e.t;e.mesh.scale.set(1-.18*u,th?1:1+.25*u,1-.18*u)}}
+function gkMeltPuff(k,n,hs,bx,by,bz,spread){   // 体から出る属性の粒（体の中のあちこちから出て、その場に残る＝動くと尾を引く）
+  const col=gkMeltCol(k),M=gkFxMats(k,col),R=Math.random,fire=k==='fire'||k==='e',th=k==='thunder',ice=k==='ice',dk=k==='dark';
+  for(let i=0;i<n;i++){
+    const a=R()*6.283,r=R()*spread*hs,x=bx+Math.cos(a)*r,y=by+(R()-.5)*1.9*hs,z=bz+Math.sin(a)*r,s=(.2+R()*.2)*hs;let vx=(R()-.5)*.8,vy=.3+R()*.6,vz=(R()-.5)*.8,life=.7+R()*.4;
+    if(fire){vy=1.2+R()*1.4;life=.6+R()*.4}else if(th){vx=(R()-.5)*4;vy=(R()-.5)*4;vz=(R()-.5)*4;life=.22+R()*.2}else if(ice){vy=-.5-R()*.4;life=.9+R()*.5}else if(dk){vy=.1+R()*.4;life=1+R()*.5}
+    addFirePart(x,y,z,vx,vy,vz,life,s*(th?.8:1),M,ice?iceGeo:k==='b'?squareGeo:k==='c'?ringGeo:k==='e'?spikeGeo:undefined)}}
+function gkMeltStep(c,dt){   // 毎フレーム: 動きを見て「溶ける量」を決め、体の透け・光り・粒・残像を付ける
+  if(c.dead!==undefined||c.hp<=0||!c.g){if(c.gkMeltOn)gkMeltRestore(c);return}
+  if(!(dt>0))return;
+  const G=GKMELT,S=c.gkMelt||(c.gkMelt={m:0,hold:0,ghT:0,pt:0,px:c.x,py:c.y+(c.jy||0),pz:c.z,saved:null});
+  const yy=c.y+(c.jy||0),dx=c.x-S.px,dz=c.z-S.pz,dy=yy-S.py,hd=Math.hypot(dx,dz),tele=Math.hypot(hd,dy)>G.TP&&dt<.25;   // tele=一瞬で大きく動いた（雷の瞬間移動）
+  let want=false;
+  if(c.fl&&c.fl.ph==='air')want=true;                                  // 前宙（飛び叩き・軍人の前宙）: 回りながら跳ぶ間
+  else if(c.dr&&c.dr.ph!=='wind'&&c.dr.ph!=='land')want=true;          // ドリル: 飛び上がる・回る・突っ込む間
+  else if(c.mvPh==='rush'||c.mvPh==='air')want=true;                   // 突進・跳躍叩きつけ
+  else if(c.fz&&c.fz.fly)want=true;                                    // 闇の乱舞で飛んで近づく間
+  else if((c.jy||0)>.3)want=true;                                      // そのほかのジャンプ
+  else if(!(c.kv>1)&&hd/dt>G.SPD)want=true;                            // 素早い移動（殴られて押された時は除く）
+  if(tele){want=true;S.hold=Math.max(S.hold,.35)}
+  if(want)S.hold=Math.max(S.hold,G.HOLD);else S.hold-=dt;
+  const tg=(want||S.hold>0)?1:0;S.m+=(tg-S.m)*Math.min(1,dt*(tg>S.m?G.IN:G.OUT));if(tg===0&&S.m<.02)S.m=0;
+  const near=Math.hypot(player.x-c.x,player.z-c.z)<G.NEAR;
+  if(S.m>0){
+    const k=gkMeltEl(c);gkMeltApply(c,S,k);
+    if(near){
+      let ref=null;const getRef=()=>ref||(ref=(g=>g?{geo:g,n:0}:null)(gkGhostGeo(c)));
+      if(tele&&getRef()){const N=4,gy=c.g.position.y-yy;for(let i=0;i<N;i++){const u=i/N;gkGhostAdd(k,S.px+dx*u,S.py+dy*u+gy,S.pz+dz*u,ref,G.GH_LIFE*(1.1+.3*(1-u)),G.GH_OP)}   // 瞬間移動: 元の場所から着地点までの道すじに残像
+        const hs0=Math.max(.6,c.size||1);for(let i=0;i<=12;i++){const u=i/12;gkMeltPuff(k,3,hs0,S.px+dx*u,S.py+dy*u+hs0,S.pz+dz*u,.4)}}
+      if(S.m>.3){S.ghT-=dt;if(S.ghT<=0){S.ghT=G.GH_DT;if(getRef())gkGhostAdd(k,c.g.position.x,c.g.position.y,c.g.position.z,ref,G.GH_LIFE,G.GH_OP*Math.min(1,S.m))}}   // 動いている間は一定間隔で、その時の姿勢の残像を置く
+      if(ref&&ref.n<=0)ref.geo.dispose();
+      S.pt+=dt*G.RATE*S.m;const n=Math.min(6,Math.floor(S.pt));S.pt-=n;
+      if(n>0){const hs=c.gkFxAnchor?(c.gkFxAnchor.position.y/1.05||1):Math.max(.6,c.size||1);
+        if(c.gkFxAnchor){c.gkFxAnchor.getWorldPosition(_gkMv);gkMeltPuff(k,n,hs,_gkMv.x,_gkMv.y,_gkMv.z,.7)}else gkMeltPuff(k,n,hs,c.x,c.y+(c.jy||0)+hs,c.z,.7)}}
+  }else if(c.gkMeltOn)gkMeltRestore(c);
+  S.px=c.x;S.py=yy;S.pz=c.z;
+}
 function soldierFx(c,dt){                                            // 敵対中: 剣の刃から属性の粒が出る。ゲートキーパーは第一属性に合わせる
   const G=c.G;if(!G.swB||!G.swH||!G.swH.visible)return;
   if(c.gk&&c.gkFirst)return;                                           // ゲートキーパーの軍人タイプは soldierGkFx（体・足元・剣）で表示するので、通常の軍人用(火・氷・雷)エフェクトとは重ねない
@@ -2956,7 +3045,7 @@ function soldierSwing(c,dt,face){                                    // 毎フ�
       if(d<DW.SREACH&&Math.min(Math.abs(df-c.sPose[3]),Math.abs(df+c.sPose[3]))<DW.SARC&&Math.abs((player.gy!==undefined?player.gy:c.y)-c.y)<2.5){c.swHit=true;if(audioSamples.armorSample)playSample('armorSample',.5);playerPhys(DW.ATK*DW.SK*(c.swDmgK||1),c);soldierElem(c)}}
     if(c.swT>=W+S+DW.RECOV){c.cmbLeft=0;c.swSpd=1;c.swT=-1;c.swWait=(SSW.WAIT[0]+Math.random()*SSW.WAIT[1])*(c.gk?GKA.WAITK:1)}
     return}
-  if(c.swKind==='adown'){axeSwing(c,dt,face);return}   // 戦闘斧: 振り下ろし・斧投げ
+  if(c.swKind==='adown'||c.swKind==='gsweep'){axeSwing(c,dt,face);return}   // 戦闘斧: 振り下ろし・斧投げ / 大剣: 叩き割り・薙ぎ払い
   if(c.swKind==='sweep'){c.swT+=dt*(c.swSpd||1);const W=SPR.SWP_WIND,S=SPR.SWEEP;   // 槍の薙ぎ払い: 引いている間は相手を追って向く。払っている間、槍が相手のいる向きを通った瞬間に当たる
     if(c.swT<W)face(.5);
     if(!c.swSnd&&c.swT>=W){c.swSnd=true;if(typeof swingSound==='function')swingSound({id:'sword'},0)}
@@ -2979,7 +3068,7 @@ function soldierSwing(c,dt,face){                                    // 毎フ�
   if(c.swT>=W+S+SSW.RECOV){if(!sswComboNext(c)){c.swT=-1;c.swWait=(SSW.WAIT[0]+Math.random()*SSW.WAIT[1])*(c.gk?GKA.WAITK:1)}}
 }
 function soldierPose(c,dt,ready){                                    // 毎フレーム: 右腕・剣・体の傾きの姿勢を決める（c.sPose）
-  c.q2Act=false;const RESTP=c.gkAxe?AX_REST:c.gkSpear?SPR_REST:(c.gkDual||c.gkQuad)?DW_REST:c.swLow?SSW_LREST:SSW_REST,READYP=c.gkAxe?AX_READY:c.gkSpear?SPR_READY:(c.gkDual||c.gkQuad)?DW_READY:c.swLow?SSW_LREADY:SSW_READY;   // 剣を下げて持つタイプは、担ぎ・構えが下げた姿勢
+  c.q2Act=false;const RESTP=c.gkGreat?GS_REST:c.gkAxe?AX_REST:c.gkSpear?SPR_REST:(c.gkDual||c.gkQuad)?DW_REST:c.swLow?SSW_LREST:SSW_REST,READYP=c.gkGreat?GS_READY:c.gkAxe?AX_READY:c.gkSpear?SPR_READY:(c.gkDual||c.gkQuad)?DW_READY:c.swLow?SSW_LREADY:SSW_READY;   // 剣を下げて持つタイプは、担ぎ・構えが下げた姿勢
   if(!c.sPose)c.sPose=RESTP.slice();
   if(c.fl){const F=c.fl,P=GKA.FL;                                    // 前宙の飛び叩き: 剣を頭上へ構える → 宙返りの間は掲げたまま → 着地の直前に振り下ろす
     if(F.ph==='wind')c.sPose=sswMix(READYP,SSW_UP,pwSmooth(F.t/P.WIND));
@@ -2997,10 +3086,14 @@ function soldierPose(c,dt,ready){                                    // 毎フ�
     else if(T<W+S){const u=(T-W)/S;c.sPose=sswMix(A0,A1,xd?u*u:u)}
     else c.sPose=sswMix(A1,READYP,pwSmooth((T-W-S)/DW.RECOV))}
   else if(c.swT>=0&&(c.swKind==='dash'||c.swKind==='leap'))mvPose(c,dt,READYP);   // 突進・跳躍叩きつけ
-  else if(c.swT>=0&&c.swKind==='adown'){const T=c.swT,W=AXE.WIND,S=AXE.CHOP;   // 戦闘斧の振り下ろし: 頭上へ振りかぶる → 加速して叩きつける → 構えへ戻る
+  else if(c.swT>=0&&c.swKind==='gsweep'){const T=c.swT,W=GSW.SW_WIND,S=GSW.SWEEP;   // 大剣の薙ぎ払い: 剣を寝かせて右へ大きく引く → 左へ払う → 構えへ戻る（剣型の横なぎと同じ姿勢）
+    if(T<W)c.sPose=sswMix(READYP,SSW_SUP,pwSmooth(T/W));
+    else if(T<W+S){const u=(T-W)/S;c.sPose=sswMix(SSW_SUP,SSW_SEND,u*u)}
+    else c.sPose=sswMix(SSW_SEND,READYP,pwSmooth((T-W-S)/GSW.SRECOV))}
+  else if(c.swT>=0&&c.swKind==='adown'){const K=gswK(c),T=c.swT,W=K.WIND,S=K.CHOP;   // 戦闘斧・大剣の振り下ろし: 頭上へ振りかぶる → 加速して叩きつける → 構えへ戻る
     if(T<W)c.sPose=sswMix(READYP,AX_UP,pwSmooth(T/W));
     else if(T<W+S){const u=(T-W)/S;c.sPose=sswMix(AX_UP,AX_END,u*u)}
-    else c.sPose=sswMix(AX_END,READYP,pwSmooth((T-W-S)/AXE.RECOV))}
+    else c.sPose=sswMix(AX_END,READYP,pwSmooth((T-W-S)/K.RECOV))}
   else if(c.swT>=0&&c.swKind==='sweep'){const T=c.swT,W=SPR.SWP_WIND,S=SPR.SWEEP;   // 槍の薙ぎ払い: 水平に構えて右へ引く → 左へ払う → 構えへ戻る
     if(T<W)c.sPose=sswMix(READYP,SPR_SWP0,pwSmooth(T/W));
     else if(T<W+S){const u=(T-W)/S;c.sPose=sswMix(SPR_SWP0,SPR_SWP1,u*u)}
@@ -3431,8 +3524,8 @@ function gkRollSpec(forced){
     else sp.first=pool[Math.floor(R()*pool.length)]}
   {const ST=GKA.STYLE,skip=k=>(k==='quad'&&sp.arms!==4)||(k==='dual'&&sp.arms===4);let tot=0;for(const k in ST)if(!skip(k))tot+=ST[k].p;let r=R()*tot;sp.style='bare';for(const k in ST){if(skip(k))continue;if(r<ST[k].p){sp.style=k;break}r-=ST[k].p}   // 四刀流は腕が4本の時だけ。双剣は腕が2本の時だけ（4本の時は双剣のかわりに四刀流）
        // 攻撃方法を抽選: 素手 / 杖 / 片手剣
-    if(forced==='soldier')sp.style='sword';else if(forced==='inspector')sp.style='bare';else if(forced==='mage'&&(sp.style==='sword'||sp.style==='spear'||sp.style==='axe'||sp.style==='dual'||sp.style==='quad'))sp.style='bare'}
-  sp.kd=(sp.style==='sword'||sp.style==='spear'||sp.style==='axe'||sp.style==='dual'||sp.style==='quad')?'soldier':sp.style==='staff'?'mage':(sp.arms===4?'inspector':'mage');sp.swP=sp.style==='sword'?gkPickSwP():null;   // 内部の型: 剣=軍人型 / 杖=魔法人型 / 素手=魔法人型（4本腕は調査員型）
+    if(forced==='soldier')sp.style='sword';else if(forced==='inspector')sp.style='bare';else if(forced==='mage'&&(sp.style==='sword'||sp.style==='spear'||sp.style==='axe'||sp.style==='great'||sp.style==='dual'||sp.style==='quad'))sp.style='bare'}
+  sp.kd=(sp.style==='sword'||sp.style==='spear'||sp.style==='axe'||sp.style==='great'||sp.style==='dual'||sp.style==='quad')?'soldier':sp.style==='staff'?'mage':(sp.arms===4?'inspector':'mage');sp.swP=sp.style==='sword'?gkPickSwP():null;   // 内部の型: 剣=軍人型 / 杖=魔法人型 / 素手=魔法人型（4本腕は調査員型）
   // ④ 装飾: 帽子の有無（makeMage の体に切り替わった時だけ使う）。属性ごとの固有の部品は spawnMage で gkSignature が付ける
   sp.hatless=sp.kd==='inspector'&&(sp.head!=='diamond'||R()<GKA.HATLESS_P);
   sp.armorCol=sp.armor?gkArmorColor(sp.first,R):0;
@@ -3766,8 +3859,8 @@ function makeGkHuman(hs,variant,frame,headShape,arms4,robed,armor,weapon,shield,
         qHigh=new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI/2,0,0));   // 出した時: 腕を前へ伸ばした先・体の中心・面が正面を向く（腕を前に水平にした時、腕の-Yが前・+Zが上になる）
       shg.position.copy(pLow);shg.quaternion.copy(qLow);shg.userData={pLow,qLow,pHigh,qHigh};shdG=shg}
     if(sold&&(weapon==='quad'||((s<0||(weapon==='dual'&&s>0))&&!low))){const sh=new THREE.Group();sh.position.set(gx,palmY,gz);sh.rotation.x=Math.PI+SSW_REST[1];A.rotation.order='YXZ';A.add(sh);   // 軍人: 腕は先に前後に振ってから体の縦軸で左右に振る(YXZ)。右手に巨大な剣。握りの中心を手に合わせる。向きは毎フレーム mageStep が決める
-      const sp0=weapon==='spear',ax0=weapon==='axe',bs=ax0?(gkAxeModel||(gkAxeModel=makeGkAxe())).clone():sp0?(gkSpearModel||(gkSpearModel=makeGkSpear(IRON_COLOR))).clone():(creGkSword||(creGkSword=makeGkSword())).clone();bs.rotation.y=Math.PI/2;   // 槍型は剣のかわりに鉄の槍（握りは柄の途中）
-      if(ax0){bs.scale.set(AXE.SCALE*AXE.WIDE,AXE.SCALE,AXE.SCALE*AXE.WIDE);bs.position.y=-AXE.GRIP*AXE.SCALE}else if(sp0){bs.scale.set(SPR.SCALE*SPR.WIDE,SPR.SCALE,SPR.SCALE*SPR.WIDE);bs.position.y=-SPR.GRIP*SPR.SCALE}else{const SC=weapon==='dual'?DW.SCALE:weapon==='quad'?DW.SCALE*.9:SSW.SCALE;bs.scale.set(SC*SSW.WIDE,SC,SC*SSW.WIDE);bs.position.y=-.2*SC}   // 双剣は片手剣より少し小さい
+      const sp0=weapon==='spear',gr0=weapon==='great',ax0=weapon==='axe',bs=gr0?(gkGreatModel||(gkGreatModel=makeGkGreat())).clone():ax0?(gkAxeModel||(gkAxeModel=makeGkAxe())).clone():sp0?(gkSpearModel||(gkSpearModel=makeGkSpear(IRON_COLOR))).clone():(creGkSword||(creGkSword=makeGkSword())).clone();bs.rotation.y=Math.PI/2;   // 槍型は剣のかわりに鉄の槍（握りは柄の途中）
+      if(gr0){bs.scale.set(GSW.SCALE*GSW.WIDE,GSW.SCALE,GSW.SCALE*GSW.WIDE);bs.position.y=-GSW.GRIP*GSW.SCALE}else if(ax0){bs.scale.set(AXE.SCALE*AXE.WIDE,AXE.SCALE,AXE.SCALE*AXE.WIDE);bs.position.y=-AXE.GRIP*AXE.SCALE}else if(sp0){bs.scale.set(SPR.SCALE*SPR.WIDE,SPR.SCALE,SPR.SCALE*SPR.WIDE);bs.position.y=-SPR.GRIP*SPR.SCALE}else{const SC=weapon==='dual'?DW.SCALE:weapon==='quad'?DW.SCALE*.9:SSW.SCALE;bs.scale.set(SC*SSW.WIDE,SC,SC*SSW.WIDE);bs.position.y=-.2*SC}   // 双剣は片手剣より少し小さい
       bs.traverse(m=>{if(m.isMesh)m.castShadow=true});sh.add(bs);if(weapon==='quad'){swHA[arms.length-1]=sh;swBA[arms.length-1]=bs}else if(s<0){swHold=sh;swBlade=bs}else{swHold2=sh;swBlade2=bs}}}   // 四刀流は4本の腕すべて（腕の順は 右上・左上・右下・左下）
   // 頭: 体は人間ベースだが、頭だけは従来の異形のまま（菱形 / ラッパ / 円錐 / 輪）。首の少し上に浮かぶ。頭の中心が原点（属性の頭飾りは gkSignature が headTop を目安に付ける）
   const V2=a=>a.map(q=>new THREE.Vector2(q[0],q[1])),hsh=headShape||'diamond';let hGeo,hEx=.045,hEy=.03,hEz=.075,headTop=.34;   // 目の位置は形ごとに表面へ合わせる
@@ -3897,6 +3990,7 @@ function gkStyleBuild(c,G,st){
     G.fists[0].add(hold);c.gkStaff=hold;
     const tip=new THREE.Object3D();tip.position.set(0,2.9,0);hold.add(tip);c.gkLightA=tip;
     const od=G.gm.dispose;G.gm.dispose=function(){od.call(this);for(const g of geos)g.dispose();wood.dispose();gold.dispose()};   // 杖の部品も、消える時に片づける
+  }else if(st==='great'&&G.swB){const a=new THREE.Object3D();a.position.set(0,1.4,0);G.swB.add(a);c.gkLightA=a;   // 大剣の切っ先の近く（光が集まる位置）
   }else if(st==='axe'&&G.swB){const a=new THREE.Object3D();a.position.set(0,1.55,0);G.swB.add(a);c.gkLightA=a;   // 斧の頭の中心（光が集まる位置）
   }else if(st==='spear'&&G.swB){const a=new THREE.Object3D();a.position.set(0,1.98,0);G.swB.add(a);c.gkLightA=a;   // 槍の穂先（光が集まる位置）
   }else if((st==='sword'||st==='dual'||st==='quad')&&G.swB&&((typeof creGkSword!=='undefined'&&creGkSword)||(typeof creSword!=='undefined'&&creSword))){
@@ -3910,8 +4004,8 @@ function gkStylePose(c,dt,q){   // 素手: 手を左右へ広げる / 杖: 杖�
   if(c.gkStyle==='dual'||c.gkStyle==='quad'){   // 双剣型: 両手（0・1番）の剣は soldierPose / mageStep が動かす。下の腕（4本の時）は下ろしたまま。四刀流は下の2本も剣を持つので動かさない
     for(let i=c.gkStyle==='quad'?4:2;i<A.length;i++){const s=(i%2)?1:-1,rz0=A[i].userData.rz0===undefined?.18:A[i].userData.rz0;A[i].rotation.x+=(th-A[i].rotation.x)*w;A[i].rotation.z+=(s*rz0-A[i].rotation.z)*w}
     return}
-  if(c.gkStyle==='axe'){   // 戦闘斧型: 斧を持つ腕（0番）は soldierPose が動かす。ほかの腕は下ろしたまま
-    for(let i=1;i<A.length;i++){const s=(i%2)?1:-1,rz0=A[i].userData.rz0===undefined?.18:A[i].userData.rz0;A[i].rotation.x+=(th-A[i].rotation.x)*w;A[i].rotation.z+=(s*rz0-A[i].rotation.z)*w}
+  if(c.gkStyle==='axe'||c.gkStyle==='great'){   // 戦闘斧型・大剣型: 斧を持つ腕（0番）は soldierPose が動かす。ほかの腕は下ろしたまま（大剣型の左腕=1番は両手持ちで gkTwoHand が動かす）
+    for(let i=c.gkStyle==='great'?2:1;i<A.length;i++){const s=(i%2)?1:-1,rz0=A[i].userData.rz0===undefined?.18:A[i].userData.rz0;A[i].rotation.x+=(th-A[i].rotation.x)*w;A[i].rotation.z+=(s*rz0-A[i].rotation.z)*w}
     return}
   if(c.gkStyle==='spear'){   // 槍型: 槍を持つ腕（0番）は soldierPose が動かす。魔法を撃つ瞬間・槍を飛ばす瞬間に「突き上げ」を始める。ほかの腕は下ろしたまま
     if(c.bShot&&!c.gkPS&&!c.gkSwing){c.gkSwing=true;c.gkSwU=0}c.gkPS=!!c.bShot;
@@ -3943,7 +4037,7 @@ function spawnMage(at,kind){                                              // 目
   const hs=K.size*(.95+Math.random()*.1)*(sp&&sp.frame==='bulky'?1.15:1),G=(sp&&(sp.armor&&sp.first==='a'&&sp.helm&&!sp.helm.halo&&Math.random()<GKA.HOLY_HELM_P&&(sp.helm=gkRollHolyHelm(Math.random)),true)&&makeGkHuman(hs,kd,sp.frame,sp.head,sp.arms===4,sp.robed,(sp.armor&&sp.first==='e'?'blast':(sp.armor&&sp.first==='a'?'holy':sp.armor)),sp.style,(sp.shield=(sp.style==='sword'||sp.style==='spear'||sp.style==='axe')&&Math.random()<SHD.P?(Math.random()<SHD.SMALL_P?'small':'big'):false),sp.bulge,sp.gold,sp.pat,sp.armorCol,sp.deco,sp.helm))||makeMage(hs,kd,sp?sp.hatless:false,sp?sp.head:'diamond',sp?sp.frame:false,sp?GKA.SHAPE:null),y=supportAt(x,z,at?heightAt(x,z):player.gy),hp=MAGE.HP[0]+Math.floor(Math.random()*(MAGE.HP[1]-MAGE.HP[0]+1));
   const c={g:G.g,mesh:G.mesh,gm:G.gm,mat:G.mat,G,golem:true,mage:true,kind:kd,hy:K.hy,walker:true,bT:-1,bWait:1+Math.random()*2,size:hs,off:0,x,y,z,yaw:(at&&at.yaw!==undefined)?at.yaw:pwYawTo(player.x-x,player.z-z),hx:x,hz:z,tx:x,tz:z,wait:.5+Math.random()*1.2,t:Math.random()*20,lean:0,armX:.03,hp,maxHp:hp,phys:K.phys,def:K.def,mana:K.mana[0]+Math.floor(Math.random()*(K.mana[1]-K.mana[0]+1)),spdK:.85+Math.random()*.3,phase:0,amp:0,run:0,gear:null};
   if(kd==='inspector')c.inspector=true;
-  if(kd==='soldier'){c.soldier=true;c.swT=-1;c.swHit=false;c.swWait=.3+Math.random()*.3;if(sp&&sp.style==='spear')c.gkSpear=true;else if(sp&&sp.style==='axe')c.gkAxe=true;else if(sp&&sp.style==='dual')c.gkDual=true;else if(sp&&sp.style==='quad')c.gkQuad=true;else if(at&&at.gk&&Math.random()<.4)c.swLow=true;c.sPose=(c.gkAxe?AX_REST:c.gkSpear?SPR_REST:(c.gkDual||c.gkQuad)?DW_REST:c.swLow?SSW_LREST:SSW_REST).slice();if(c.gkQuad)c.sPose2=DW_REST.slice()}   // 四刀流(c.gkQuad)は4本の腕すべてに剣   // 双剣型(c.gkDual)は両手に剣   // 槍型(c.gkSpear)は槍を立てて持つ   // ゲートキーパーの剣型は、4割の確率で「剣を下げて持つ」タイプ（c.swLow）   // 軍人: 巨大な剣の振りの状態（swT=振っている経過秒 -1=していない）
+  if(kd==='soldier'){c.soldier=true;c.swT=-1;c.swHit=false;c.swWait=.3+Math.random()*.3;if(sp&&sp.style==='spear')c.gkSpear=true;else if(sp&&sp.style==='axe')c.gkAxe=true;else if(sp&&sp.style==='great'){c.gkAxe=true;c.gkGreat=true}else if(sp&&sp.style==='dual')c.gkDual=true;else if(sp&&sp.style==='quad')c.gkQuad=true;else if(at&&at.gk&&Math.random()<.4)c.swLow=true;c.sPose=(c.gkGreat?GS_REST:c.gkAxe?AX_REST:c.gkSpear?SPR_REST:(c.gkDual||c.gkQuad)?DW_REST:c.swLow?SSW_LREST:SSW_REST).slice();if(c.gkQuad)c.sPose2=DW_REST.slice()}   // 四刀流(c.gkQuad)は4本の腕すべてに剣   // 双剣型(c.gkDual)は両手に剣   // 槍型(c.gkSpear)は槍を立てて持つ   // ゲートキーパーの剣型は、4割の確率で「剣を下げて持つ」タイプ（c.swLow）   // 軍人: 巨大な剣の振りの状態（swT=振っている経過秒 -1=していない）
   if(at&&at.gk){c.gk=true;c.guardYaw=at.yaw;if(at.entry)at.entry.c=c;c.gkSpec=sp;   // ゲートキーパーは段階方式で作る: ①体型 → ②腕の数 → ③攻撃方法 → ④装飾（決め方は gkRollSpec、ここはその結果から組み立てる）
     // ===== ① 体型（頭以外）: 3タイプ（普通=robe / 細長い=lanky / 太い=bulky）。体格は makeGkHuman に渡して作成済み（人間ベースの体。体格ごとに脚・腕の長さや胴の太さが変わる） =====
     c.gkArms=sp.arms;   // ② 腕の数（2か4。体は makeGkHuman が、4本なら上の2本＋下の2本で作成済み）
@@ -3960,7 +4054,7 @@ function spawnMage(at,kind){                                              // 目
       else{c.gkSpell=f;c.swElem=(f==='fire'||f==='ice'||f==='thunder')?f:undefined}}   // 軍人: 剣の属性は第一属性が火・氷・雷の時だけ。ほか（闇・支配・創造・爆破…）は、剣が当たった時に gkFirstTrait で効果が付く
     c.gkExtra=[];const usedGkAttacks=new Set();for(const el of c.gkAttributes.slice(1)){const atk=gkPickAtk((c.gkSpear||c.gkDual||c.gkQuad||c.gkAxe)?'spear':kd,el,usedGkAttacks);if(atk){usedGkAttacks.add(atk);c.gkExtra.push({el,atk})}const sp=gkPickSpecial(el,usedGkAttacks,(c.gkSpear||c.gkDual||c.gkQuad||c.gkAxe)?'spear':kd);if(sp){usedGkAttacks.add(sp);c.gkExtra.push({el,atk:sp})}}   // 攻撃方法は番人1体につき重複なし。一度選ばれた攻撃は以後の属性の抽選候補から除外し、候補切れなら攻撃なし
     c.shield=!!(sp&&sp.shield&&G.shd);c.shObj=c.shield?G.shd:null;c.shUp=0;c.shOn=false;c.shSmall=c.shield&&sp.shield==='small';c.shF=0;c.shPar=false;   // 盾持ち（c.shield）: 盾は左手が空いている剣型・槍型だけ
-  c.gkAtks=(c.gkQuad?[{id:'normal',kind:'qdown',rng:'short'},{id:'normal',kind:'qside',rng:'short'},{id:'normal',kind:'spell',rng:'long'}]:c.gkDual?[{id:'normal',kind:'xdown',rng:'short'},{id:'normal',kind:'xside',rng:'short'},{id:'normal',kind:'spell',rng:'long'}]:c.gkAxe?[{id:'normal',kind:'adown',rng:'short'},{id:'normal',kind:'throw',rng:'long'},{id:'normal',kind:'spell',rng:'long'}]:c.gkSpear?[{id:'normal',kind:'thrust',rng:'short'},{id:'normal',kind:'rapid',rng:'short'},{id:'normal',kind:'sweep',rng:'short'},{id:'normal',kind:'spell',rng:'long'}]:kd==='soldier'?[{id:'normal',kind:'down',rng:'short'},{id:'normal',kind:'side',rng:'short'},{id:'normal',kind:'flip',rng:'short'},{id:'normal',kind:'spell',rng:'long'}].concat(gkSwExtra(c)):[{id:'normal',rng:kd==='inspector'?'long':'any'}]).concat(c.gkExtra.map(ex=>({id:'extra',ex,rng:GKA.RNG[ex.atk]||'any'})));   // 使える攻撃の一覧（普通の攻撃＋追加属性ごとの攻撃。軍人の普通の攻撃は「叩きつけ(down)」と「横振り(side)」の2つに分けて、それぞれ同じ確率で抽選される）。rng=撃つ距離（short=近い時 / long=遠い時 / any=どちらでも）。軍人の普通の攻撃=short、調査員の普通の攻撃と槍=long
+  c.gkAtks=(c.gkQuad?[{id:'normal',kind:'qdown',rng:'short'},{id:'normal',kind:'qside',rng:'short'},{id:'normal',kind:'spell',rng:'long'}]:c.gkDual?[{id:'normal',kind:'xdown',rng:'short'},{id:'normal',kind:'xside',rng:'short'},{id:'normal',kind:'spell',rng:'long'}]:c.gkGreat?[{id:'normal',kind:'adown',rng:'short'},{id:'normal',kind:'gsweep',rng:'short'},{id:'normal',kind:'spell',rng:'long'}]:c.gkAxe?[{id:'normal',kind:'adown',rng:'short'},{id:'normal',kind:'throw',rng:'long'},{id:'normal',kind:'spell',rng:'long'}]:c.gkSpear?[{id:'normal',kind:'thrust',rng:'short'},{id:'normal',kind:'rapid',rng:'short'},{id:'normal',kind:'sweep',rng:'short'},{id:'normal',kind:'spell',rng:'long'}]:kd==='soldier'?[{id:'normal',kind:'down',rng:'short'},{id:'normal',kind:'side',rng:'short'},{id:'normal',kind:'flip',rng:'short'},{id:'normal',kind:'spell',rng:'long'}].concat(gkSwExtra(c)):[{id:'normal',rng:kd==='inspector'?'long':'any'}]).concat(c.gkExtra.map(ex=>({id:'extra',ex,rng:GKA.RNG[ex.atk]||'any'})));   // 使える攻撃の一覧（普通の攻撃＋追加属性ごとの攻撃。軍人の普通の攻撃は「叩きつけ(down)」と「横振り(side)」の2つに分けて、それぞれ同じ確率で抽選される）。rng=撃つ距離（short=近い時 / long=遠い時 / any=どちらでも）。軍人の普通の攻撃=short、調査員の普通の攻撃と槍=long
     if(c.soldier)c.gkAtks.push({id:'normal',kind:'dash',rng:'any',min:MV.DASH.MIN},{id:'normal',kind:'leap',rng:'any',min:MV.LEAP.MIN});   // 動く攻撃: 突進・跳躍叩きつけ（剣・槍・双剣・四刀流・斧すべて。min=これより近い時は出さない）
     c.spT=-1;c.spWait=1+Math.random()*1.5;
     for(const t of gkPickCombos(c.gkAttributes,(c.gkSpear||c.gkDual||c.gkQuad||c.gkAxe)?'spear':kd)){const ex={el:GKA.COMBO[t].el,atk:t,combo:true};c.gkExtra.push(ex);c.gkAtks.push({id:'extra',ex,rng:GKA.COMBO[t].rng||'any'})}   // 組み合わせ攻撃: 属性の組が条件を満たしたら、同じ条件の攻撃の中から1つ抽選して追加（各属性の攻撃とは別枠） // 第一属性は必ず確定させる（追加属性がない場合も含む）
@@ -3989,13 +4083,13 @@ function mageDeadStep(c,dt){                                         // 倒さ�
   return false;
 }
 function mageStep(c,dt){                                             // 魔法人1体の毎フレームの動き。薄れきったら true
-  if(c.dead!==undefined){if(c.gkRing)c.gkRing.visible=false;return mageDeadStep(c,dt)}
+  if(c.dead!==undefined){if(c.gkMeltOn)gkMeltRestore(c);if(c.gkRing)c.gkRing.visible=false;return mageDeadStep(c,dt)}
   const G=c.G;
   updateCreatureStatus(c,dt);
   if(c.dead!==undefined||c.hp<=0)return false;
   if(c.kv>.02){pwP.x=c.x+c.kx*c.kv*dt;pwP.z=c.z+c.kz*c.kv*dt;pwPush(pwP,.5*c.size,c.y+(c.jy||0));const h=pwH(c,pwP.x,pwP.z);   // 殴られた向きへ押される
     if(h>=WATER+.2&&waterDepthAt(pwP.x,pwP.z,h)<=.35&&Math.abs(h-c.y)<.5){c.x=pwP.x;c.z=pwP.z}c.kv*=Math.max(0,1-dt*6)}
-  if(c.frozen>0){c.frozen-=dt;if(c.frozen<=0){c.frozen=0;if(c.iceOld){c.mat.color.copy(c.iceOld);c.iceOld=null}}else return false}   // 凍っている間は止まる
+  if(c.frozen>0){if(c.gkMeltOn)gkMeltRestore(c);c.frozen-=dt;if(c.frozen<=0){c.frozen=0;if(c.iceOld){c.mat.color.copy(c.iceOld);c.iceOld=null}}else return false}   // 凍っている間は止まる
   c.t+=dt;if(c.bWait>0)c.bWait-=dt;
   const zd=STAT.dead?1e9:Math.hypot(player.x-c.x,player.z-c.z),seen=zd<MAGE.SIGHT;
   if(c.gk&&!c.hostile&&GK.AGGRO>0&&seen&&zd<GK.AGGRO)c.hostile=true;
@@ -4056,11 +4150,12 @@ function mageStep(c,dt){                                             // 魔法�
   if(G.legs){const GT=G.gait,ph=c.phase*(GT?GT.cad:1),am=Math.min(1,c.amp||0);for(let i=0;i<2;i++){const lg=G.legs[i],sw=Math.sin(ph+i*Math.PI),sd=i?1:-1;lg.rotation.x=-(GT?GT.sw:.7)*sw*am+(G.pose?G.pose.hip:0);lg.userData.kn.rotation.x=(GT?Math.max(0,Math.cos(ph+i*Math.PI)):Math.max(0,sw))*(GT?GT.kn:.95)*am+(G.pose?G.pose.knee:0);if(lg.userData.ft)lg.userData.ft.rotation.x=-(G.leanNode.rotation.x+lg.rotation.x+lg.userData.kn.rotation.x);if(GT){lg.rotation.z=sd*(GT.out+.04*Math.max(0,sw)*am);lg.rotation.y=sd*GT.toe;if(GT.kz)lg.userData.kn.rotation.z=-lg.rotation.z*GT.kz}}}   // 足の動き: 体格ごとの歩き方(G.gait)。bulky=足を広げてのしのし / lanky=足を近づけてゆっくり大股   // 足があるタイプ: 歩く時に左右の足を交互に振り、後ろへ戻る足はひざを曲げる
   c.upQ=(c.upQ||0)+(((c.spT>=0&&!c.fl&&!c.fz)?1:0)-(c.upQ||0))*Math.min(1,dt*((c.spT>=0&&!c.fl&&!c.fz)?6:12));   // 追加属性の攻撃の間は、両手（すべての腕）を頭上へ挙げる。飛ばしたら下ろす
   if(c.upQ>.01&&!c.gkStyle)for(const A of G.arms)A.rotation.x+=(-2.9-A.rotation.x)*c.upQ;
-  if(c.gkStyle)gkStylePose(c,dt,q);gkShieldStep(c,G,dt);   // ③ 素手: 手を広げる / 杖: 振り上げて振り下ろす（剣は軍人の姿勢のまま、剣を掲げる）
+  if(c.gkStyle)gkStylePose(c,dt,q);if(c.gkGreat)gkTwoHand(c);gkShieldStep(c,G,dt);   // ③ 素手: 手を広げる / 杖: 振り上げて振り下ろす（剣は軍人の姿勢のまま、剣を掲げる）
   G.head.position.y=G.headY+.04*Math.sin(t*1.9);G.head.rotation.y=.25*Math.sin(t*.8);G.head.rotation.x+=((stg?.6:0)-G.head.rotation.x)*Math.min(1,dt*6);G.eyes.visible=!stg||Math.sin(t*28)>-.2;   // 崩れている間は、頭が垂れて目がちらつく   // 頭はふわふわ浮く
   if(c.fzLift){c.fzLift+=((c.fz?c.fzLiftT:0)-c.fzLift)*Math.min(1,dt*8);if(!c.fz&&c.fzLift<.02)c.fzLift=0}   // 闇の乱舞で飛んでいる間は体が浮く
   c.g.position.set(c.x,c.y+(c.jy||0)+(c.fzLift||0),c.z);c.g.rotation.y=c.yaw-PEASANT_FLIP;if(c.fl)gkFlipApply(c);if(c.dr)gkDrillApply(c);
   if(c.soldier&&c.gk&&c.gkFirst)soldierGkFx(c,dt);   // 軍人ゲートキーパー: 剣の刃の色を属性色へ寄せる（オーラは出さない）
+  if(c.gk)gkMeltStep(c,dt);   // 回転・ジャンプ・素早い移動の間は、体が溶けて属性と一体化する（残像・粒）
   if(c.gk)gkMagicAura(c,dt);   // 全タイプ共通: 魔法を使っている最中だけ、その属性のオーラ（属性が二つなら二つ）
   if(c.soldier&&c.swElem)soldierFx(c,dt);
   return false;
@@ -4478,7 +4573,7 @@ function gkElemHit(el,c){                                            // 番人�
   else if(el==='c'){STAT.sta=Math.floor(STAT.sta/2);if(STAT.staHold!==undefined)STAT.staHold=Math.min(STAT.staHold,STAT.sta);if(typeof gameToast==='function')gameToast('支配されて体力が半分になった')}   // 支配: プレイヤーの体力（スタミナ。HPではない）が半分に減る
 }
 function gkAtkRange(c,a){const rr=gkAtkRange0(c,a);if(a.kind==='dash')return MV.DASH.R;if(a.kind==='leap')return MV.LEAP.R;if(a.kind==='throw')return GKSW.THROW.R;if(a.kind==='wave')return GKSW.WAVE.R;if(c.gkSwP&&a.id==='normal'&&c.soldier&&a.kind!=='spell'){if(c.gkSwP==='advance')return GKSW.START_ADV;if(c.gkSwP==='lunge')return GKSW.START_LUNGE}return rr}   // 剣の個性: 近づきながら攻撃・攻撃で近づく は、遠めから振り始める / 剣を投げる・斬撃波は遠距離
-function gkAtkRange0(c,a){return a.id==='extra'?(a.ex&&a.ex.atk==='summon'?GKA.SM.RANGE:GKA.RANGE):(c.soldier&&a.kind!=='spell')?(c.gkAxe?AXE.START:c.gkSpear?SPR.START:(c.gkDual||c.gkQuad)?DW.START:SSW.START):MAGE.RANGE}   // その攻撃が届く距離(m)
+function gkAtkRange0(c,a){return a.id==='extra'?(a.ex&&a.ex.atk==='summon'?GKA.SM.RANGE:GKA.RANGE):(c.soldier&&a.kind!=='spell')?(c.gkAxe?gswK(c).START:c.gkSpear?SPR.START:(c.gkDual||c.gkQuad)?DW.START:SSW.START):MAGE.RANGE}   // その攻撃が届く距離(m)
 function gkRangeInfo(c){                                              // 番人ごとの射程のまとめ（lm=遠くから撃てる攻撃の最大射程 / mx=全攻撃の最大射程）。毎フレーム配列を作らないよう、設定値が変わらない限り使い回す
   let I=c.gkRI;const a=GKA.RANGE,b=SSW.START,d=MAGE.RANGE;
   if(!I||I.a!==a||I.b!==b||I.d!==d){let lm=0,mx=0;for(const t of c.gkAtks){const r=gkAtkRange(c,t);t.r=r;if(r>mx)mx=r;if(t.rng==='long'&&r>lm)lm=r}I=c.gkRI={lm,mx,a,b,d}}
@@ -4523,7 +4618,7 @@ function gkAI(c,dt,face,zd){                                          // ゲー�
       if(c.gkSwP==='ambush'&&zd<=SSW.START*GKSW.AMB)return 0;   // 近づいたら攻撃: 追わずに待ち、間合いに入られたら素早く振る
       const lm=gkRangeInfo(c).lm;
       if(zd>=GKA.FAR&&lm>0){if(zd>lm*.8){c.tx=player.x;c.tz=player.z;return golemWalk(c,dt,MAGE.CHASE*c.spdK)}}   // 遠くから撃てる攻撃がある軍人は、遠すぎる時だけ近づく
-      else if(zd>(c.gkAxe?AXE.STOP:c.gkSpear?SPR.STOP:(c.gkDual||c.gkQuad)?DW.STOP:SSW.STOP)){c.tx=player.x;c.tz=player.z;return golemWalk(c,dt,MAGE.CHASE*c.spdK)}
+      else if(zd>(c.gkAxe?gswK(c).STOP:c.gkSpear?SPR.STOP:(c.gkDual||c.gkQuad)?DW.STOP:SSW.STOP)){c.tx=player.x;c.tz=player.z;return golemWalk(c,dt,MAGE.CHASE*c.spdK)}
     }else{
       if(zd<(c.inspector?GKA.FAR:MGD.KEEP)){                         // 近すぎる: 相手を向いたまま下がる（調査員は、遠い時に撃つ攻撃しか無いのでより遠くまで下がる）
         const sp=mageBack(c,dt);if(sp>0)return sp;
@@ -4583,7 +4678,7 @@ function gkShieldFx(t,melee){                                        // 盾で�
   if(t.shSmall&&!STAT.dead){const dx=player.x-t.x,dz=player.z-t.z,d=Math.hypot(dx,dz)||1;
     if(d<12){const k=melee?1:.5;player.kbx=dx/d;player.kbz=dz/d;player.kbv=Math.max(player.kbv||0,HURT_KB.SPEED*SHD.KB*k);player.stunT=Math.max(player.stunT||0,SHD.STUN*k)}}}
 function gkNormalStart(c,kind){gkHaloVolley(c);if(c.soldier&&(kind==='dash'||kind==='leap')){c.swT=0;c.swHit=false;c.swSnd=false;c.swSpd=1;c.swKind=kind;c.mvPh='wind';c.mvT=0;c.swRanged=null;c.rpMode=false;c.cmbLeft=0;return}                                           // 普通の攻撃を始める（軍人=剣を振る / 魔法人・調査員=魔法を溜め始める）
-  if(c.gkAxe&&kind!=='spell'){c.swT=0;c.swHit=false;c.swSnd=false;c.swSpd=1;c.swHit2=false;c.swSnd2=false;c.swRangedDone=false;c.swRanged=null;c.cmbLeft=0;if(kind==='throw'){c.swRanged='throw';c.swKind='adown'}else c.swKind='adown';return}   // 戦闘斧: 振り下ろし(adown) / 斧投げ(throw=振り下ろしの途中で斧を投げる)
+  if(c.gkAxe&&kind!=='spell'){c.swT=0;c.swHit=false;c.swSnd=false;c.swSpd=1;c.swHit2=false;c.swSnd2=false;c.swRangedDone=false;c.swRanged=null;c.cmbLeft=0;if(kind==='throw'){c.swRanged='throw';c.swKind='adown'}else if(kind==='gsweep')c.swKind='gsweep';else c.swKind='adown';return}   // 大剣: 叩き割り(adown) / 薙ぎ払い(gsweep) //  戦闘斧: 振り下ろし(adown) / 斧投げ(throw=振り下ろしの途中で斧を投げる)
   if(c.gkSpear&&(kind==='rapid'||kind==='thrust')){c.swT=0;c.swHit=false;c.swSnd=false;c.swKind='thrust';c.swSpd=1;c.rpMode=kind==='rapid';c.rpLeft=c.rpMode?SPR.RAPID_N-1:0;return}   // 槍: 突き(thrust) / 連続突き(rapid=続けて何回か突く)
   if((c.gkSpear||c.gkDual||c.gkQuad)&&kind!=='spell'){c.swSpd=1;c.swHit2=false;c.swHit3=false;c.swHit4=false;c.swSnd2=false}   // 槍型・双剣型: 剣型の連撃の速さを引き継がない
   if(c.soldier&&kind!=='spell'){let kk=kind;c.swRanged=null;c.swRangedDone=false;if(kk==='throw'){c.swRanged='throw';kk='down'}else if(kk==='wave'){c.swRanged='wave';kk=Math.random()<.5?'side':'down'}c.swT=0;c.swHit=false;c.swSnd=false;c.swKind=kk||(Math.random()<.5?'side':'down');sswComboRoll(c);if(c.swRanged==='throw')c.cmbLeft=0;if(c.gkSwP==='ambush')c.swSpd=1.35;return}   // 投げる・斬撃波は振りの途中で飛ばす（gkSwFire）。近づいたら攻撃=素早く振る   // 軍人: kind=叩きつけ('down')か横振り('side')
@@ -4637,7 +4732,7 @@ function gkSpearStep(c){                                             // 槍の�
 function gkSpRemove(n){scene.remove(gkSp[n].g);gkSp.splice(n,1)}
 const _gkA=new THREE.Vector3(),_gkO=new THREE.Vector3(),_gkT=new THREE.Vector3();
 function gkSpearTick(dt){                                            // 槍の毎フレームの動き（背後で待つ・飛ぶ・刺さる）。足元から噴き出す攻撃の動きも一緒に進める
-  gkSwTick(dt);gkEruptTick(dt);gkTornadoTick(dt);gkNovaTick(dt);gkVortexTick(dt);gkBlinkTick(dt);gkFanTick(dt);gkChainTick(dt);gkHaloTick(dt);gkFrenzyTick(dt);gkBlizzardTick(dt);gkCrystalWaveTick(dt);gkCboltTick(dt);gkDrillTick(dt);gkSummonTick(dt);gkHurlTick(dt);
+  gkGhostTick(dt);gkSwTick(dt);gkEruptTick(dt);gkTornadoTick(dt);gkNovaTick(dt);gkVortexTick(dt);gkBlinkTick(dt);gkFanTick(dt);gkChainTick(dt);gkHaloTick(dt);gkFrenzyTick(dt);gkBlizzardTick(dt);gkCrystalWaveTick(dt);gkCboltTick(dt);gkDrillTick(dt);gkSummonTick(dt);gkHurlTick(dt);
   if(!gkSp.length)return;
   const P=GKA.SP;
   for(let n=gkSp.length-1;n>=0;n--){
@@ -5231,7 +5326,7 @@ GKA.ARMOR_P=.25;   // キーパーが「全身鎧」の服になる確率（全�
 GKA.ROBE_P=.5;   // 体が細い・普通のキーパーが、調査員風のローブを着た見た目になる確率
 GKA.HATLESS_P=.4;   // 調査員のゲートキーパーが、帽子をかぶっていない見た目になる確率（帽子なしの時は、顔の目の位置が上がり、頭の飾りの光輪も低い位置につく）
 GKA.ARMS4_P=.35;   // ② キーパーの腕が4本になる確率（残り=2本）
-GKA.STYLE={bare:{ch:2,p:1},staff:{ch:.5,p:1},sword:{ch:1,p:1},spear:{ch:1,p:1},axe:{ch:1,p:1},dual:{ch:1,p:1},quad:{ch:1,p:1}};   // spear=槍型（近接は槍の突き・魔法は槍を突き上げる・1秒・光は穂先。剣型と同じ軍人型の仕組みで、前宙・闇の乱舞・召喚など剣の動きの攻撃は抽選されない）
+GKA.STYLE={bare:{ch:2,p:1},staff:{ch:.5,p:1},sword:{ch:1,p:1},spear:{ch:1,p:1},axe:{ch:1,p:1},great:{ch:1,p:1},dual:{ch:1,p:1},quad:{ch:1,p:1}};   // spear=槍型（近接は槍の突き・魔法は槍を突き上げる・1秒・光は穂先。剣型と同じ軍人型の仕組みで、前宙・闇の乱舞・召喚など剣の動きの攻撃は抽選されない）
    // ③ 攻撃方法: bare=素手型（手を広げて魔法・溜め2秒・光は頭上）/ staff=杖型（杖を上げて溜めて振り下ろす・溜め0.5秒・光は杖の先）/ sword=片手剣型（近接は剣・魔法は剣を掲げたまま・1秒・光は剣先）。ch=魔法の溜め時間(秒) / p=出る確率の重み
 GKA.SWING=.3;   // 杖を振り下ろす秒数
 GKA.ARMLESS_P=.4;   // 調査員のゲートキーパーが、腕が一つもない見た目になる確率（魔法の光は空中に浮いた位置から出る）
@@ -6817,6 +6912,28 @@ function makeGkSword(){   // ゲートキーパーの剣: 薄い刃（断面は�
   part(new THREE.BoxGeometry(.11,.028,.03),brass,.348);   // 刃の根元の金具（はばき）
   return g;
 }
+function makeGkGreat(){   // ゲートキーパーの大剣: 幅広で分厚い長い刃（断面は縁を削った六角形・中ほどに太い溝・根元から先端近くまで幅が変わらず、先で一気に尖る）＋太い一文字の鍔＋革を巻いた長めの握り＋大きな柄頭。柄頭が下端0、切っ先が上端1.5。横(x,z)だけ GSW.WIDE 倍に引き伸ばされるので、中の箱を 1/WIDE にして厚みが太く見えないようにしている（makeGkSword と同じ作り）
+  const g=new THREE.Group(),inn=new THREE.Group();inn.scale.set(1/GSW.WIDE,1,1/GSW.WIDE);g.add(inn);
+  const M=c=>new THREE.MeshLambertMaterial({color:c,flatShading:true,side:THREE.DoubleSide}),iron=M(0x6c737c),brass=M(0x9c8650),leather=M(0x32241a),grip=M(0x54402c);
+  const bm=new THREE.MeshLambertMaterial({color:0xffffff,vertexColors:true,flatShading:true,side:THREE.DoubleSide});   // 刃: 色は頂点ごと（縁=明るい鋼 / 面=鋼 / 溝=暗い鋼）。属性の色づけは材質の色が白なので、そのまま寄る
+  const ST=[.36,.5,.7,1.1,1.28,1.4,1.5],bw=y=>y>=1.5?0:y<=1.28?.082-.012*(y-.36)/.92:.07*(1.5-y)/.22,bt=y=>y>=1.5?0:y<=1.28?.017-.004*(y-.36)/.92:.013*(1.5-y)/.22,fw=y=>y<=.5?0:y<.7?(y-.5)/.2:y<=1.1?1:y<1.28?(1.28-y)/.18:0;   // 各高さの 半幅・半厚・溝の深さの割合
+  const ring=y=>{const w=bw(y),t=bt(y),tg=t*(1-.55*fw(y));return[[-w,0],[-.6*w,t],[-.2*w,t],[0,tg],[.2*w,t],[.6*w,t],[w,0],[.6*w,-t],[.2*w,-t],[0,-tg],[-.2*w,-t],[-.6*w,-t]]};
+  const SC=[0xeef2f6,0xbcc3cb,0x8e969f,0x8e969f,0xbcc3cb,0xeef2f6,0xeef2f6,0xbcc3cb,0x8e969f,0x8e969f,0xbcc3cb,0xeef2f6],pos=[],col=[],cc=new THREE.Color();
+  for(let s=0;s<ST.length-1;s++){const A=ring(ST[s]),B=ring(ST[s+1]);
+    for(let i=0;i<12;i++){const j=(i+1)%12,a=[A[i][0],ST[s],A[i][1]],b=[A[j][0],ST[s],A[j][1]],c=[B[i][0],ST[s+1],B[i][1]],d=[B[j][0],ST[s+1],B[j][1]];
+      pos.push(...a,...c,...b,...b,...c,...d);cc.set(SC[i]);for(let k=0;k<6;k++)col.push(cc.r,cc.g,cc.b)}}
+  const bg=new THREE.BufferGeometry();bg.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));bg.setAttribute('color',new THREE.Float32BufferAttribute(col,3));bg.computeVertexNormals();inn.add(new THREE.Mesh(bg,bm));
+  const part=(geo,mat,y)=>{const m=new THREE.Mesh(geo,mat);m.position.y=y;inn.add(m);return m};
+  const pom=new THREE.SphereGeometry(.06,7,5);pom.scale(1,.85,1);part(pom,iron,.05);   // 柄頭（大きく丸い）
+  part(new THREE.CylinderGeometry(.045,.045,.02,6),brass,.09);   // 柄頭と握りの間の真鍮の輪
+  part(new THREE.CylinderGeometry(.028,.032,.24,6),grip,.22);   // 握り（長め）
+  for(const y of[.14,.21,.28])part(new THREE.CylinderGeometry(.036,.036,.014,6),leather,y);   // 革の巻き目
+  part(new THREE.BoxGeometry(.09,.07,.06),iron,.37);   // 鍔の中心
+  part(new THREE.BoxGeometry(.4,.045,.05),iron,.37);   // 一文字の鍔（左右へまっすぐ）
+  for(const sx of[1,-1]){part(new THREE.BoxGeometry(.03,.09,.06),brass,.37).position.x=sx*.2}   // 鍔の両端の真鍮の留め
+  part(new THREE.BoxGeometry(.18,.034,.04),brass,.415);   // 刃の根元の金具（はばき）
+  return g;
+}
 function makeSword(){                                                 // 石の剣: 長い刃（真ん中に溝）＋横に広がる鍔(つば)＋木の握り＋丸い柄頭。柄頭が下端0、切っ先が上端1.5（斧より長い）、厚みはZ方向
   const g=new THREE.Group();
   const wood=new THREE.MeshLambertMaterial({color:0x8a6a44,flatShading:true});
@@ -8204,7 +8321,7 @@ function creaWallStart(now){
 }
 function creaSolids(){return window.__creaSolids||[]}               // 立っている結晶の当たり判定（円 [x,z,半径]）。updateCreation が毎フレーム更新
 function creaLiftStep(c,dt){                                       // 結晶に突き上げられた生き物: 空中を飛んで落ちる（jy=地面からの高さ / jv=上向きの速さ）。着地後は結晶の外へ押し出す
-  if(c.jv||c.jy>0){c.jv=(c.jv||0)-22*dt;c.jy=Math.max(0,(c.jy||0)+c.jv*dt);if(c.jy<=0){c.jy=0;c.jv=0}}
+  if(c.jv||c.jy>0){c.jv=(c.jv||0)-(c.jg||22)*dt;c.jy=Math.max(0,(c.jy||0)+c.jv*dt);if(c.jy<=0){c.jy=0;c.jv=0}}
   if(!(c.jy>0))for(const[qx,qz,qr] of creaSolids()){const ex=c.x-qx,ez=c.z-qz,d=Math.hypot(ex,ez),m=qr+.4*(c.size||1);if(d<m){if(d>1e-4){c.x+=ex/d*(m-d);c.z+=ez/d*(m-d)}else c.x+=m}}
 }
 let creaBeam=null;
