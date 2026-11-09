@@ -28,6 +28,23 @@
   html.rot #cr{bottom:calc(env(safe-area-inset-bottom,0px) + 12px + 48px + 6px + 8px + 6px + 216px + 8px);max-width:calc(var(--lw) - 16px);max-height:min(240px,max(90px,calc(var(--lh) - 310px - env(safe-area-inset-top,0px))))}
 </style>
 <script>
+// ---- 読み込みエラーを画面に出す（terrain.js / model_*.js が読めない・書き方の衝突があるとき、原因がそのまま見える）----
+(function(){
+  var box=null,lines=[];
+  function show(t){
+    lines.push(t);if(lines.length>6)lines.shift();
+    if(!box){box=document.createElement('div');box.style.cssText='position:fixed;left:6px;bottom:6px;right:6px;z-index:2147483647;background:rgba(160,0,0,.92);color:#fff;font:13px/1.4 monospace;padding:8px;white-space:pre-wrap;word-break:break-all;pointer-events:none';(document.body||document.documentElement).appendChild(box)}
+    box.textContent='【読み込みエラー】\n'+lines.join('\n');
+  }
+  window.addEventListener('error',function(ev){
+    var t=ev.target;
+    if(t&&t!==window&&t.tagName==='SCRIPT'){show('ファイルが読めない: '+(t.getAttribute('src')||''));return}
+    show((ev.message||'error')+(ev.filename?' ('+String(ev.filename).split('/').pop()+':'+ev.lineno+')':''));
+  },true);
+  window.addEventListener('unhandledrejection',function(ev){show('Promise: '+(ev.reason&&ev.reason.message||ev.reason))});
+})();
+</script>
+<script>
 /* ===== 最初から横向き =====
    縦向きの画面を、最初から時計回りに90度回して横向きとして表示する（画面の右側が下になる）
    スティック: 回した画面から見て 上=前進 / 下=後退 / 右=右へ横移動 / 左=左へ横移動  （STICK_RIGHT_FORWARD=true にすると「右=前進」になる） */
