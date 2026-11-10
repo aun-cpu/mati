@@ -28,23 +28,6 @@
   html.rot #cr{bottom:calc(env(safe-area-inset-bottom,0px) + 12px + 48px + 6px + 8px + 6px + 216px + 8px);max-width:calc(var(--lw) - 16px);max-height:min(240px,max(90px,calc(var(--lh) - 310px - env(safe-area-inset-top,0px))))}
 </style>
 <script>
-// ---- 読み込みエラーを画面に出す（terrain.js / model_*.js が読めない・書き方の衝突があるとき、原因がそのまま見える）----
-(function(){
-  var box=null,lines=[];
-  function show(t){
-    lines.push(t);if(lines.length>6)lines.shift();
-    if(!box){box=document.createElement('div');box.style.cssText='position:fixed;left:6px;bottom:6px;right:6px;z-index:2147483647;background:rgba(160,0,0,.92);color:#fff;font:13px/1.4 monospace;padding:8px;white-space:pre-wrap;word-break:break-all;pointer-events:none';(document.body||document.documentElement).appendChild(box)}
-    box.textContent='【読み込みエラー】\n'+lines.join('\n');
-  }
-  window.addEventListener('error',function(ev){
-    var t=ev.target;
-    if(t&&t!==window&&t.tagName==='SCRIPT'){show('ファイルが読めない: '+(t.getAttribute('src')||''));return}
-    show((ev.message||'error')+(ev.filename?' ('+String(ev.filename).split('/').pop()+':'+ev.lineno+')':''));
-  },true);
-  window.addEventListener('unhandledrejection',function(ev){show('Promise: '+(ev.reason&&ev.reason.message||ev.reason))});
-})();
-</script>
-<script>
 /* ===== 最初から横向き =====
    縦向きの画面を、最初から時計回りに90度回して横向きとして表示する（画面の右側が下になる）
    スティック: 回した画面から見て 上=前進 / 下=後退 / 右=右へ横移動 / 左=左へ横移動  （STICK_RIGHT_FORWARD=true にすると「右=前進」になる） */
@@ -293,6 +276,43 @@ window.STICK_RIGHT_FORWARD=false;
 <script type="text/plain" id="swingData">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</script>
 <script type="text/plain" id="slashData">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</script>
 <script>
+// ===== 荒いノイズの質感を世界全体にも広げる（魔法人の mageLookMat と同じ粒・汚れ・色の段数）=====
+// 魔法人・調査員・軍人・ゲートキーパーだけがざらざらで、地形・建物・木・岩・柵などがつるんとして浮いていたので、
+// THREE.MeshLambertMaterial / MeshPhongMaterial を「作った瞬間にこの質感が付く」版に差し替える（terrain.js の材質も自動で対象）。
+// 粒の細かさ・強さ・汚れ・色の段数は魔法人の MLOOK と共通（MLOOK を変えれば両方変わる）。くすみだけ世界用に少し弱くしてある。
+// 付かないもの: 透明・発光する材質（水・氷・ガラス）、MeshBasic（空・エフェクト）。外したい材質は mat.userData.noRough=true。
+// 全部オフ: ROUGH.ON=false（魔法人だけ戻すなら MLOOK.ON=false。MLOOK.ON=false だと世界も一緒に戻る）
+const ROUGH={ON:true,DARK:.94,DESAT:.1};   // DARK=全体の明るさの倍率 / DESAT=色のくすませ（魔法人は .88 / .16）
+(function(){
+  const base=()=>{try{return MLOOK}catch(e){return{ON:true,TEXEL:14,GRAIN:.13,BLOT:5,BLOTCH:.26,LEVELS:28}}};
+  const ok=m=>ROUGH.ON&&base().ON&&!m.transparent&&m.opacity>=1&&!(m.emissive&&m.emissive.getHex()!==0)&&!(m.userData&&m.userData.noRough);
+  const f=v=>Number(v).toFixed(3);
+  function rough(sh){
+    const L=base();
+    sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nvarying vec3 vRP;varying float vRD;')
+      .replace('#include <begin_vertex>','#include <begin_vertex>\nvec3 rlP=position;\n#ifdef USE_INSTANCING\nrlP=(instanceMatrix*vec4(position,1.0)).xyz;\n#endif\nvRP=rlP*vec3(length(modelMatrix[0].xyz),length(modelMatrix[1].xyz),length(modelMatrix[2].xyz));vRD=length((modelViewMatrix*vec4(rlP,1.0)).xyz);');   // 粒は物ごとに固定（動いても流れない）。拡大した箱でも粒の大きさは実寸のまま
+    sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\nvarying vec3 vRP;varying float vRD;\nfloat rlHash(vec3 p){p=fract(p*.1031);p+=dot(p,p.zyx+31.32);return fract((p.x+p.y)*p.z);}')
+      .replace('#include <color_fragment>',`#include <color_fragment>
+{float rlFg=1.0-smoothstep(10.0,26.0,vRD),rlFb=1.0-smoothstep(24.0,48.0,vRD);
+float rlG=rlHash(floor(vRP*${f(L.TEXEL)})),rlB=rlHash(floor(vRP*${f(L.BLOT)})+17.0);
+vec3 rlC=diffuseColor.rgb*(1.0+(rlG-.5)*2.0*${f(L.GRAIN)}*rlFg)*(1.0-step(.7,rlB)*${f(L.BLOTCH)}*rlFb);
+float rlL=dot(rlC,vec3(.299,.587,.114));
+rlC=mix(vec3(rlL),rlC,1.0-${f(ROUGH.DESAT)})*${f(ROUGH.DARK)};
+diffuseColor.rgb=floor(rlC*${f(L.LEVELS)}+.5)/${f(L.LEVELS)};}`);
+  }
+  function wrap(Base){
+    return class extends Base{
+      constructor(p){
+        super(p);
+        const m=this;let bc=null,ck=null;   // 元々の onBeforeCompile（triplanar など）を残したまま、この質感を後ろに足す
+        Object.defineProperty(m,'onBeforeCompile',{configurable:true,get(){return(sh,r)=>{if(bc)bc.call(m,sh,r);if(ok(m))rough(sh)}},set(v){bc=v}});
+        Object.defineProperty(m,'customProgramCacheKey',{configurable:true,get(){return()=>(ck?ck.call(m):(bc?bc.toString():''))+(ok(m)?'|rough':'')},set(v){ck=v}});
+      }
+    };
+  }
+  THREE.MeshLambertMaterial=wrap(THREE.MeshLambertMaterial);
+  THREE.MeshPhongMaterial=wrap(THREE.MeshPhongMaterial);
+})();
 // ===== 地形の生成は terrain.js に分離。terrain.js が無いときは何もない平面（下の TerrainFlat）になる =====
 function __terrainExport(o){Object.defineProperties(window,Object.getOwnPropertyDescriptors(o))}
 const TerrainFlat={
@@ -2959,10 +2979,10 @@ function gkGhostTick(dt){   // 残像: だんだん薄くなり、火などは�
   for(let n=gkGhosts.length-1;n>=0;n--){const e=gkGhosts[n];e.t+=dt;const u=e.t/e.life;if(u>=1){gkGhostKill(n);continue}
     const f=1-u,th=e.k==='thunder';e.mat.opacity=e.op*f*f*(th?.55+.45*Math.sin(e.t*70):1);
     e.mesh.position.y=e.y0+(e.k==='ice'?-.3:th?0:1.1)*e.t;e.mesh.scale.set(1-.18*u,th?1:1+.25*u,1-.18*u)}}
-function gkMeltPuff(k,n,hs,bx,by,bz,spread){   // 体から出る属性の粒（体の中のあちこちから出て、その場に残る＝動くと尾を引く）
+function gkMeltPuff(k,n,hs,bx,by,bz,spread,ys){   // 体から出る属性の粒（体の中のあちこちから出て、その場に残る＝動くと尾を引く）
   const col=gkMeltCol(k),M=gkFxMats(k,col),R=Math.random,fire=k==='fire'||k==='e',th=k==='thunder',ice=k==='ice',dk=k==='dark';
   for(let i=0;i<n;i++){
-    const a=R()*6.283,r=R()*spread*hs,x=bx+Math.cos(a)*r,y=by+(R()-.5)*1.9*hs,z=bz+Math.sin(a)*r,s=(.2+R()*.2)*hs;let vx=(R()-.5)*.8,vy=.3+R()*.6,vz=(R()-.5)*.8,life=.7+R()*.4;
+    const a=R()*6.283,r=R()*spread*hs,x=bx+Math.cos(a)*r,y=by+(R()-.5)*(ys===undefined?1.9:ys)*hs,z=bz+Math.sin(a)*r,s=(.2+R()*.2)*hs;let vx=(R()-.5)*.8,vy=.3+R()*.6,vz=(R()-.5)*.8,life=.7+R()*.4;
     if(fire){vy=1.2+R()*1.4;life=.6+R()*.4}else if(th){vx=(R()-.5)*4;vy=(R()-.5)*4;vz=(R()-.5)*4;life=.22+R()*.2}else if(ice){vy=-.5-R()*.4;life=.9+R()*.5}else if(dk){vy=.1+R()*.4;life=1+R()*.5}
     addFirePart(x,y,z,vx,vy,vz,life,s*(th?.8:1),M,ice?iceGeo:k==='b'?squareGeo:k==='c'?ringGeo:k==='e'?spikeGeo:undefined)}}
 function gkMeltStep(c,dt){   // 毎フレーム: 動きを見て「溶ける量」を決め、体の透け・光り・粒・残像を付ける
@@ -3515,7 +3535,7 @@ function gkSignature(c,G,kd){
     anim.push(t=>{rg.rotation.z=t*.25;g.position.y+=Math.sin(t*1.2)*.0008});
     c.gkSwHalo={g,el,r};
   };
-  if(R()<GKDECO.SWHALO_P)SWHALO();
+  if(R()<GKDECO.SWHALO_P)SWHALO();   // 背後の装飾は、剣の後輪か背後霊のどちらか（両方は付かない）
   c.gkAnim=anim;
 }
 function gkPickHeadShape(){const P=GKA.HEAD_P,r=Math.random();let a=0;for(const k in P){a+=P[k];if(r<a)return k}return'diamond'}   // キーパーの頭の形の抽選（残りは菱形）
@@ -3605,7 +3625,7 @@ function gkHumanParts(){   // 人間ベースを部位ごとの三角形に分�
       fy=Math.min(fy,P.getY(a),P.getY(b),P.getY(c))}
     const leg={},arm={};
     for(const sd of['L','R']){const S0=sd==='L'?'Left':'Right',hp=J(S0+'UpLeg'),kn=J(S0+'Leg'),ak=J(S0+'Foot'),[th,rest]=gkClipY(T['leg'+sd],kn[1]),[sh,ft]=gkClipY(rest,ak[1]);   // 太もも / すね / 足（ひざ・足首の高さで水平に切る）
-      leg[sd]={th,sh,ft,hp,kn,ak};arm[sd]={t:T['arm'+sd],S:J(S0+'Arm'),W:J(S0+'Hand')}}
+      leg[sd]={th,sh,ft,hp,kn,ak};arm[sd]={t:T['arm'+sd],S:J(S0+'Arm'),W:J(S0+'Hand'),E:(()=>{try{return J(S0+'ForeArm')}catch(e){return null}})()}}
     const hb={x0:1e9,x1:-1e9,y0:1e9,y1:-1e9,z0:1e9,z1:-1e9};   // 頭の大きさ
     for(const t of T.head)for(let k=0;k<3;k++){hb.x0=Math.min(hb.x0,t[k*3]);hb.x1=Math.max(hb.x1,t[k*3]);hb.y0=Math.min(hb.y0,t[k*3+1]);hb.y1=Math.max(hb.y1,t[k*3+1]);hb.z0=Math.min(hb.z0,t[k*3+2]);hb.z1=Math.max(hb.z1,t[k*3+2])}
     let cz=-1e9;for(const t of T.torso)for(let k=0;k<3;k++)if(t[k*3+1]>.2&&t[k*3+1]<.5)cz=Math.max(cz,t[k*3+2]);   // 胸の前の面の高さ（胸に付ける飾りの位置）
