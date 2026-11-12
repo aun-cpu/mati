@@ -142,6 +142,8 @@ window.STICK_RIGHT_FORWARD=false;
   body.mapview .act{display:none}
   #dismountBtn{display:none;bottom:calc(env(safe-area-inset-bottom,0px) + 28px + 70px + 16px + 84px + 14px);width:66px;height:66px;right:calc(env(safe-area-inset-right,0px) + 33px);background:rgba(255,170,60,.35)}   /* 馬から降りるボタン（乗っている間だけ出る） */
   body.riding #dismountBtn{display:block}
+  body.inplane #dismountBtn{display:block}
+  body.riding #jumpBtn{display:none}   /* 馬に乗っている間はジャンプできない */
   body.mapview #dismountBtn{display:none}
   #inv{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 12px);display:flex;gap:4px;padding:4px;border-radius:10px;background:rgba(0,0,0,.4);z-index:11;user-select:none;-webkit-user-select:none}
   #inv .slot{position:relative;margin:0;padding:0;width:48px;height:48px;border-radius:6px;border:2px solid rgba(255,255,255,.35);background:rgba(255,255,255,.12);color:#fff;font-size:11px;touch-action:none;-webkit-tap-highlight-color:transparent;overflow:hidden}
@@ -7356,7 +7358,8 @@ function updateChunks0(only){
   }
 }
 function resetWorld(){
-  if(typeof rideEnd==='function')rideEnd(true);   // 馬に乗っていたら、馬は片づける
+  if(typeof rideEnd==='function')rideEnd(true);
+  if(typeof planeClear==='function')planeClear();   // 馬に乗っていたら、馬は片づける
   terrainReset();clearGrass();   // 地形の生成のキャッシュ消去（terrain.js）
   for(const c of chunks.values()){scene.remove(c);disposeChunk(c)}
   chunks.clear();CUT.clear();AXE_TAKEN.clear();shakes.length=0;for(const d of drops)scene.remove(d.g);drops.length=0;
@@ -10201,7 +10204,8 @@ function updateCreatures(dt){
       msg.textContent='ゲートキーパーを出せませんでした（'+((e&&e.message)||e)+'）';console.error(e);
     });
   });
-  B('全部消す',()=>{for(const c of creatures){scene.remove(c.g);c.gm.dispose();c.mat.dispose()}msg.textContent=creatures.length?`${creatures.length}体を消した`:'いません';creatures.length=0});
+  B('飛行機',()=>{msg.textContent=planeSpawn()});   // 乗り物: 目の前に出る。長押しで乗る
+  B('全部消す',()=>{planeClear();for(const c of creatures){scene.remove(c.g);c.gm.dispose();c.mat.dispose()}msg.textContent=creatures.length?`${creatures.length}体を消した`:'いません';creatures.length=0});
   box.appendChild(msg);
   btn.onclick=()=>{dbgCreOpen=!dbgCreOpen;box.style.display=dbgCreOpen?'block':'none';if(dbgCreOpen&&document.exitPointerLock)document.exitPointerLock()};
 }
@@ -11750,7 +11754,7 @@ function eatDone(id){
     if(MINI.big||(e.target.closest&&e.target.closest('button,#inv,#mini,#dbgItems,#dbgCre')))return;
     for(const t of e.changedTouches){
       const o={x:t.clientX,y:t.clientY,t:performance.now(),moved:false,timer:0,eating:false};
-      o.timer=setTimeout(()=>{if(taps.get(t.identifier)===o&&!o.moved){if(rideTap(o.x,o.y)){o.rode=true;return}o.eating=eatStart();if(!o.eating&&!sweepStart()&&!fireNovaStart())o.aiming=launchAimStart()}},EAT_START_MS);   // 長押し: 食べ物なら食べる / 剣・短剣なら横なぎ   // 動かさずに長押ししたら食べ始める
+      o.timer=setTimeout(()=>{if(taps.get(t.identifier)===o&&!o.moved){if(rideTap(o.x,o.y)||planeTap(o.x,o.y)){o.rode=true;return}o.eating=eatStart();if(!o.eating&&!sweepStart()&&!fireNovaStart())o.aiming=launchAimStart()}},EAT_START_MS);   // 長押し: 食べ物なら食べる / 剣・短剣なら横なぎ   // 動かさずに長押ししたら食べ始める
       taps.set(t.identifier,o);
     }
   },{passive:true});
@@ -11767,7 +11771,7 @@ function eatDone(id){
   });
   addEventListener('touchcancel',e=>{for(const t of e.changedTouches){const o=taps.get(t.identifier);if(o){clearTimeout(o.timer);if(o.eating)eatCancel();if(o.aiming||LAUNCH.aim)launchCancel()}taps.delete(t.identifier)}});
   let mT=0;
-  addEventListener('mousedown',e=>{if(e.button===0&&document.pointerLockElement){if(smithTap(null,null))return;if(rideFind(null,null)){clearTimeout(mT);mT=setTimeout(()=>rideTap(null,null),450);return}swingAxe();clearTimeout(mT);mT=setTimeout(()=>{if(!eatStart()&&!sweepStart()&&!fireNovaStart())launchAimStart()},450)}});   // PC: 振りが終わるころから、押し続けると食べ始める
+  addEventListener('mousedown',e=>{if(e.button===0&&document.pointerLockElement){if(smithTap(null,null))return;if(rideFind(null,null)||planeFind(null,null)){clearTimeout(mT);mT=setTimeout(()=>{if(!rideTap(null,null))planeTap(null,null)},450);return}swingAxe();clearTimeout(mT);mT=setTimeout(()=>{if(!eatStart()&&!sweepStart()&&!fireNovaStart())launchAimStart()},450)}});   // PC: 振りが終わるころから、押し続けると食べ始める
   addEventListener('mouseup',()=>{clearTimeout(mT);eatCancel();launchGo()});
 }
 // ---------- 傭兵の兜（ドロップ品）: 傭兵が被っている3Dの兜と同じ形・同じ絵。傭兵を倒すと落とす。HELM_DROP_RATE=落とす確率(1=必ず) ----------
@@ -12131,7 +12135,7 @@ function addManaStones(n){STAT.stones+=n;stoneBar.firstChild.textContent=STAT.st
 const RIDE={h:null,up:0,bob:0,SPD:1.9,REACH:8,EYE:.8};   // SPD=乗っている間の速さの倍率（歩き7→約13m/秒・ダッシュ14→約27m/秒） / REACH=乗れる距離(m) / EYE=馬の背から目までの高さ(m。小さいほど目が高くなる)
 function rideTap(tx,ty){const h=rideFind(tx,ty);if(!h)return false;rideStart(h);return true}   // 長押し(PCは画面の中央を押し続ける)が馬に当たったら乗る。当たったらtrue
 function rideFind(tx,ty){                                           // 狙っている先の乗れる馬を返す（なければnull）
-  if(RIDE.h||STAT.dead||MINI.big||STAT.frozenT>0)return null;
+  if(RIDE.h||PLANE.p||STAT.dead||MINI.big||STAT.frozenT>0)return null;
   const sx=AIM.x,sy=AIM.y;AIM.x=tx;AIM.y=ty;const A=aimDir();AIM.x=sx;AIM.y=sy;
   let best=null,bt=1e9;
   for(const c of creatures){
@@ -12162,13 +12166,13 @@ function rideEnd(remove){                                            // 降り�
   if(creatures.indexOf(h)<0)creatures.push(h);                        // また生き物として動き出す（もう一度タップで乗れる）
   if(navigator.vibrate)navigator.vibrate(15);
 }
-function rideTick(dt,mv,running){                                    // 毎フレーム: 馬を足もとに合わせて走らせる・目の高さをなめらかに上げ下げする
+function rideTick(dt,mv,running,ix,iz){                                    // 毎フレーム: 馬を足もとに合わせて走らせる・目の高さをなめらかに上げ下げする
   let h=RIDE.h;if(h&&STAT.dead){rideEnd();h=null}
   RIDE.up+=((h?HORSE_BACK*h.size-RIDE.EYE:0)-RIDE.up)*Math.min(1,dt*7);
   if(!h){if(Math.abs(RIDE.up)<.005)RIDE.up=0;RIDE.bob=0;return}
   h.x=player.x;h.z=player.z;h.y=player.y-1.7;h.jy=0;                  // 地面の高さ（ジャンプ中は馬も一緒に跳ぶ）
   const sp=mv/Math.max(dt,1e-3),moving=mv>.002&&!player.air;
-  let df=pwYawTo(-Math.sin(player.yaw),-Math.cos(player.yaw))-h.yaw;df=Math.atan2(Math.sin(df),Math.cos(df));h.yaw+=df*Math.min(1,dt*10);
+  if(Math.hypot(ix,iz)>1e-6){let df=pwYawTo(ix,iz)-h.yaw;df=Math.atan2(Math.sin(df),Math.cos(df));h.yaw+=df*Math.min(1,dt*10)}   // 馬の正面はスティックを倒した向き（横・後ろ向きには走らない）。倒していない間は今の向きのまま
   h.run+=((moving&&sp>6?1:0)-(h.run||0))*Math.min(1,dt*8);            // 動いていれば駆け足
   h.amp+=((moving?1:0)-(h.amp||0))*Math.min(1,dt*6);
   if(moving)h.phase+=mv/(PW.STRIDE*(1+.7*h.run)*h.size*Math.max(1,sp/10))*6.283;   // 速くても足の運びは1秒に約2回までに抑える
@@ -12178,8 +12182,131 @@ function rideTick(dt,mv,running){                                    // 毎フ�
   h.g.position.set(h.x,h.y,h.z);h.g.rotation.y=h.yaw;
   RIDE.bob=(h.mesh.position.y-h.off)*h.size*.5;                       // 走ると目が少し上下する
 }
-bindHold(document.getElementById('dismountBtn'),()=>rideEnd(),()=>{});
-addEventListener('keydown',e=>{if(e.code==='KeyF'&&RIDE.h)rideEnd()});
+bindHold(document.getElementById('dismountBtn'),()=>{if(PLANE.p)planeEnd();else rideEnd()},()=>{});
+addEventListener('keydown',e=>{if(e.code==='KeyF'){if(PLANE.p)planeEnd();else if(RIDE.h)rideEnd()}});
+// ---------- 飛行機（ブレリオ型の単葉機）: 生物欄の「特殊」から出す。長押しで乗る。スティックを倒しながらダッシュを長押しすると走り出し（エンジン始動）、ダッシュをやめるとエンジン停止。一定の距離（RUN）を走ってから、スティックを前に倒す（またはジャンプ）と飛び上がる ----------
+// 飛んでいる間: スティックを前=上昇・後ろ=降下・左右=曲がる。エンジンが止まると滑空しながら降りる。地面に着くと走行に戻り、止まれば降りられる（降りるボタン / Fキー）。
+const PLANE={p:null,list:[],ox:0,oz:0,rx:0,ry:0,rz:0},PLANE_C={GND:28,FLY:34,ACC:7,DEC:6,RUN:80,TURN_GND:1.3,TURN_AIR:1.0,CLIMB:11,DIVE:16,SINK:6,GLIDE:16,STALL:15,EYE:2.55,CEIL:400,REACH:12};   // GND=地上の最高速(m/秒) / FLY=飛行中の最高速 / ACC・DEC=加速・減速 / RUN=離陸に必要な走行距離(m) / TURN=向きを変える速さ(rad/秒) / CLIMB・DIVE=上昇・降下の最大(m/秒) / SINK=エンジン停止中の降下 / GLIDE=エンジン停止中の最低速 / EYE=目の高さ(m)
+const PLANE_V=new THREE.Vector3(),PLANE_QP=new THREE.Quaternion(),PLANE_QL=new THREE.Quaternion(),PLANE_QY=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),Math.PI),PLANE_E=new THREE.Euler(0,0,0,'YXZ');
+const planeToastEl=document.createElement('div');planeToastEl.style.cssText='position:fixed;left:50%;top:22%;transform:translateX(-50%);max-width:86vw;padding:8px 14px;border-radius:10px;background:rgba(0,0,0,.65);color:#fff;font:bold 14px sans-serif;z-index:30;pointer-events:none;display:none;text-align:center;line-height:1.4;white-space:pre-line';document.body.appendChild(planeToastEl);
+let planeToastT=0;function planeToast(t,ms=3200){planeToastEl.textContent=t;planeToastEl.style.display='block';clearTimeout(planeToastT);planeToastT=setTimeout(()=>{planeToastEl.style.display='none'},ms)}
+function plBeam(g,a,b,t,mat){const len=Math.hypot(b[0]-a[0],b[1]-a[1],b[2]-a[2]),m=new THREE.Mesh(new THREE.BoxGeometry(t,t,len),mat);m.position.set((a[0]+b[0])/2,(a[1]+b[1])/2,(a[2]+b[2])/2);m.lookAt(b[0],b[1],b[2]);g.add(m);return m}
+function plWire(g,a,b,mat){g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(a[0],a[1],a[2]),new THREE.Vector3(b[0],b[1],b[2])]),mat))}
+function makePlane(){                                              // 機首が+Z。足もと(車輪の下)がy=0。翼幅7.8m・全長約7.5m
+  const g=new THREE.Group(),L=c=>new THREE.MeshLambertMaterial({color:c}),fab=new THREE.MeshLambertMaterial({color:0xe6d48e,side:THREE.DoubleSide}),rib=L(0xbfae6c),wood=L(0x5a2e1e),dark=L(0x2a1a12),blk=L(0x141414),met=L(0x666a70),wire=new THREE.LineBasicMaterial({color:0x2a2a2a});
+  const add=(geo,m,x,y,z,sh)=>{const o=new THREE.Mesh(geo,m);o.position.set(x,y,z);if(sh)o.castShadow=true;g.add(o);return o};
+  // 主翼
+  for(const sx of[-1,1]){add(new THREE.BoxGeometry(3.52,.1,2),fab,sx*2.14,1.9,.35,true);   // 操縦席の真ん中(幅1.2m)は翼を抜いて、上が見えるようにする
+    for(const z of[-.2,.4,1])add(new THREE.BoxGeometry(3.52,.012,.03),rib,sx*2.14,1.956,z)}
+  for(let i=-7;i<=7;i++)if(Math.abs(i)*.52>.45)add(new THREE.BoxGeometry(.03,.012,2),rib,i*.52,1.955,.35);
+  // 胴体（木の骨組み）
+  const zs=[1.2,.5,-.4,-1.4,-2.5,-3.6,-4.7],w=[.42,.4,.34,.27,.2,.13,.06],yb=[1.05,1.08,1.15,1.22,1.3,1.38,1.46],yt=[1.9,1.86,1.82,1.78,1.74,1.7,1.66];
+  const cr=i=>[[-w[i],yb[i],zs[i]],[w[i],yb[i],zs[i]],[w[i],yt[i],zs[i]],[-w[i],yt[i],zs[i]]];
+  for(let i=0;i<zs.length;i++){const c=cr(i);for(let k=0;k<4;k++)plBeam(g,c[k],c[(k+1)%4],.05,wood);if(i<zs.length-1){const d=cr(i+1);for(let k=0;k<4;k++)plBeam(g,c[k],d[k],.05,wood)}}
+  for(const sx of[-1,1])add(new THREE.BoxGeometry(.02,.62,1.9),fab,sx*.34,1.42,-.3);   // 胴体の布張り（操縦席の横）
+  add(new THREE.BoxGeometry(.42,.08,.42),dark,0,1.22,0);   // 座席
+  plBeam(g,[0,1.25,.35],[0,1.9,.55],.04,dark);               // 操縦桿
+  // エンジンとプロペラ
+  add(new THREE.BoxGeometry(.5,.4,.5),met,0,1.45,1.5,true);
+  for(const a of[-1.1,0,1.1]){const cy=add(new THREE.CylinderGeometry(.11,.11,.34,8),met,Math.sin(a)*.3,1.45+Math.cos(a)*.3,1.5,true);cy.rotation.z=-a}
+  const prop=new THREE.Group();prop.position.set(0,1.45,1.9);prop.rotation.z=.7;g.add(prop);
+  const bl=new THREE.Mesh(new THREE.BoxGeometry(.16,2.1,.04),wood);bl.castShadow=true;prop.add(bl);
+  const hub=new THREE.Mesh(new THREE.CylinderGeometry(.1,.1,.12,8),met);hub.rotation.x=Math.PI/2;prop.add(hub);
+  // 脚（前の2輪・尾輪）
+  for(const sx of[-1,1]){
+    plBeam(g,[sx*.62,.38,.9],[sx*.42,1.2,1.15],.05,wood);plBeam(g,[sx*.62,.38,.9],[sx*.42,1.2,.5],.05,wood);
+    const wh=add(new THREE.TorusGeometry(.35,.035,6,18),blk,sx*.66,.385,.9,true);wh.rotation.y=Math.PI/2;
+    const dk=add(new THREE.CircleGeometry(.34,14),new THREE.MeshLambertMaterial({color:0x444444,transparent:true,opacity:.3,side:THREE.DoubleSide}),sx*.66,.385,.9);dk.rotation.y=Math.PI/2;
+    plBeam(g,[sx*.5,1.3,.95],[sx*2.6,1.86,.45],.05,blk);   // 脚から翼へ渡す黒い支柱
+    plWire(g,[sx*.42,1.88,1.1],[sx*3.9,1.9,.7],wire);plWire(g,[0,2.9,.35],[sx*3.9,1.95,.35],wire);
+  }
+  plBeam(g,[-.66,.385,.9],[.66,.385,.9],.04,met);
+  plBeam(g,[-.45,1.95,.35],[0,2.9,.35],.04,wood);plBeam(g,[.45,1.95,.35],[0,2.9,.35],.04,wood);   // 翼の上の支柱
+  plWire(g,[0,2.9,.35],[0,1.7,-4.4],wire);
+  const tw=add(new THREE.TorusGeometry(.13,.025,6,12),blk,0,.15,-4.5,true);tw.rotation.y=Math.PI/2;plBeam(g,[0,1.45,-4.6],[0,.2,-4.5],.04,wood);
+  // 尾翼
+  add(new THREE.BoxGeometry(3.4,.05,1.1),fab,0,1.55,-4.8,true);
+  const fin=add(new THREE.BoxGeometry(.05,1.2,.9),fab,0,2.1,-5,true);
+  g.rotation.order='YXZ';
+  return{g,prop};
+}
+function planeSpawn(){                                             // 目の前に出す（最大3機。古いのから消える）
+  while(PLANE.list.length>=3){const o=PLANE.list.find(q=>q!==PLANE.p);if(!o)break;planeRemove(o)}
+  const x=player.x-Math.sin(player.yaw)*12,z=player.z-Math.cos(player.yaw)*12,m=makePlane(),h=player.yaw+Math.PI/2;
+  const P={g:m.g,prop:m.prop,x,z,h,alt:Math.max(heightAt(x,z),WATER),spd:0,on:false,fly:false,run:0,vy:0,pw:0,pv:0,rl:0,hint:false,snT:0};
+  m.g.position.set(x,P.alt,z);m.g.rotation.set(0,h,0);scene.add(m.g);PLANE.list.push(P);
+  return '飛行機を出した（長押しで乗る）';
+}
+function planeRemove(P){const i=PLANE.list.indexOf(P);if(i>=0)PLANE.list.splice(i,1);scene.remove(P.g);P.g.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material)o.material.dispose()})}
+function planeClear(){PLANE.ox=PLANE.oz=0;if(PLANE.p){PLANE.p=null;document.body.classList.remove('inplane')}for(const P of PLANE.list.slice())planeRemove(P)}
+function planeFind(tx,ty){                                          // 狙っている先の飛行機（なければnull）
+  if(PLANE.p||RIDE.h||STAT.dead||MINI.big||STAT.frozenT>0||!PLANE.list.length)return null;
+  const sx=AIM.x,sy=AIM.y;AIM.x=tx;AIM.y=ty;const A=aimDir();AIM.x=sx;AIM.y=sy;
+  let best=null,bt=1e9;
+  for(const P of PLANE.list){const ox=P.x-player.x,oy=P.alt+1.5-player.y,oz=P.z-player.z,t=ox*A[0]+oy*A[1]+oz*A[2];
+    if(t<0||t>PLANE_C.REACH||t>=bt)continue;if(Math.hypot(ox-A[0]*t,oy-A[1]*t,oz-A[2]*t)<3.6){best=P;bt=t}}
+  return best;
+}
+function planeTap(tx,ty){const P=planeFind(tx,ty);if(!P)return false;planeStart(P);return true}
+function planeStart(P){
+  PLANE.p=P;P.on=false;P.spd=0;P.run=0;P.fly=false;P.vy=0;P.hint=false;
+  player.x=P.x;player.z=P.z;player.gy=P.alt;player.air=false;player.vy=0;player.yaw=0;player.pitch=0;   // 機首の向きを向いて座る（player.yaw/pitch は、機首から見た視点の回転になる）
+  document.body.classList.add('inplane');
+  if(navigator.vibrate)navigator.vibrate(20);
+  planeToast('スティックを倒しながらダッシュを長押しで走り出す\nダッシュをやめるとエンジン停止');
+}
+function planeEnd(force){                                          // 降りる（走行中・飛行中は降りられない。force=死亡・作り直し）
+  const P=PLANE.p;if(!P)return;
+  if(!force&&(P.fly||P.spd>3)){planeToast('止まってから降りられる（ダッシュをやめる）');return}
+  PLANE.p=null;document.body.classList.remove('inplane');player.pitch=0;PLANE.ox=PLANE.oz=0;player.yaw=P.h+Math.PI;
+  P.on=false;P.spd=0;if(P.fly){P.fly=false;P.alt=Math.max(heightAt(P.x,P.z),WATER)}P.g.position.y=P.alt;
+  for(let i=0;i<36;i++)tryMove(Math.cos(P.h)*.1,-Math.sin(P.h)*.1);   // 機体の左へ3.6mずれて降りる
+  player.air=false;player.vy=0;player.y=player.gy+1.7;
+}
+function planeTick(dt,inp){
+  for(const Q of PLANE.list){if(Q===PLANE.p)continue;if(Q.pw>.05||Q.pw<-.05){Q.pw*=Math.max(0,1-dt*1.2);Q.prop.rotation.z+=Q.pw*dt}}   // 降りたあとはプロペラがだんだん止まる
+  const P=PLANE.p;if(!P)return;
+  if(STAT.dead){planeEnd(true);return}
+  const C=PLANE_C,s=-Math.sin(P.h),c=-Math.cos(P.h),ix=inp.fx*c+inp.fz*s,iz=-inp.fx*s+inp.fz*c,tilt=Math.hypot(ix,iz)>.15;
+  const dash=!!(keys.ShiftLeft||dashHeld||dashLock),jump=!!(jumpHeld||keys.Space);
+  if(!dash)P.on=false;else if(tilt)P.on=true;                      // スティック＋ダッシュ長押しで始動 / ダッシュをやめたらエンジン停止
+  let tr=0;
+  if(P.fly){const k=Math.abs(inp.fx)>.12?inp.fx:0;tr=-k*C.TURN_AIR*dt;P.h+=tr}   // 飛行中: スティックの左右で機体が曲がる
+  else if(P.on&&tilt){let df=pwYawTo(ix,iz)-P.h;df=Math.atan2(Math.sin(df),Math.cos(df));const rate=C.TURN_GND*Math.min(1,P.spd/5)*dt;tr=Math.max(-rate,Math.min(rate,df));P.h+=tr}
+  if(P.on)P.spd=P.fly?(P.spd<C.FLY?Math.min(C.FLY,P.spd+C.ACC*dt):P.spd):Math.min(C.GND,P.spd+C.ACC*dt);
+  else P.spd=P.fly?Math.max(C.GLIDE,P.spd-3*dt):Math.max(0,P.spd-C.DEC*dt);
+  if(!P.fly){if(P.on)P.run+=P.spd*dt;else P.run=0}
+  const can=!P.fly&&P.on&&P.run>=C.RUN&&P.spd>=C.GND*.9;
+  if(can&&!P.hint){P.hint=true;planeToast('離陸できる！ スティックを前に倒す')}
+  if(!P.on)P.hint=false;
+  if(can&&(inp.fz<-.5||jump)){P.fly=true;P.vy=6}   // 離陸: スティックを前に倒す（またはジャンプ）
+  if(!P.fly){                                                      // 地上: 歩く時と同じく木・壁には止められる
+    const want=P.spd*dt;
+    if(want>0){const ns=Math.max(1,Math.ceil(want/.1)),sx=Math.sin(P.h)*want/ns,sz=Math.cos(P.h)*want/ns,x0=player.x,z0=player.z;
+      for(let i=0;i<ns;i++){if(!tryMove(sx,sz)&&!tryMove(sx,0))tryMove(0,sz)}
+      if(Math.hypot(player.x-x0,player.z-z0)<want*.4)P.spd*=Math.max(0,1-dt*6)}   // ぶつかると失速
+    P.alt+=(player.gy-P.alt)*Math.min(1,dt*12);
+  }else{                                                           // 飛行
+    let want;const sp=Math.max(-1,Math.min(1,Math.abs(inp.fz)>.12?-inp.fz:0));   // スティック前=上昇・後ろ=降下
+    if(P.on){want=Math.max(-1,Math.min(1,sp))*(sp>0?C.CLIMB:C.DIVE);if(jump)want=Math.max(want,C.CLIMB);if(P.spd<C.STALL)want=Math.min(want,-3)}
+    else want=-C.SINK+Math.min(0,sp)*(C.DIVE-C.SINK);              // エンジン停止: 滑空しながら降りる
+    P.vy+=(want-P.vy)*Math.min(1,dt*1.5);if(P.alt>C.CEIL&&P.vy>0)P.vy=0;
+    P.alt+=P.vy*dt;player.x+=Math.sin(P.h)*P.spd*dt;player.z+=Math.cos(P.h)*P.spd*dt;
+    const gr=Math.max(heightAt(player.x,player.z),WATER);
+    if(P.alt<=gr){P.alt=gr;P.fly=false;P.vy=0;P.run=0;player.gy=gr}   // 着陸（そのまま地上の走行へ）
+  }
+  player.air=false;player.vy=0;player.wdep=0;
+  P.x=player.x;P.z=player.z;
+  const tp=P.fly?Math.max(-.5,Math.min(.5,P.vy/Math.max(P.spd,10))):0,tl=P.fly?Math.max(-.5,Math.min(.5,-tr/Math.max(dt,1e-3)*.5)):0;
+  P.pv+=(tp-P.pv)*Math.min(1,dt*4);P.rl+=(tl-P.rl)*Math.min(1,dt*4);
+  P.g.position.set(P.x,P.alt,P.z);P.g.rotation.set(-P.pv,P.h,P.rl);
+  {const v=PLANE_V.set(0,C.EYE,0).applyEuler(P.g.rotation);   // カメラは操縦席に固定: 機体の向き・傾きと同じ向きで、位置も機体に合わせて動く
+   PLANE.ox=v.x;PLANE.oz=v.z;player.y=P.alt+v.y;
+   PLANE_QP.setFromEuler(P.g.rotation).multiply(PLANE_QY).multiply(PLANE_QL.setFromEuler(PLANE_E.set(player.pitch,player.yaw,0)));
+   PLANE_E.setFromQuaternion(PLANE_QP,'YXZ');PLANE.rx=PLANE_E.x;PLANE.ry=PLANE_E.y;PLANE.rz=PLANE_E.z}
+  P.pw+=((P.on?45:0)-P.pw)*Math.min(1,dt*(P.on?2:.8));P.prop.rotation.z+=P.pw*dt;
+  if(P.on&&FOOT_ON&&actx&&actx.state==='running'){P.snT-=dt;if(P.snT<=0){P.snT=.07;try{sndTone(actx.currentTime,.08,55+P.spd*1.5,40,.12)}catch(_){}}}   // エンジンの音
+}
 function statsUpdate(dt,running){
   if(STAT.staFreeT>0){STAT.staFreeT=Math.max(0,STAT.staFreeT-dt);if(STAT.dead)STAT.staFreeT=0}
   const free=STAT.staFreeT>0;
@@ -12313,6 +12440,7 @@ function loop(now){
   if(STAT.frozenT>0){STAT.frozenT=Math.max(0,STAT.frozenT-dt);if(STAT.frozenT<=0)iceEl.style.opacity=0}   // 氷で固まっている間は動けない（時間がたつと解ける）
   let fx=(keys.KeyD?1:0)-(keys.KeyA?1:0)+(STICK_RIGHT_FORWARD?joy.y:joy.x),fz=(keys.KeyS?1:0)-(keys.KeyW?1:0)+(STICK_RIGHT_FORWARD?-joy.x:joy.y);   // 横向き: スティックを右に倒す=前進（下=右へ横移動）
   if(MINI.big||STAT.dead||STAT.frozenT>0){fx=0;fz=0}
+  const planeIn=PLANE.p?{fx,fz}:null;if(planeIn){fx=0;fz=0}   // 飛行機に乗っている間は、スティックは飛行機の操縦に使う（歩かない）
   const l=Math.hypot(fx,fz);if(l>1){fx/=l;fz/=l}
   const wdT=waterDepthAt(player.x,player.z,player.gy);player.wdep=(player.wdep||0)+(wdT-(player.wdep||0))*Math.min(1,dt*6);   // 水の深さ（なめらかに変える）
   const inWater=player.wdep>=.25;                                  // 水中（深さ25cm以上）: ダッシュもジャンプもできない
@@ -12326,9 +12454,9 @@ function loop(now){
     for(let i=0;i<kn;i++){if(!tryMove(kx,kz)&&!tryMove(kx,0))tryMove(0,kz)}player.kbv*=Math.max(0,1-dt*3.5)}else player.kbv=0;
   if(creaSolids().length)collide();   // 結晶の中に取り残されたら外へ押し出す
   if(MINI.big||STAT.dead||STAT.frozenT>0)jumpHeld=false;
-  if(!player.air&&player.y-(player.gy+1.7)>FALL_GAP){player.air=true;player.vy=0}   // 足もとの地面が遠ざかった（崖から出た）→ 落下
-  if((jumpHeld||keys.Space)&&!(STAT.frozenT>0)&&!inWater&&!player.air&&player.y<=player.gy+1.7+.25){player.air=true;player.vy=JUMPV}   // 地面にいるときだけ跳べる
-  if(player.air){                                                  // 空中: 重力で上がって落ちる。足元の地面（地形・遺跡の石材・屋根など）に届いたら着地
+  if(!player.air&&!PLANE.p&&player.y-(player.gy+1.7)>FALL_GAP){player.air=true;player.vy=0}   // 足もとの地面が遠ざかった（崖から出た）→ 落下
+  if((jumpHeld||keys.Space)&&!RIDE.h&&!PLANE.p&&!(STAT.frozenT>0)&&!inWater&&!player.air&&player.y<=player.gy+1.7+.25){player.air=true;player.vy=JUMPV}   // 地面にいるときだけ跳べる
+  if(player.air&&!PLANE.p){                                                  // 空中: 重力で上がって落ちる。足元の地面（地形・遺跡の石材・屋根など）に届いたら着地
     player.vy=Math.max(VMIN,player.vy-GRAV*dt);
     const dy=player.vy*dt,ns2=Math.max(1,Math.ceil(Math.abs(dy)/.25));   // 1回に0.25mより大きく動かさない（薄い足場のすり抜け防止）
     for(let i=0;i<ns2;i++){
@@ -12341,12 +12469,13 @@ function loop(now){
         break;
       }
     }
-  }else player.y+=(player.gy+1.7-player.y)*Math.min(1,dt*12);
-  if(player.air||STAT.dead||STAT.frozenT>0)footAcc=0;
+  }else if(!PLANE.p)player.y+=(player.gy+1.7-player.y)*Math.min(1,dt*12);
+  if(player.air||PLANE.p||STAT.dead||STAT.frozenT>0)footAcc=0;
   else if(FOOT_ON){try{const mv=Math.hypot(player.x-px0,player.z-pz0);if(mv>.001&&mv<1.5){footAcc+=mv;const st=running?FOOT.RUN:FOOT.STRIDE;if(footAcc>=st){footAcc%=st;footStep(footKind(),running?1:.7)}}}catch(_){}}   // 歩いた距離が1歩分たまるたびに鳴る（空中・止まっている間・ワープの瞬間は鳴らない。水の中は水音で鳴る）
-  rideTick(dt,Math.hypot(player.x-px0,player.z-pz0),running);   // 馬に乗っている間: 馬を足もとに合わせて走らせる・目の位置を馬の背の高さまで上げる
-  camera.position.set(player.x,player.y+RIDE.up+RIDE.bob-Math.min(.45,(player.wdep||0)*.9),player.z);   // 水に入ると目の高さが少し沈む（最大45cm）
-  camera.rotation.set(player.pitch,player.yaw,0);
+  planeTick(dt,planeIn);
+  rideTick(dt,Math.hypot(player.x-px0,player.z-pz0),running,mx,mz);   // 馬に乗っている間: 馬を足もとに合わせて走らせる・目の位置を馬の背の高さまで上げる
+  camera.position.set(player.x+PLANE.ox,player.y+RIDE.up+RIDE.bob-Math.min(.45,(player.wdep||0)*.9),player.z+PLANE.oz);   // 水に入ると目の高さが少し沈む（最大45cm）
+  if(PLANE.p)camera.rotation.set(PLANE.rx,PLANE.ry,PLANE.rz);else camera.rotation.set(player.pitch,player.yaw,0);   // 飛行機に乗っている間は、機体の向き・傾きに、自分で回した視点を足した向き
   if(shakeT>0){const a=shakeA*(shakeT/.25);camera.position.x+=(Math.random()-.5)*a;camera.position.y+=(Math.random()-.5)*a;camera.rotation.z=(Math.random()-.5)*a*.6}   // 弾いた時の画面の揺れ
   water.position.x=player.x;water.position.z=player.z;
   updateEnv(dt);updateSkyBodies();
