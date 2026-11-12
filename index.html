@@ -140,6 +140,9 @@ window.STICK_RIGHT_FORWARD=false;
   #jumpBtn{bottom:calc(env(safe-area-inset-bottom,0px) + 28px + 70px + 16px);width:84px;height:84px}
   #dashBtn{bottom:calc(env(safe-area-inset-bottom,0px) + 28px);width:70px;height:70px;right:calc(env(safe-area-inset-right,0px) + 31px)}
   body.mapview .act{display:none}
+  #dismountBtn{display:none;bottom:calc(env(safe-area-inset-bottom,0px) + 28px + 70px + 16px + 84px + 14px);width:66px;height:66px;right:calc(env(safe-area-inset-right,0px) + 33px);background:rgba(255,170,60,.35)}   /* 馬から降りるボタン（乗っている間だけ出る） */
+  body.riding #dismountBtn{display:block}
+  body.mapview #dismountBtn{display:none}
   #inv{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 12px);display:flex;gap:4px;padding:4px;border-radius:10px;background:rgba(0,0,0,.4);z-index:11;user-select:none;-webkit-user-select:none}
   #inv .slot{position:relative;margin:0;padding:0;width:48px;height:48px;border-radius:6px;border:2px solid rgba(255,255,255,.35);background:rgba(255,255,255,.12);color:#fff;font-size:11px;touch-action:none;-webkit-tap-highlight-color:transparent;overflow:hidden}
   #inv .slot.sel{border-color:#ffd24a;background:rgba(255,210,74,.28);box-shadow:0 0 0 1px #000 inset}
@@ -274,6 +277,7 @@ window.STICK_RIGHT_FORWARD=false;
 <div id="stick"><div id="knob"></div></div>
 <button class="act" id="dashBtn">ダッシュ<small>長押しで固定</small></button>
 <button class="act" id="jumpBtn">ジャンプ</button>
+<button class="act" id="dismountBtn">降りる</button>
 <div id="inv"></div>
 <div id="eq">
   <svg class="fig" viewBox="105 60 305 780" fill="none" stroke="#fff" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"><path d="M222 80Q315 78 317 128Q318 185 255 192Q205 195 196 150Q196 110 213 85M246 185V240M284 180V232M222 238L205 242Q175 280 150 350Q120 430 122 480Q125 520 150 545Q175 548 188 540Q190 520 190 497M325 230Q380 290 390 400Q395 480 388 540Q370 535 360 520Q355 500 365 485M222 532V785M333 535V790M215 748L148 790Q145 805 205 810M333 790L305 790Q290 810 295 825L335 826"/></svg>
@@ -1708,6 +1712,31 @@ function churchTreeBlock(x,z){                                   // 村の教会
   }
   return false;
 }
+// ---------- 村の家まわりを地面に合わせる共通関数（玄関の階段・木箱・樽）----------
+// 家の床(h.y0)は一番高い地面に合わせてあるので、斜面では玄関前の地面が低くなる。踏み段や箱を床の高さのまま置くと宙に浮き、地面まで伸ばすと柱のようになるため、ここで地面の高さを見て置く。
+function vgGround(h,lx,lz){const c=Math.cos(h.ry),s=Math.sin(h.ry);return heightAt(h.x+lx*c+lz*s,h.z-lx*s+lz*c)-h.y0}   // 局所(lx,lz)の地面の高さ（h.y0からの差）
+function vgGround2(h,cx,cz,sx,sz){let lo=1e9,hi=-1e9;for(const[a,e]of[[-1,-1],[1,-1],[-1,1],[1,1],[0,0]]){const g=vgGround(h,cx+a*sx/2,cz+e*sz/2);lo=Math.min(lo,g);hi=Math.max(hi,g)}return[lo,hi]}   // 足もとの [最も低い地面, 最も高い地面]
+function vgY0(h,mx){   // 家の床の高さ: 玄関の前の地面に合わせる（裏側の斜面は壁が最大1mまで埋まってよい）。mx=家の四隅と中心でいちばん高い地面
+  const c=Math.cos(h.ry),s=Math.sin(h.ry);let f=-1e9;
+  for(const lx of[-.45,0,.45]){const x=lx*h.w,z=h.d/2+.5;f=Math.max(f,heightAt(h.x+x*c+z*s,h.z-x*s+z*c))}
+  return Math.min(mx+.25,Math.max(f+.25,mx-1));
+}
+function vgProp(h,box,cx,lift,cz,sx,sy,sz,color,rf){   // 地面に置く木箱・樽。lift=0: 地面の上 / lift>0: 下の箱の上（rf=[cx,cz,sx,sz]で下の箱の足もとを指定）。高さは sy のまま、足もとだけ斜面ぶん埋める。戻り値=上面の高さ
+  const q=rf||[cx,cz,sx,sz],g=vgGround2(h,q[0],q[1],q[2],q[3]);let bot,top;
+  if(lift>0){bot=g[0]+lift;top=bot+sy}else{bot=g[0]-.05;top=Math.max(g[0]+sy,g[1]+.2)}
+  box(cx,(bot+top)/2,cz,sx,top-bot,sz,color);return top;
+}
+function vgStairs(h,box,dx,z0,wd,top0,color,ld){   // 玄関の階段: 一番上の踊り場（top0）から、地面に届くまで一段ずつ下りる。z0=玄関の壁の面、wd=幅、ld=踊り場の奥行き
+  ld=ld||.8;const TD=.34,zs=z0+.5+ld/2;let RH=.26,z=z0+.5-ld/2;
+  {let ok=false;for(let k=1;k<=16&&!ok;k++)if(top0-RH*k<=vgGround(h,dx,zs+TD*k)+.06)ok=true;   // 16段で地面に届かない急な斜面は、一段の高さを上げて届かせる（最大.5m）
+   if(!ok)RH=Math.min(.5,Math.max(RH,(top0-vgGround(h,dx,zs+TD*16))/15))}
+  for(let i=0;i<16;i++){
+    const dep=i?TD:ld,top=top0-RH*i,g=vgGround2(h,dx,z+dep/2,wd,dep);
+    if(i&&top<=g[0]+.06)break;                                   // 地面の高さまで下りたら終わり
+    const bot=Math.min(g[0]-.05,top-.16);
+    box(dx,(bot+top)/2,z+dep/2,wd,top-bot,dep,color);z+=dep;
+  }
+}
 function drawSmithy(h,quad){   // 鍛冶屋: 石の足元＋木組みの壁、スレートの切妻屋根、大きな石の煙突。左は閉じた作業小屋、右は手前が開いた作業場（炉・金床・水桶）、まわりに木箱と樽。玄関は局所+z側
   const c=Math.cos(h.ry),s=Math.sin(h.ry),T=(lx,ly,lz)=>[h.x+lx*c+lz*s,h.y0+ly,h.z-lx*s+lz*c];
   const w=h.w,d=h.d,hw=w/2,hd=d/2,b=.35,WH=4.4,H=b+WH,rh=Math.min(3.8,(hd+.7)*.95),X=hw+.5,Z=hd+.7;
@@ -1718,10 +1747,7 @@ function drawSmithy(h,quad){   // 鍛冶屋: 石の足元＋木組みの壁、�
     quad(V(0,0,0),V(0,0,1),V(0,1,1),V(0,1,0),color,R);quad(V(1,0,0),V(1,0,1),V(1,1,1),V(1,1,0),color,R);
     quad(V(0,1,0),V(1,1,0),V(1,1,1),V(0,1,1),color,R);quad(V(0,0,0),V(1,0,0),V(1,0,1),V(0,0,1),color,R);
   };
-  const gb=(cx,cy,cz,sx,sy,sz,color)=>{   // 地面の高さまで脚を伸ばした箱（斜面で浮かない）
-    let g=1e9;for(const[a,e]of[[-1,-1],[1,-1],[-1,1],[1,1],[0,0]]){const q=T(cx+a*sx/2,0,cz+e*sz/2);g=Math.min(g,heightAt(q[0],q[2]))}
-    const bot=Math.min(cy-sy/2,g-h.y0-.05),top=cy+sy/2;box(cx,(bot+top)/2,cz,sx,top-bot,sz,color);
-  };
+  const P=(cx,lift,cz,sx,sy,sz,color,rf)=>vgProp(h,box,cx,lift,cz,sx,sy,sz,color,rf);   // 地面に置く木箱・樽（斜面でも浮かず、柱のように伸びない）
   const hf=Math.max(.3,h.y0-(h.ymin===undefined?h.y0:h.ymin)+.5);
   box(0,(b-hf)/2,0,w+.3,hf+b,d+.3,STONE);                               // 石の基礎（段差を埋める）
   const wall=(cx,cz,sx,sz)=>{box(cx,b+1.2,cz,sx,2.4,sz,STONE);box(cx,b+3.4,cz,sx,2.0,sz,PLASTER)};   // 下は石・上は漆喰
@@ -1732,7 +1758,7 @@ function drawSmithy(h,quad){   // 鍛冶屋: 石の足元＋木組みの壁、�
   box(0,b+2.45,-hd+.2,w+.1,.26,.5,WOOD);box(-hw+.2,b+2.45,0,.5,.26,d+.1,WOOD);box(hw-.2,b+2.45,0,.5,.26,d+.1,WOOD);box((-hw+xs)/2,b+2.45,hd-.2,xs+hw,.26,.5,WOOD);   // 腰の梁
   box(0,H-.12,-hd+.2,w+.1,.26,.5,WOOD);box((-hw+xs)/2,H-.12,hd-.2,xs+hw,.26,.5,WOOD);box((xs+hw)/2,H-.15,hd-.2,hw-xs,.34,.34,WOOD);   // 軒の梁（開いた側は太い横梁）
   box((xs+hw)/2,b+.03,0,hw-xs-.5,.05,d-.5,0x4a4640);                     // 作業場の床（暗い石畳）
-  const dx0=-hw+w*.2;box(dx0,b+1.05,hd+.04,1.25,2.1,.1,0x4a2e1a);gb(dx0,b+.04,hd+.5,1.7,.16,.8,STONE);   // 小屋の玄関と踏み段
+  const dx0=-hw+w*.2;box(dx0,b+1.05,hd+.04,1.25,2.1,.1,0x4a2e1a);vgStairs(h,box,dx0,hd,1.7,b+.12,STONE);   // 小屋の玄関と階段（地面まで下りる）
   const win=(x,y)=>{box(x,y,hd+.04,1.1,1.2,.08,0xf0ece0);box(x,y,hd+.07,.9,1.0,.1,0x2a3544)};
   win(-hw+w*.36,b+3.5);
   for(const sg of[-1,1])box(sg*(hw+.03),b+3.5,0,.08,1.2,1.1,0xf0ece0);   // 側面の窓枠
@@ -1742,15 +1768,50 @@ function drawSmithy(h,quad){   // 鍛冶屋: 石の足元＋木組みの壁、�
   const chTop=H+rh+1.8;box(hx,(b+chTop)/2,-hd+.8,1.9,chTop-b,1.9,0x7d7a72);box(hx,chTop+.12,-hd+.8,2.3,.26,2.3,0x55555a);box(hx,chTop-1.4,-hd+.8,2.1,.12,2.1,DSTONE);   // 煙突
   const ax=hx-2.6;box(ax,b+.3,.2,.75,.6,.75,0x6b4a30);box(ax,b+.74,.2,.95,.3,.38,0x2c2c30);box(ax+.62,b+.77,.2,.42,.16,.22,0x2c2c30);   // 金床と切り株
   box(xs+1.1,b+.45,-hd+.9,.95,.9,.95,0x5a4026);box(xs+1.1,b+.91,-hd+.9,.8,.04,.8,0x2a3a4a);   // 水桶
-  gb(hw-.8,b+.4,hd+1.0,.9,.8,.9,0x8a6a40);gb(hw-.4,b+.3,hd+2.1,.8,.6,.8,0x7d5c38);box(hw-.9,b+1.15,hd+1.0,.8,.7,.8,0x8f7044);gb(hw-2.0,b+.45,hd+1.0,.8,.9,.8,0x6b4a30);   // 木箱と樽
+  P(hw-.8,0,hd+1.0,.9,.8,.9,0x8a6a40);P(hw-.4,0,hd+2.1,.8,.6,.8,0x7d5c38);P(hw-.9,.8,hd+1.0,.8,.7,.8,0x8f7044,[hw-.8,hd+1.0,.9,.9]);P(hw-2.0,0,hd+1.0,.8,.9,.8,0x6b4a30);   // 木箱と樽
   const bands=[0x4f5560,0x474c56,0x565c68,0x4a505a,0x535966];            // スレート瓦の段（色を少しずつ変える）
   const ref=T(0,H-1,0),nb=5;
   for(const sg of[1,-1])for(let j=0;j<nb;j++){const t0=j/nb,t1=(j+1)/nb,y0=H+rh*t0,y1=H+rh*t1,z0=sg*Z*(1-t0),z1=sg*Z*(1-t1);quad(T(-X,y0,z0),T(X,y0,z0),T(X,y1,z1),T(-X,y1,z1),bands[(j+(sg>0?0:2))%bands.length],ref)}
   box(0,H+rh+.05,0,2*X+.1,.14,.4,0x3a3f48);                              // 棟
   for(const sx of[-1,1]){const a=T(sx*hw,H,-hd),bb=T(sx*hw,H,hd),t=T(sx*hw,H+rh,0);quad(a,bb,t,t,PLASTER,ref)}   // 切妻の壁（三角）
 }
+function drawMarket(h,quad){   // 市場: 色付きの縞のテント屋根（奥が高く手前が低い・手前にひらひらの縁）、板張りの台の上に奥の棚と手前のカウンター（商品が並ぶ）、カウンターの奥に店の人が立つ。手前の地面に商品の台・樽・木箱。玄関(客側)は局所+z側
+  const c=Math.cos(h.ry),s=Math.sin(h.ry),T=(lx,ly,lz)=>[h.x+lx*c+lz*s,h.y0+ly,h.z-lx*s+lz*c];
+  const w=h.w,d=h.d,hw=w/2,hd=d/2,b=.35,sm=!!h.stall;   // sm=家と家の隙間に置く小さい売店（屋根を低く・カウンターを前寄り・棚は奥に薄く・手前の台は無し）
+  const rr=mulberry(hash(Math.round(h.x*7),Math.round(h.z*7),SEED+8181)*1e9|0);
+  const PAL=[[0xc0392b,0xf3ead2],[0x2e6fb0,0xf3ead2],[0x2f8f4e,0xf3ead2],[0xd9a21b,0xf3ead2],[0x8e44ad,0xf3ead2],[0xd35400,0xf3ead2]];
+  const pal=PAL[Math.floor(rr()*PAL.length)],WOOD=0x5a3d26,PLANK=0x9a7b50,DPLANK=0x7d5c38,GOODS=[0xc0392b,0xc89b5a,0xe8c547,0x3a6ea5,0x6b8e3a,0xd9d2c0,0x8b5a2b,0x9b59b6];
+  const box=(cx,cy,cz,sx,sy,sz,color)=>{
+    const V=(i,j,k)=>T(cx+(i-.5)*sx,cy+(j-.5)*sy,cz+(k-.5)*sz),R=T(cx,cy,cz);
+    quad(V(0,0,0),V(1,0,0),V(1,1,0),V(0,1,0),color,R);quad(V(0,0,1),V(1,0,1),V(1,1,1),V(0,1,1),color,R);
+    quad(V(0,0,0),V(0,0,1),V(0,1,1),V(0,1,0),color,R);quad(V(1,0,0),V(1,0,1),V(1,1,1),V(1,1,0),color,R);
+    quad(V(0,1,0),V(1,1,0),V(1,1,1),V(0,1,1),color,R);quad(V(0,0,0),V(1,0,0),V(1,0,1),V(0,0,1),color,R);
+  };
+  const P=(cx,lift,cz,sx,sy,sz,color,rf)=>vgProp(h,box,cx,lift,cz,sx,sy,sz,color,rf);   // 地面に置く木箱・樽（斜面でも浮かず、柱のように伸びない）
+  const goods=(x0,x1,y,z,n)=>{for(let i=0;i<n;i++){const x=x0+(x1-x0)*(i+.5)/n+(rr()-.5)*.2,sz=.3+rr()*.3,hh=.25+rr()*.3;box(x,y+hh/2,z+(rr()-.5)*.2,sz,hh,sz,GOODS[Math.floor(rr()*GOODS.length)])}};   // 商品（色とりどりの小さな箱・袋・果物）
+  const hf=Math.max(.3,h.y0-(h.ymin===undefined?h.y0:h.ymin)+.5);
+  box(0,(b-hf)/2,0,w,hf+b,d,DPLANK);box(0,b+.02,0,w-.3,.06,d-.3,PLANK);   // 板張りの台（段差を埋める）
+  const yB=b+(sm?3.3:4.2),yF=b+(sm?2.8:3.3),zB=-hd-.3,zF=hd+.7;                            // テント屋根: 奥(zB)が高く手前(zF)が低い
+  for(const sg of[-1,1]){box(sg*hw,b+yF/2-.2,hd,.3,yF-.1,.3,WOOD);box(sg*hw,b+(yB-.35)/2+.1,-hd,.3,yB-.35,.3,WOOD)}   // 柱（手前2本・奥2本）
+  box(0,b+yF-.45,hd,w,.2,.25,WOOD);                                      // 手前の梁
+  box(0,b+(yB-b-.2)/2,-hd+.1,w,yB-b-.2,.2,PLANK);                                    // 奥の板壁
+  for(const sg of[-1,1])box(sg*(hw-.05),b+(yF-b-.2)/2,-hd+d*.275,.1,yF-b-.2,d*.55,0xe9dfc4);   // 側面の布（奥半分）
+  const ns=Math.max(6,Math.round(w/1.1)/2|0)*2,xa=-hw-.4,sw=(w+.8)/ns;
+  for(let i=0;i<ns;i++){const x0=xa+i*sw,x1=x0+sw,col=i%2?pal[1]:pal[0];
+    quad(T(x0,yB,zB),T(x1,yB,zB),T(x1,yF,zF),T(x0,yF,zF),col,T((x0+x1)/2,b+1,0));                 // 屋根の上面
+    quad(T(x0,yB-.05,zB),T(x1,yB-.05,zB),T(x1,yF-.05,zF),T(x0,yF-.05,zF),i%2?0xd8cfb8:0xa8483c,T((x0+x1)/2,b+9,0));   // 裏面（中から見える）
+    const dh=i%2?.55:.35;quad(T(x0,yF-dh,zF),T(x1,yF-dh,zF),T(x1,yF,zF),T(x0,yF,zF),col,T((x0+x1)/2,yF-.3,0));}     // 手前のひらひらした縁
+  const z0=hd-(sm?1.0:2.4);                                               // カウンター
+  box(0,b+.55,z0,w-1.6,1.1,.9,DPLANK);box(0,b+1.12,z0,w-1.5,.08,1.0,PLANK);goods(-hw+1.0,hw-1.0,b+1.16,z0,Math.round(w*.8));
+  for(const yy of(sm?[1.3,2.2]:[1.3,2.4])){box(0,b+yy,-hd+.6,w-.9,.08,.6,PLANK);goods(-hw+.8,hw-.8,b+yy+.04,-hd+.6,Math.round(w*.9))}   // 奥の棚（2段）に商品
+  for(const x of[-hw+.45,0,hw-.45])box(x,b+1.5,-hd+.6,.12,3.0,.6,WOOD);   // 棚の支え
+  box(0,b+yF-.3-(sm?.1:0),hd+.15,sm?1.3:1.7,.5,.08,pal[0]);box(0,b+yF-.3-(sm?.1:0),hd+.19,sm?1.0:1.4,.3,.06,pal[1]);   // 手前の看板
+  if(!sm)for(const sg of[-1,1]){const x=sg*w*.27,z=hd+1.3,t=P(x,0,z,1.9,.9,.9,PLANK);box(x,t+.03,z,2.0,.06,1.0,DPLANK);goods(x-.8,x+.8,t+.06,z,3)}   // 手前の商品台
+  P(hw-.3,0,hd+1.3,.8,1.0,.8,0x6b4a30);P(-hw+.3,0,hd+1.3,.8,.7,.8,0x8a6a40);P(-hw+.3,.7,hd+1.3,.6,.6,.6,0x7d5c38,[-hw+.3,hd+1.3,.8,.8]);   // 樽と木箱
+}
 function drawVillageHouse(h,quad){
   if(h.smith){drawSmithy(h,quad);return}   // 鍛冶屋
+  if(h.market){drawMarket(h,quad);return}   // 市場
   if(h.town){                                                       // 西洋の王都・公国の街と同じ家（石の1階＋木骨の上階・屋根窓・日よけ・鎧戸など）を村にも混ぜる（約35%）
     const c=Math.cos(h.ry),s=Math.sin(h.ry),T=(lx,ly,lz)=>[h.x+lx*c+lz*s,h.y0+ly,h.z-lx*s+lz*c],hw=h.w/2+.1,hd=h.d/2+.1,fh=Math.max(.3,h.y0-(h.ymin===undefined?h.y0:h.ymin)+.5),R=T(0,-fh/2,0),V=(i,j,k)=>T(i?hw:-hw,j?.1:-fh,k?hd:-hd);
     quad(V(0,0,0),V(1,0,0),V(1,1,0),V(0,1,0),0x8d8a82,R);quad(V(0,0,1),V(1,0,1),V(1,1,1),V(0,1,1),0x8d8a82,R);quad(V(0,0,0),V(0,0,1),V(0,1,1),V(0,1,0),0x8d8a82,R);quad(V(1,0,0),V(1,0,1),V(1,1,1),V(1,1,0),0x8d8a82,R);   // 斜面の下の石の基礎
@@ -1771,7 +1832,7 @@ function drawVillageHouse(h,quad){
     box(0,3.1,0,h.w+.14,.3,h.d+.14,0x5a3d26);box(0,W,0,h.w+.14,.25,h.d+.14,0x5a3d26);   // 木骨: 腰の梁・軒の梁
     for(const sx of[-1,1])for(const sz of[-1,1])box(sx*h.w/2,W/2,sz*h.d/2,.32,W,.32,0x5a3d26);   // 角の柱
     const fz=h.d/2,dx0=h.dr*h.w*.27;
-    box(dx0,1.05,fz+.04,1.1,2.1,.1,0x4a2e1a);box(dx0,.08,fz+.5,1.5,.16,.8,0x8d8a82);               // 玄関と踏み段
+    box(dx0,1.05,fz+.04,1.1,2.1,.1,0x4a2e1a);vgStairs(h,box,dx0,fz,1.5,.16,0x8d8a82);               // 玄関と踏み段
     const win=(x,y,z,ax)=>{ax?(box(x,y,z,.08,1.5,1.2,0xf0ece0),box(x+Math.sign(x)*.03,y,z,.1,1.25,.95,0x2a3544)):(box(x,y,z,1.2,1.5,.08,0xf0ece0),box(x,y,z+Math.sign(z)*.03,.95,1.25,.1,0x2a3544))};
     if(h.w>9){const xs=[];for(let k=-3;k<=3;k++){const x=k*3.3;if(Math.abs(x)<h.w/2-1.2)xs.push(x)}                     // 幅の広い家: 窓を3.3mおきに並べる
       for(const x of xs){if(Math.abs(x-dx0)>1.6)win(x,1.8,fz+.04,false);win(x,4.6,fz+.04,false);for(const y of[1.8,4.6])win(x,y,-fz-.04,false)}
@@ -1841,12 +1902,13 @@ function buildVillage(v){
         if((v.lines||L.inl)&&(!habK(h.x,h.z,v.k)||hitField(h.cn,v.fields||[])))continue;   // 川沿いの村: 居住可能地の中で、畑には建てない（地形は平らにしないので、段差の小さい所だけ）
         for(const o of houses)if(overlap(h,o)){ok=false;break}
         if(!ok)continue;
-        h.y0=mx+.25;h.ymin=mn;houses.push(h);
+        h.y0=vgY0(h,mx);h.ymin=mn;houses.push(h);
       }
     }
   }
-  {                                                                    // 鍛冶屋を必ず1軒: 道ぞいの空き（家と家のすき間）に置く。空きが無ければ、中心にいちばん近い家を鍛冶屋にする
-    const sr=mulberry(hash(Math.round(v.cx),Math.round(v.cz),SEED+7373)*1e9|0);
+  const KINDS=['smith','market','stall','stall','stall'];              // 鍛冶屋1・市場1・小さい売店3（売店は家と家の隙間に、ランダムな場所へ）
+  for(let ki=0;ki<KINDS.length;ki++){const KIND=KINDS[ki];                                // 鍛冶屋を必ず1軒、続けて市場も1軒（市場は鍛冶屋のあとに、同じ要領で道ぞいの空きに置く）: 道ぞいの空き（家と家のすき間）に置く。空きが無ければ、中心にいちばん近い家を鍛冶屋にする
+    const sr=mulberry(hash(Math.round(v.cx),Math.round(v.cz),SEED+7373+ki*18)*1e9|0);
     const fits=(h,L)=>{
       h.cn=cornersOf(h);
       for(const q of h.cn)if(rd(q[0],q[1])<2.5||riverEff(q[0],q[1])<3)return false;
@@ -1859,25 +1921,30 @@ function buildVillage(v){
       if(mx-mn>3.5||mn<WATER+1.5)return false;
       if((v.lines||L.inl)&&(!habK(h.x,h.z,v.k)||hitField(h.cn,v.fields||[])))return false;
       for(const o of houses)if(overlap(h,o))return false;
-      h.y0=mx+.25;h.ymin=mn;return true;
+      h.y0=vgY0(h,mx);h.ymin=mn;return true;
     };
-    let best=null,bd=1e9;
+    let best=null,bd=1e9;const cands=[];
     for(const L of lines){
       const dx=L.b[0]-L.a[0],dz=L.b[1]-L.a[1],len=Math.hypot(dx,dz);if(len<8)continue;
       const ux=dx/len,uz=dz/len;
       for(const sd of(L.main?[L.main]:[-1,1])){
         const nx=-uz*sd,nz=ux*sd;
         for(let p=L.cross?7:2.5;;p+=1.5){
-          const w=10.5+sr()*1.5,d=8.5+sr(),off=3.1+d/2;
+          const w=KIND==='smith'?10.5+sr()*1.5:KIND==='market'?9+sr()*1.5:4.4+sr(),d=KIND==='smith'?8.5+sr():KIND==='market'?7.5+sr():3.6+sr()*.6,off=3.1+d/2;
           if(p+w>len-(L.cross?7:1.5))break;
-          const h={x:L.a[0]+ux*(p+w/2)+nx*off,z:L.a[1]+uz*(p+w/2)+nz*off,ry:Math.atan2(-nx,-nz),w,d,wc:0xe0cfae,rc:0x4f5560,ch:1,dr:1,smith:true};
+          const h={x:L.a[0]+ux*(p+w/2)+nx*off,z:L.a[1]+uz*(p+w/2)+nz*off,ry:Math.atan2(-nx,-nz),w,d,wc:0xe0cfae,rc:0x4f5560,ch:1,dr:1,...(KIND==='stall'?{stall:true,market:true}:{[KIND]:true})};
+          if(KIND==='stall'){                                            // 小さい売店: 近くに家があり（できれば両側）、ほかの市場・売店から離れた空きの中から、ランダムに1か所
+            if(houses.some(o=>o.market&&Math.hypot(o.x-h.x,o.z-h.z)<14))continue;
+            let nb=0;for(const o of houses)if(Math.hypot(o.x-h.x,o.z-h.z)<o.w/2+h.w/2+3.5)nb++;
+            if(!nb||!fits(h,L))continue;h.nb=nb;cands.push(h);continue}
           const dist=Math.hypot(h.x-v.cx,h.z-v.cz);if(dist>=bd||!fits(h,L))continue;
           best=h;bd=dist;
         }
       }
     }
-    if(best)houses.push(best);
-    else if(houses.length){let bi=0,b2=1e9;houses.forEach((q,i)=>{const dd=Math.hypot(q.x-v.cx,q.z-v.cz);if(dd<b2){b2=dd;bi=i}});const q=houses[bi];q.smith=true;q.town=false;q.hall=false;q.rc=0x4f5560;q.wc=0xe0cfae}
+    if(KIND==='stall'){const p2=cands.filter(q=>q.nb>=2),pl=p2.length?p2:cands;if(pl.length)houses.push(pl[Math.floor(sr()*pl.length)])}
+    else if(best)houses.push(best);
+    else if(houses.length){let bi=-1,b2=1e9;houses.forEach((q,i)=>{if(q.smith||q.market)return;const dd=Math.hypot(q.x-v.cx,q.z-v.cz);if(dd<b2){b2=dd;bi=i}});if(bi>=0){const q=houses[bi];q[KIND]=true;q.town=false;q.hall=false;q.rc=0x4f5560;q.wc=0xe0cfae}}
   }
   const pos=[],nor=[],col=[],C=new THREE.Color();
   const quad=(A,B,Cc,D,color,ref)=>{
@@ -3508,7 +3575,7 @@ function doorGatesOf(v){                                          // 街の既�
       out.push({x:k.x+hd*s,z:k.z+hd*c,y:Math.max(gH,mx-5)+.25,yaw:k.ry,ww:6.8,hh:9.8,castle:true});
     }
     for(const h of villageHousesOf(v)){                            // 村の家（石の台の広間・西洋風の家は除く）。玄関は局所+z側、横位置は h.dr*h.w*.27
-      if(h.town||h.hall||h.smith)continue;
+      if(h.town||h.hall||h.smith||h.market)continue;
       if(hash(Math.round(h.x*7),Math.round(h.z*7),SEED+4343)>=DGP)continue;
       const c=Math.cos(h.ry),s=Math.sin(h.ry),lx=(h.dr||0)*h.w*.27,lz=h.d/2;
       out.push({x:h.x+lx*c+lz*s,z:h.z-lx*s+lz*c,y:h.y0,yaw:h.ry,ww:1.1,hh:2.1});
@@ -4880,7 +4947,7 @@ function drawStoneBaseHall(h,quad,r){                             // 横長で�
   for(const sx of[-1,1])for(let j=0;j<7;j++){const y=PL+.3+j*.58;rect(0,sx*(hw-.28),y,j%2?.6:.4,.5,pF+.015,LIGHT);rect(sx>0?2:3,hd-.25,y,j%2?.4:.6,.5,hw+.015,LIGHT)}
   const di=Math.floor(n/2);
   for(let i=0;i<n;i++){
-    if(i===di){arch(0,xs[i],PL,1.7,3.0,pF+.04,LIGHT);arch(0,xs[i],PL,1.35,2.85,pF+.07,pk([0x3b281a,0x5a1f1f,0x1f2f4f]));box(xs[i],PL+.1,pF+.5,2.2,.2,1.0,0x8d8a82)}   // 玄関
+    if(i===di){arch(0,xs[i],PL,1.7,3.0,pF+.04,LIGHT);arch(0,xs[i],PL,1.35,2.85,pF+.07,pk([0x3b281a,0x5a1f1f,0x1f2f4f]));(h.ymin!==undefined?vgStairs(h,box,xs[i],pF,2.2,PL+.2,0x8d8a82,1.0):box(xs[i],PL+.1,pF+.5,2.2,.2,1.0,0x8d8a82))}   // 玄関
     else archWin(0,xs[i],1.4,1.2,2.4,pF,true);
   }
   for(const f of[1,2,3]){const nn=f===1?n:Math.max(2,Math.round(d/3.6)),dd=f===1?du:d/nn;for(let i=0;i<nn;i++){const u=(f===1?-hw:-hd)+dd*(i+.5);archWin(f,u,1.4,1.0,2.2,f===1?hd:hw,false)}}
@@ -4944,7 +5011,7 @@ function drawTownHouse(h,quad,r){                                 // 公国の�
   // 前面: 玄関・窓・日よけ
   const sh=r()<.4,shc=pk(SHUT);
   for(let i=0;i<n;i++){
-    if(i===di){rect(0,xs[i],1.15,1.2,2.3,pF+.05,pk(DOOR));rect(0,xs[i],2.5,1.6,.3,pF+.08,0xd8cfba);box(xs[i],.08,pF+.5,1.6,.16,.9,0x8d8a82)}
+    if(i===di){rect(0,xs[i],1.15,1.2,2.3,pF+.05,pk(DOOR));rect(0,xs[i],2.5,1.6,.3,pF+.08,0xd8cfba);(h.ymin!==undefined?vgStairs(h,box,xs[i],pF,1.6,.16,0x8d8a82,.9):box(xs[i],.08,pF+.5,1.6,.16,.9,0x8d8a82))}
     else win(0,xs[i],1.75,pF,1.0,1.25);
     for(let k=1;k<nf;k++){const yc=G+(k-1)*U+1.45;win(0,xs[i],yc,pU,1.05,1.35);
       if(sh){rect(0,xs[i]-.8,yc,.45,1.5,pU+.12,shc);rect(0,xs[i]+.8,yc,.45,1.5,pU+.12,shc)}
@@ -4953,7 +5020,7 @@ function drawTownHouse(h,quad,r){                                 // 公国の�
   if(r()<.45){const ax=xs[(di+1)%n],aw=Math.min(2.6,w/n+.4);quad(PT(0,ax-aw/2,2.9,pF),PT(0,ax+aw/2,2.9,pF),PT(0,ax+aw/2,2.35,pF+1.3),PT(0,ax-aw/2,2.35,pF+1.3),pk(AWN),T(0,0,0))}   // 日よけ
   if(nf>=2&&r()<.3){const bx=xs[(di+n-1)%n]*.9,bw=Math.min(2.4,w/n);box(bx,G+.06,pU+.55,bw,.12,1.1,0x6a4a2c);   // バルコニー
     rect(0,bx,G+.65,bw,.9,pU+1.1,0x3a2a1c)}
-  if(r()<.45){const bx=xs[di]+(r()<.5?-1.3:1.3);box(bx,.4,pF+.65,.55,.8,.55,0x6a4a2c);if(r()<.6)box(bx+.6,.3,pF+.6,.7,.6,.7,0x8a6a45)}   // 樽と木箱
+  if(r()<.45){const bx=xs[di]+(r()<.5?-1.3:1.3);const pr=(cx,cy,cz,sx,sy,sz,col)=>h.ymin!==undefined?vgProp(h,box,cx,0,cz,sx,sy,sz,col):box(cx,cy,cz,sx,sy,sz,col);pr(bx,.4,pF+.65,.55,.8,.55,0x6a4a2c);if(r()<.6)pr(bx+(bx>xs[di]?.6:-.6),.3,pF+.6,.7,.6,.7,0x8a6a45)}   // 樽と木箱
   if(r()<.2){const sx=xs[(di+1)%n]*.5;box(sx,3.0,pF+.5,.06,.06,1.0,0x1c1f23);box(sx,2.7,pF+.8,.07,.55,.7,pk([0xc4a050,0x8a3f2d,0x2f5f8a]))}   // 吊り看板
   // 背面・側面の窓
   for(let i=0;i<n;i++){win(1,xs[i],1.75,hd,1.0,1.25);for(let k=1;k<nf;k++)if(r()<.8)win(1,xs[i],G+(k-1)*U+1.45,hd,1.05,1.35)}
@@ -7289,6 +7356,7 @@ function updateChunks0(only){
   }
 }
 function resetWorld(){
+  if(typeof rideEnd==='function')rideEnd(true);   // 馬に乗っていたら、馬は片づける
   terrainReset();clearGrass();   // 地形の生成のキャッシュ消去（terrain.js）
   for(const c of chunks.values()){scene.remove(c);disposeChunk(c)}
   chunks.clear();CUT.clear();AXE_TAKEN.clear();shakes.length=0;for(const d of drops)scene.remove(d.g);drops.length=0;
@@ -9793,57 +9861,76 @@ function updateMounts(dt){                                          // 乗られ
   }
 }
 // ---------- 鍛冶屋の人: 村の鍛冶屋の作業場（右側の開いた所・金床のそば）に、西洋の人が1人立つ ----------
-// 殴れない・魔法も効かない（harmCreature で無効）。タップすると画面の真ん中に四角いUI（今は中身なし・右上の×で閉じる）が出る。近づいた時だけ作り、遠ざかると片づける。
+// 殴れない・魔法も効かない（harmCreature で無効）。タップすると画面の真ん中に交換UI（右上の×で閉じる）が出る。近づいた時だけ作り、遠ざかると片づける。
 const SMITH_NEAR=70,SMITH_FAR=130,SMITH_REACH=8,SMITH_NPC=new Map();let smithT=0;
 function smithSpot(h){                                              // 立ち位置: 金床の右・床の手前の縁（道側）ぎりぎり（局所+z=玄関側）。床の上面=基礎の上(b=.35)+床板
   const c=Math.cos(h.ry),s=Math.sin(h.ry),lx=h.w/2-2.2-1.1,lz=h.d/2-.45;
   return{x:h.x+lx*c+lz*s,z:h.z-lx*s+lz*c,y:h.y0+.4,yaw:pwYawTo(s,c)};   // 向きは玄関側（外）
 }
-const SMITH_TRADE=['iron_dagger','iron_spear','iron_axe','iron_pickaxe','sword','scimitar','merc_helmet','dmerc_helmet','chain_shirt','chain_pants','leather_boots','cav_cuirass','cav_greaves','cav_bascinet','cav_armet','mamluk_helmet','mamluk_cuirass'];   // 鍛冶屋が引き取れる鉄製の武器・防具（この中から、開くたびにランダムに一部だけ引き取る）
-const SMITH_OFFER=[6,9];   // 一度に引き取る種類の数の範囲（開くたびに、上の一覧からランダムに選び直す）
-const SMITH_POOL=['wood','stick','stone','iron_ore','iron_ingot','rope','wool','cloth','raw_meat','apple','bread','wheat'],SMITH_QTY=[1,3];   // 交換で出るアイテムの候補 / 出る個数の範囲（1〜3）
-const SMITH_UI=(()=>{                                                // 鍛冶屋のUI: 作成と同じ作り。左=今引き取る物（持っていない物は薄い） / 右=選んだ物→ランダムなアイテム×1〜3（「交換する」で成立）
+function marketSpot(h){                                              // 市場の人の立ち位置: カウンターの奥（店の中央）。向きは客側（局所+z）
+  const c=Math.cos(h.ry),s=Math.sin(h.ry),lz=h.d/2-(h.stall?2.1:4.0);
+  return{x:h.x+lz*s,z:h.z+lz*c,y:h.y0+.4,yaw:pwYawTo(s,c)};
+}
+const SMITH_TRADE=['iron_dagger','iron_spear','iron_axe','iron_pickaxe','sword','scimitar','merc_helmet','dmerc_helmet','chain_shirt','chain_pants','leather_boots','cav_cuirass','cav_greaves','cav_bascinet','cav_armet','mamluk_helmet','mamluk_cuirass'];   // 鍛冶屋が売る鉄製の武器・防具（この中から、開くたびにランダムに一部だけ並ぶ）
+const MARKET_OFFER=[5,8],STALL_OFFER=[2,4],MARKET_VAL={wheat:1,stick:1,apple:1,wood:1.5,stone:1.5,bread:2,raw_meat:2,wool:2,cloth:3,rope:3,iron_ore:3,iron_ingot:6};   // 市場: 一度に並べる交換の数 / 物の価値の目安（渡す物と、もらう物の釣り合いに使う）
+const SMITH_OFFER=[6,9];   // 一度に並べる種類の数の範囲（開くたびに、上の一覧からランダムに選び直す）
+const SMITH_POOL=['wood','stick','stone','iron_ore','iron_ingot','rope','wool','cloth','raw_meat','apple','bread','wheat'],SMITH_QTY={iron_ingot:[1,3],iron_ore:[2,5],rope:[2,5],wool:[2,5],cloth:[2,5],def:[3,10]};   // 鍛冶屋が要求するアイテムの候補 / 要求する個数の範囲（物ごと。指定のない物は def=3〜10個）
+const SMITH_UI=(()=>{                                                // 鍛冶屋のUI: 作成と同じ作り。左=今売っている防具・武器（材料が足りない物は薄い） / 右=選んだ物のレシピ（ランダムに要求された材料×個数→防具など×1。「交換する」で成立）
   const box=document.createElement('div');box.id='smithUI';
   box.innerHTML='<button class="x" type="button">×</button><div class="lst"></div><div class="rcp"></div>';document.body.appendChild(box);
   const lst=box.querySelector('.lst'),rcp=box.querySelector('.rcp'),xb=box.querySelector('.x');
-  let t0=0,selId=null,got=null,sig='',offer=[];
+  let t0=0,selId=null,got=null,sig='',offer=[],cost={},qty={};const STOCK=new Map();   // qty: 市場でもらえる個数（鍛冶屋は常に1個）   // STOCK: 鍛冶屋の個体(家の位置のキー)ごとの品揃え。最初に開いた時に1回だけ決め、以後は同じ個体なら同じ品・同じ材料
   const R=(tag,cls,txt)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(txt!==undefined)e.textContent=txt;return e};
   const icon=(it,id)=>{const el=it&&it.icon?document.createElement('img'):document.createElement('span');if(it&&it.icon){el.src=it.icon;el.alt=''}else{el.className='txt';el.textContent=it?it.name:id}return el};
   const nameOf=id=>ITEMS[id]?(ITEMS[id].label||ITEMS[id].name):id;
-  const have=id=>INV.countOf(id)>0;
-  function rollOffer(){                                              // 引き取る物をランダムに選ぶ（種類数は SMITH_OFFER の範囲・並びは SMITH_TRADE の順）
+  const canBuy=id=>{const c=cost[id];return !!c&&INV.countOf(c.id)>=c.n};
+  function rollOffer(key){                                           // その鍛冶屋の品揃え: 初めてなら、売る物をランダムに選び（種類数は SMITH_OFFER の範囲・並びは SMITH_TRADE の順）、それぞれに要求する材料と個数をランダムに決めて固定する。2回目以降は同じ品揃え
+    const st=STOCK.get(key);if(st){offer=st.offer;cost=st.cost;qty=st.qty||{};selId=offer.find(canBuy)||offer[0]||null;return}
+    if(key[0]==='M'||key[0]==='S'){rollMarket(key);return}
     const all=SMITH_TRADE.filter(id=>ITEMS[id]),k=Math.min(all.length,SMITH_OFFER[0]+Math.floor(Math.random()*(SMITH_OFFER[1]-SMITH_OFFER[0]+1)));
     for(let i=all.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[all[i],all[j]]=[all[j],all[i]]}
     const pick=new Set(all.slice(0,k));offer=SMITH_TRADE.filter(id=>pick.has(id));
-    selId=offer.find(have)||offer[0]||null;
+    const pool=SMITH_POOL.filter(q=>ITEMS[q]);cost={};qty={};
+    if(pool.length)offer.forEach(id=>{const q=pool[Math.floor(Math.random()*pool.length)],r=SMITH_QTY[q]||SMITH_QTY.def;cost[id]={id:q,n:r[0]+Math.floor(Math.random()*(r[1]-r[0]+1))}});
+    offer=offer.filter(id=>cost[id]);
+    STOCK.set(key,{offer,cost,qty});selId=offer.find(canBuy)||offer[0]||null;
+  }
+  function rollMarket(key){                                          // 市場の品揃え: 「何か×個数」を「別の何か×個数」と交換。もらえる物と渡す物の組み合わせ・個数はランダム（価値が極端に釣り合わないようにはする）。市場ごとに最初の1回だけ決めて固定
+    const pool=SMITH_POOL.filter(q=>ITEMS[q]);offer=[];cost={};qty={};
+    const sh=pool.slice();for(let i=sh.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[sh[i],sh[j]]=[sh[j],sh[i]]}
+    const rg=key[0]==='S'?STALL_OFFER:MARKET_OFFER,k=Math.min(sh.length,rg[0]+Math.floor(Math.random()*(rg[1]-rg[0]+1)));
+    sh.slice(0,k).forEach(g=>{
+      const others=pool.filter(q=>q!==g),give=others[Math.floor(Math.random()*others.length)],gn=1+Math.floor(Math.random()*4);
+      const n=Math.max(1,Math.min(12,Math.round((MARKET_VAL[g]||2)*gn*(.8+Math.random()*.6)/(MARKET_VAL[give]||2))));
+      cost[g]={id:give,n};qty[g]=gn;offer.push(g)});
+    STOCK.set(key,{offer,cost,qty});selId=offer.find(canBuy)||offer[0]||null;
   }
   const ARROW='<svg viewBox="0 0 40 34" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity=".8"><path d="M20 31V6M8 17L20 5L32 17"/></svg>';
   function render(){
-    const list=offer;if(!list.includes(selId))selId=list.find(have)||list[0]||null;
-    const key=selId+'|'+list.map(id=>id+INV.countOf(id)).join(',')+'|'+(got?got.id+got.n:'');if(key===sig)return;sig=key;   // 持ち物・選択・結果が変わった時だけ作り直す
+    const list=offer;if(!list.includes(selId))selId=list.find(canBuy)||list[0]||null;
+    const key=selId+'|'+list.map(id=>id+cost[id].id+cost[id].n+'x'+(qty[id]||1)+(canBuy(id)?1:0)).join(',')+'|'+(selId&&cost[selId]?INV.countOf(cost[selId].id):'')+'|'+(got?got.id+got.n:'');if(key===sig)return;sig=key;   // 持ち物・選択・結果が変わった時だけ作り直す
     const top=lst.scrollTop;lst.textContent='';
-    list.forEach(id=>{const c=INV.countOf(id),row=R('div','row'+(c>0?' ok':'')+(id===selId?' sel':''));row.appendChild(icon(ITEMS[id],id));row.appendChild(R('span','nm',nameOf(id)+(c>1?' ×'+c:'')));
+    list.forEach(id=>{const row=R('div','row'+(canBuy(id)?' ok':'')+(id===selId?' sel':''));row.appendChild(icon(ITEMS[id],id));row.appendChild(R('span','nm',nameOf(id)+((qty[id]||1)>1?' ×'+qty[id]:'')));
       row.addEventListener('click',()=>{selId=id;got=null;sig='';render()});lst.appendChild(row)});
     lst.scrollTop=top;rcp.textContent='';
     if(!selId)return;
-    const ok=have(selId),give=R('div','res'+(ok?' ok':''));give.appendChild(icon(ITEMS[selId],selId));give.appendChild(R('span','nm',nameOf(selId)+' ×1'));rcp.appendChild(give);   // 渡す物
+    const c=cost[selId],own=INV.countOf(c.id),ok=own>=c.n,give=R('div','res'+(ok?' ok':''));give.appendChild(icon(ITEMS[c.id],c.id));give.appendChild(R('span','nm',nameOf(c.id)+' ×'+c.n));rcp.appendChild(give);   // 渡す物（鍛冶屋が要求した材料）
     const ar=R('div','arrow down');ar.innerHTML=ARROW;rcp.appendChild(ar);
-    const rnd=R('div','res unk');rnd.appendChild(R('span','txt','？'));rnd.appendChild(R('span','nm','ランダム ×'+SMITH_QTY[0]+'〜'+SMITH_QTY[1]));rcp.appendChild(rnd);   // もらえる物
+    const res=R('div','res'+(ok?' ok':''));res.appendChild(icon(ITEMS[selId],selId));res.appendChild(R('span','nm',nameOf(selId)+' ×'+(qty[selId]||1)));rcp.appendChild(res);   // もらえる物
     const bt=R('button','tbtn','交換する');bt.type='button';bt.disabled=!ok;bt.addEventListener('click',trade);rcp.appendChild(bt);
-    rcp.appendChild(R('div','got',got?'手に入れた: '+nameOf(got.id)+' ×'+got.n:ok?'':'持っていない'));
+    rcp.appendChild(R('div','got',got?'手に入れた: '+nameOf(got.id)+' ×'+got.n:ok?'':'材料が足りない（持っている数: '+own+'）'));
   }
   function trade(){
-    if(!selId||INV.countOf(selId)<1)return;
-    const pool=SMITH_POOL.filter(k=>ITEMS[k]);if(!pool.length)return;
-    const id=pool[Math.floor(Math.random()*pool.length)],n=SMITH_QTY[0]+Math.floor(Math.random()*(SMITH_QTY[1]-SMITH_QTY[0]+1)),give=selId;
-    if(INV.removeId(give,1)<1)return;
-    const added=INV.add(ITEMS[id],n);
-    if(added<n){if(added>0)INV.removeId(id,added);INV.add(ITEMS[give],1);if(navigator.vibrate)navigator.vibrate([20,40,20]);if(typeof gameToast==='function')gameToast('インベントリが満杯です');sig='';render();return}   // 入りきらない→渡した物を戻す
-    got={id,n};if(!have(give)){const nx=offer.find(have);if(nx)selId=nx}   // 最後の1個を渡したら、持っている別の物へ選択を移す
+    const c=selId&&cost[selId];if(!c||INV.countOf(c.id)<c.n)return;
+    const buy=selId;
+    if(INV.removeId(c.id,c.n)<c.n){return}
+    const q=qty[buy]||1,added=INV.add(ITEMS[buy],q);
+    if(added<q){if(added>0)INV.removeId(buy,added);INV.add(ITEMS[c.id],c.n);if(navigator.vibrate)navigator.vibrate([20,40,20]);if(typeof gameToast==='function')gameToast('インベントリが満杯です');sig='';render();return}   // 入りきらない→渡した材料を戻す
+    got={id:buy,n:q};
     if(navigator.vibrate)navigator.vibrate(30);sig='';render();
   }
   const api={isOpen:()=>box.classList.contains('open'),
-    open(){if(api.isOpen())return;try{MAGIC.close()}catch(_){}if(window.CRAFT_CLOSE)window.CRAFT_CLOSE();rollOffer();box.classList.add('open');t0=performance.now();got=null;sig='';render();if(document.pointerLockElement)document.exitPointerLock()},
+    open(key){if(api.isOpen())return;try{MAGIC.close()}catch(_){}if(window.CRAFT_CLOSE)window.CRAFT_CLOSE();rollOffer(key==null?'_':String(key));box.classList.add('open');t0=performance.now();got=null;sig='';render();if(document.pointerLockElement)document.exitPointerLock()},
     close(){box.classList.remove('open')}};
   window.SMITH_CLOSE=api.close;
   box.addEventListener('click',e=>{if(performance.now()-t0<350){e.stopPropagation();e.preventDefault()}},true);   // 開いた直後のタップの余韻で、押してもいないボタンが働かないようにする
@@ -9860,7 +9947,7 @@ function smithTap(tx,ty){                                           // タップ
     if(!c.smithNpc||c.hp<=0||c.dead!==undefined)continue;
     const sz=c.size||1,ox=c.x-player.x,oy=(c.y+sz*.95)-player.y,oz=c.z-player.z,t=ox*A[0]+oy*A[1]+oz*A[2];
     if(t<0||t>SMITH_REACH)continue;
-    if(Math.hypot(ox-A[0]*t,oy-A[1]*t,oz-A[2]*t)<(HIT_R+.15)*sz){SMITH_UI.open();return true}
+    if(Math.hypot(ox-A[0]*t,oy-A[1]*t,oz-A[2]*t)<(HIT_R+.15)*sz){SMITH_UI.open(c.smithNpc);return true}
   }
   return false;
 }
@@ -9876,11 +9963,11 @@ function smithTick(dt){
   for(const v of VLIST){
     if(!v.houses||Math.hypot(v.cx-px,v.cz-pz)>400)continue;
     for(const h of v.houses){
-      if(!h.smith||Math.hypot(h.x-px,h.z-pz)>SMITH_NEAR)continue;
-      const k=Math.round(h.x)+'_'+Math.round(h.z);
+      if(!(h.smith||h.market)||Math.hypot(h.x-px,h.z-pz)>SMITH_NEAR)continue;
+      const k=(h.stall?'S':h.market?'M':'')+Math.round(h.x)+'_'+Math.round(h.z);   // 市場のキーは先頭に M・小さい売店は先頭に S
       let en=SMITH_NPC.get(k);if(!en){en={c:null,pending:false};SMITH_NPC.set(k,en)}
       if(en.c||en.pending)continue;
-      const sp=smithSpot(h);en.pending=true;
+      const sp=h.market?marketSpot(h):smithSpot(h);en.pending=true;
       spawnCreature('western',{x:sp.x,z:sp.z,y:sp.y,yaw:sp.yaw,smith:k,entry:en}).then(()=>{en.pending=false}).catch(e=>{en.pending=false;console.error(e)});
     }
   }
@@ -10167,7 +10254,7 @@ function villageHousesOf(v){                                    // 村の家の�
         if((v.lines||L.inl)&&(!habK(h.x,h.z,v.k)||hitField(h.cn,v.fields||[])))continue;   // 川沿いの村: 居住可能地の中で、畑には建てない（地形は平らにしないので、段差の小さい所だけ）
         for(const o of houses)if(overlap(h,o)){ok=false;break}
         if(!ok)continue;
-        h.y0=mx+.25;h.ymin=mn;houses.push(h);
+        h.y0=vgY0(h,mx);h.ymin=mn;houses.push(h);
       }
     }
   }
@@ -11663,7 +11750,7 @@ function eatDone(id){
     if(MINI.big||(e.target.closest&&e.target.closest('button,#inv,#mini,#dbgItems,#dbgCre')))return;
     for(const t of e.changedTouches){
       const o={x:t.clientX,y:t.clientY,t:performance.now(),moved:false,timer:0,eating:false};
-      o.timer=setTimeout(()=>{if(taps.get(t.identifier)===o&&!o.moved){o.eating=eatStart();if(!o.eating&&!sweepStart()&&!fireNovaStart())o.aiming=launchAimStart()}},EAT_START_MS);   // 長押し: 食べ物なら食べる / 剣・短剣なら横なぎ   // 動かさずに長押ししたら食べ始める
+      o.timer=setTimeout(()=>{if(taps.get(t.identifier)===o&&!o.moved){if(rideTap(o.x,o.y)){o.rode=true;return}o.eating=eatStart();if(!o.eating&&!sweepStart()&&!fireNovaStart())o.aiming=launchAimStart()}},EAT_START_MS);   // 長押し: 食べ物なら食べる / 剣・短剣なら横なぎ   // 動かさずに長押ししたら食べ始める
       taps.set(t.identifier,o);
     }
   },{passive:true});
@@ -11680,7 +11767,7 @@ function eatDone(id){
   });
   addEventListener('touchcancel',e=>{for(const t of e.changedTouches){const o=taps.get(t.identifier);if(o){clearTimeout(o.timer);if(o.eating)eatCancel();if(o.aiming||LAUNCH.aim)launchCancel()}taps.delete(t.identifier)}});
   let mT=0;
-  addEventListener('mousedown',e=>{if(e.button===0&&document.pointerLockElement){if(smithTap(null,null))return;swingAxe();clearTimeout(mT);mT=setTimeout(()=>{if(!eatStart()&&!sweepStart()&&!fireNovaStart())launchAimStart()},450)}});   // PC: 振りが終わるころから、押し続けると食べ始める
+  addEventListener('mousedown',e=>{if(e.button===0&&document.pointerLockElement){if(smithTap(null,null))return;if(rideFind(null,null)){clearTimeout(mT);mT=setTimeout(()=>rideTap(null,null),450);return}swingAxe();clearTimeout(mT);mT=setTimeout(()=>{if(!eatStart()&&!sweepStart()&&!fireNovaStart())launchAimStart()},450)}});   // PC: 振りが終わるころから、押し続けると食べ始める
   addEventListener('mouseup',()=>{clearTimeout(mT);eatCancel();launchGo()});
 }
 // ---------- 傭兵の兜（ドロップ品）: 傭兵が被っている3Dの兜と同じ形・同じ絵。傭兵を倒すと落とす。HELM_DROP_RATE=落とす確率(1=必ず) ----------
@@ -12039,19 +12126,74 @@ const HP_REGEN={DELAY:3,RATE:3};   // HPの自然回復: 最後にダメージ�
 const STAT={sta:100,hp:PLAYER_BASE.hp,hpIdle:0,def:0,stones:0,dead:false,runT:0,idle:0,exh:false,swingCost:2},staBar=document.getElementById('staBar'),hpBar=document.getElementById('hpBar'),defBar=document.getElementById('defBar'),stoneBar=document.getElementById('stoneBar'),STONE_BAR_MAX=100;   // def=防御力（0〜100。体力バーの上のゲージ。装備の防御力の合計で、物理ダメージを無効化する確率(%)）
 // ---------- 魔法のレベル（MLV / MSCALE / magicLevelApply）と、スキルツリーの強化ボタンとのつなぎ（MAGIC.bind） は magic.js に分離 ----------
 function addManaStones(n){STAT.stones+=n;stoneBar.firstChild.textContent=STAT.stones;stoneBar.style.setProperty('--p',Math.min(1,STAT.stones/STONE_BAR_MAX))}   // 魔法石を獲得: インベントリではなく、防御力の隣のバーに加算（バーの左端に所持数）
+// ---------- 馬に乗る: 馬を長押し（PCは画面の中央で押し続ける）すると乗れる。乗っている間は速く走れて、体力（スタミナ）は減らない。右の「降りる」ボタン（PCはFキー）で降りる ----------
+// 乗った馬は生き物の一覧(creatures)から外して、ここで動かす（勝手に歩かない・敵や魔法の的にならない）。降りると一覧に戻って、その場に残る。
+const RIDE={h:null,up:0,bob:0,SPD:1.9,REACH:8,EYE:.8};   // SPD=乗っている間の速さの倍率（歩き7→約13m/秒・ダッシュ14→約27m/秒） / REACH=乗れる距離(m) / EYE=馬の背から目までの高さ(m。小さいほど目が高くなる)
+function rideTap(tx,ty){const h=rideFind(tx,ty);if(!h)return false;rideStart(h);return true}   // 長押し(PCは画面の中央を押し続ける)が馬に当たったら乗る。当たったらtrue
+function rideFind(tx,ty){                                           // 狙っている先の乗れる馬を返す（なければnull）
+  if(RIDE.h||STAT.dead||MINI.big||STAT.frozenT>0)return null;
+  const sx=AIM.x,sy=AIM.y;AIM.x=tx;AIM.y=ty;const A=aimDir();AIM.x=sx;AIM.y=sy;
+  let best=null,bt=1e9;
+  for(const c of creatures){
+    if(c.kind!=='horse'||c.rider||c.lev||c.hp<=0||c.dead!==undefined)continue;   // 騎兵が乗っている馬・倒れた馬には乗れない
+    const sz=c.size||1,ox=c.x-player.x,oy=(c.y+sz*.95)-player.y,oz=c.z-player.z,t=ox*A[0]+oy*A[1]+oz*A[2];
+    if(t<0||t>RIDE.REACH||t>=bt)continue;
+    if(Math.hypot(ox-A[0]*t,oy-A[1]*t,oz-A[2]*t)<HIT_R*sz){best=c;bt=t}
+  }
+  return best;
+}
+function rideStart(h){
+  const i=creatures.indexOf(h);if(i>=0)creatures.splice(i,1);
+  RIDE.h=h;h.mood=null;h.foe=null;h.kv=0;h.wait=0;h.jy=0;h.posed=false;
+  player.x=h.x;player.z=h.z;                                         // 馬のいる所へ乗り移る
+  h.yaw=pwYawTo(-Math.sin(player.yaw),-Math.cos(player.yaw));        // 馬は見ている向きを向く
+  document.body.classList.add('riding');
+  try{animalCry(h)}catch(_){}
+  if(navigator.vibrate)navigator.vibrate(20);
+}
+function rideEnd(remove){                                            // 降りる（remove=true は馬ごと片づける: ワールドを作り直す時）
+  const h=RIDE.h;if(!h)return;RIDE.h=null;RIDE.bob=0;
+  document.body.classList.remove('riding');
+  if(remove){scene.remove(h.g);h.gm.dispose();h.mat.dispose();RIDE.up=0;return}
+  const s=Math.sin(player.yaw),c=Math.cos(player.yaw);
+  for(let i=0;i<20;i++)tryMove(-c*.1,s*.1);                           // 馬の左へ2mずれて降りる（壁・木には止められる）
+  h.y=player.gy;h.jy=0;h.hx=h.x;h.hz=h.z;h.tx=h.x;h.tz=h.z;h.wait=3+Math.random()*3;h.amp=0;h.run=0;
+  pwPose(h);h.posed=false;h.mesh.position.y=h.off;h.mesh.rotation.x=-Math.PI/2;h.g.position.set(h.x,h.y,h.z);
+  if(creatures.indexOf(h)<0)creatures.push(h);                        // また生き物として動き出す（もう一度タップで乗れる）
+  if(navigator.vibrate)navigator.vibrate(15);
+}
+function rideTick(dt,mv,running){                                    // 毎フレーム: 馬を足もとに合わせて走らせる・目の高さをなめらかに上げ下げする
+  let h=RIDE.h;if(h&&STAT.dead){rideEnd();h=null}
+  RIDE.up+=((h?HORSE_BACK*h.size-RIDE.EYE:0)-RIDE.up)*Math.min(1,dt*7);
+  if(!h){if(Math.abs(RIDE.up)<.005)RIDE.up=0;RIDE.bob=0;return}
+  h.x=player.x;h.z=player.z;h.y=player.y-1.7;h.jy=0;                  // 地面の高さ（ジャンプ中は馬も一緒に跳ぶ）
+  const sp=mv/Math.max(dt,1e-3),moving=mv>.002&&!player.air;
+  let df=pwYawTo(-Math.sin(player.yaw),-Math.cos(player.yaw))-h.yaw;df=Math.atan2(Math.sin(df),Math.cos(df));h.yaw+=df*Math.min(1,dt*10);
+  h.run+=((moving&&sp>6?1:0)-(h.run||0))*Math.min(1,dt*8);            // 動いていれば駆け足
+  h.amp+=((moving?1:0)-(h.amp||0))*Math.min(1,dt*6);
+  if(moving)h.phase+=mv/(PW.STRIDE*(1+.7*h.run)*h.size*Math.max(1,sp/10))*6.283;   // 速くても足の運びは1秒に約2回までに抑える
+  if(h.amp>.003){pwPose(h);h.posed=true}else if(h.posed){h.amp=0;pwPose(h);h.posed=false}
+  const hr=h.run;h.mesh.position.y=h.off+(1-hr)*Math.abs(Math.sin(h.phase))*.05*h.amp*(1+1.2*h.run)+hr*(.5+.5*Math.sin(h.phase+1.2))*.09*h.amp;
+  h.mesh.rotation.x=-Math.PI/2+(1-hr)*.2*h.run+hr*(.03-.07*Math.sin(h.phase));
+  h.g.position.set(h.x,h.y,h.z);h.g.rotation.y=h.yaw;
+  RIDE.bob=(h.mesh.position.y-h.off)*h.size*.5;                       // 走ると目が少し上下する
+}
+bindHold(document.getElementById('dismountBtn'),()=>rideEnd(),()=>{});
+addEventListener('keydown',e=>{if(e.code==='KeyF'&&RIDE.h)rideEnd()});
 function statsUpdate(dt,running){
   if(STAT.staFreeT>0){STAT.staFreeT=Math.max(0,STAT.staFreeT-dt);if(STAT.dead)STAT.staFreeT=0}
   const free=STAT.staFreeT>0;
   if(free){STAT.sta=Math.max(STAT.sta,STAT.staHold||0)}   // 体力ロック中: 減らさない（回復は有効）
   if(running){
     STAT.runT=Math.min(10,STAT.runT+dt);STAT.idle=0;
-    if(!free)STAT.sta-=(2+STAT.runT*.6)*dt;                             // 走り始め2/秒 → 10秒走り続けると8/秒
+    if(!free&&!RIDE.h)STAT.sta-=(2+STAT.runT*.6)*dt;                             // 走り始め2/秒 → 10秒走り続けると8/秒
   }else{
     STAT.runT=Math.max(0,STAT.runT-dt*2);STAT.idle+=dt;
     if(STAT.idle>.8)STAT.sta+=12*dt;   // .8秒休むと回復開始
   }
   STAT.hpIdle+=dt;if(!STAT.dead&&STAT.sta>=STAT_LOW&&STAT.hpIdle>HP_REGEN.DELAY)STAT.hp+=HP_REGEN.RATE*dt;   // HPの自然回復（体力がギリギリの間は回復しない）
   STAT.hp=Math.max(0,Math.min(STAT.frostT>0?(STAT.frostCap===undefined?STAT.hp:STAT.frostCap):PLAYER_BASE.hp,STAT.hp));STAT.sta=Math.max(0,Math.min(100,STAT.sta));if(free)STAT.staHold=STAT.sta;
+  if(RIDE.h){STAT.sta=100;STAT.exh=false}   // 馬に乗っている間は体力（スタミナ）が無限
   if(STAT.sta<=0)STAT.exh=true;else if(STAT.sta>=15)STAT.exh=false;   // 0で息切れ→15まで回復するまで走れない
   STAT.def=EQUIP.defense();defBar.style.setProperty('--p',STAT.def/100);
   staBar.style.setProperty('--p',STAT.sta/100);hpBar.style.setProperty('--p',STAT.hp/PLAYER_BASE.hp);
@@ -12174,9 +12316,9 @@ function loop(now){
   const l=Math.hypot(fx,fz);if(l>1){fx/=l;fz/=l}
   const wdT=waterDepthAt(player.x,player.z,player.gy);player.wdep=(player.wdep||0)+(wdT-(player.wdep||0))*Math.min(1,dt*6);   // 水の深さ（なめらかに変える）
   const inWater=player.wdep>=.25;                                  // 水中（深さ25cm以上）: ダッシュもジャンプもできない
-  const running=(keys.ShiftLeft||dashHeld||dashLock)&&l>.1&&!STAT.exh&&!MINI.big&&!inWater;statsUpdate(dt,running);
+  const running=(keys.ShiftLeft||dashHeld||dashLock)&&l>.1&&(RIDE.h||!STAT.exh)&&!MINI.big&&!inWater;statsUpdate(dt,running);   // 馬に乗っている間は息切れしない
   const wm=1-.45*Math.min(1,player.wdep/.4);                       // 水に入ると動きが遅くなる（深さ0.4m以上で55%の速さ）
-  const speed=(running?14:7)*dt*wm,s=Math.sin(player.yaw),c=Math.cos(player.yaw);
+  const speed=(running?14:7)*dt*wm*(RIDE.h?RIDE.SPD:1),s=Math.sin(player.yaw),c=Math.cos(player.yaw);
   const mx=(fx*c+fz*s)*speed,mz=(-fx*s+fz*c)*speed,ns=Math.max(1,Math.ceil(Math.hypot(mx,mz)/.1));   // 1回に0.1mより大きく動かさない（階段・壁のすり抜け防止）
   const px0=player.x,pz0=player.z;                                 // 足音用: 歩く前の位置
   {const sx=mx/ns,sz=mz/ns;for(let i=0;i<ns;i++){if(!tryMove(sx,sz)&&!tryMove(sx,0))tryMove(0,sz)}}   // 壁に当たったら、X方向だけ・Z方向だけに分けて滑る
@@ -12202,7 +12344,8 @@ function loop(now){
   }else player.y+=(player.gy+1.7-player.y)*Math.min(1,dt*12);
   if(player.air||STAT.dead||STAT.frozenT>0)footAcc=0;
   else if(FOOT_ON){try{const mv=Math.hypot(player.x-px0,player.z-pz0);if(mv>.001&&mv<1.5){footAcc+=mv;const st=running?FOOT.RUN:FOOT.STRIDE;if(footAcc>=st){footAcc%=st;footStep(footKind(),running?1:.7)}}}catch(_){}}   // 歩いた距離が1歩分たまるたびに鳴る（空中・止まっている間・ワープの瞬間は鳴らない。水の中は水音で鳴る）
-  camera.position.set(player.x,player.y-Math.min(.45,(player.wdep||0)*.9),player.z);   // 水に入ると目の高さが少し沈む（最大45cm）
+  rideTick(dt,Math.hypot(player.x-px0,player.z-pz0),running);   // 馬に乗っている間: 馬を足もとに合わせて走らせる・目の位置を馬の背の高さまで上げる
+  camera.position.set(player.x,player.y+RIDE.up+RIDE.bob-Math.min(.45,(player.wdep||0)*.9),player.z);   // 水に入ると目の高さが少し沈む（最大45cm）
   camera.rotation.set(player.pitch,player.yaw,0);
   if(shakeT>0){const a=shakeA*(shakeT/.25);camera.position.x+=(Math.random()-.5)*a;camera.position.y+=(Math.random()-.5)*a;camera.rotation.z=(Math.random()-.5)*a*.6}   // 弾いた時の画面の揺れ
   water.position.x=player.x;water.position.z=player.z;
