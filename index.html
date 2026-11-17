@@ -9412,7 +9412,7 @@ function tallZombieShape(p,gw,nb,pv){
       p[i*3]=P[0]+(p[i*3]-P[0])*f;p[i*3+1]=P[1]+(p[i*3+1]-P[1])*f;p[i*3+2]=P[2]+(p[i*3+2]-P[2])*f;break}
   }
 }
-const CRE_KINDS={human:{name:'人間ベース',key:'HUMAN_B64',color:0xc9b6a0,yup:true},zombie:{name:'ゾンビ（腹絞り）',key:'HUMAN_B64',color:0x7a9468,yup:true,shape:zombieShape,phys:100,mana:[50,100]},tallmummy:{name:'大きいミイラ（細長い）',key:'HUMAN_B64',proc:mummyTex,uv:mummyUV,yup:true,shape:tallZombieShape,phys:100,mana:[50,100],size:1.3,reachK:1.4,slam:true,hpK:2,atkK:2},tallzombie:{name:'大きいゾンビ（細長い）',key:'HUMAN_B64',color:0x7f9470,yup:true,shape:tallZombieShape,phys:100,mana:[50,100],size:1.3,reachK:1.4,slam:true,hpK:2,atkK:2},mummy:{name:'ミイラ（砂漠のゾンビ）',key:'HUMAN_B64',proc:mummyTex,uv:mummyUV,yup:true,shape:zombieShape,phys:100,mana:[50,100]},cav:{name:'西洋騎兵',key:'HUMAN_B64',procs:cavTexs,uv:westernUV,extra:cavExtra,yup:true,shape:cavShape,hideHead:.7},ghost:{name:'幽霊（下半身なし）',key:'HUMAN_B64',color:0xdce9ff,emissive:0x5a6f99,opacity:GHOST.OPA,ghost:true,yup:true,shape:ghostShape,phys:0,mana:[50,100]},human2:{name:'人間ベース2',key:'HUMAN2_B64',colors:[0xc9b6a0,0x4a5f8a],yup:true},human3:{name:'人間ベース3',key:'HUMAN3_B64',colors:[0xc9b6a0,0x8a3a3a],yup:true},human4:{name:'人間ベース4',key:'HUMAN4_B64',colors:[0xc9b6a0,0x4a6a4a],yup:true},cow:{name:'牛',key:'COW_B64',pack:true,colors:[0xffffff,0xe7cfe3,0x303030,0xfff5eb,0x022b2e,0x057d85],yup:true,size:1.2},sheep:{name:'羊',key:'SHEEP_B64',yup:true,size:.6,legs:SHEEP_LEG_NAMES},horse:{name:'馬',key:'HORSE_B64',colors:[0x4a2a14,0x140a05],yup:true,size:2.0,legs:HORSE_LEG_NAMES},human5:{name:'人間ベース5',key:'HUMAN5_B64',colors:[0xc9b6a0,0x8a3a3a],yup:true},desert:{name:'砂漠の人',key:'HUMAN4_B64',proc:desertTex,yup:true},western:{name:'西洋の人（中世）',key:'HUMAN2_B64',procs:westernTexs,uv:westernUV,yup:true},monk:{name:'修道士',key:'HUMAN3_B64',procs:monkTexs,uv:monkUV,yup:true},king:{name:'西洋の王',key:'HUMAN5_B64',procs:kingTexs,uv:king5UV,extra:kingExtra,yup:true},dcleric:{name:'砂漠の聖職者',key:'HUMAN5_B64',procs:clericTexs,uv:king5UV,extra:clericExtra,yup:true},dking:{name:'砂漠の王',key:'HUMAN5_B64',procs:dkingTexs,uv:king5UV,extra:dkingExtra,yup:true},tribal:{name:'部族の人',key:'HUMAN2_B64',procs:tribalTexs,uv:westernUV,extra:tribalExtra,yup:true},merc:{name:'西洋の傭兵',key:'HUMAN2_B64',procs:mercTexs,uv:westernUV,extra:mercExtra,yup:true},dmerchant:{name:'砂漠の商人',key:'HUMAN2_B64',procs:dmerchantTexs,uv:westernUV,extra:dmerchantExtra,yup:true},dmerc:{name:'砂漠の傭兵',key:'HUMAN2_B64',procs:dmercTexs,uv:westernUV,extra:dmercExtra,yup:true},rrobe:{name:'赤い尖り帽子の兵（敵）',key:'HUMAN3_B64',procs:rrobeTexs,uv:monkUV,extra:rrobeExtra,yup:true}};
+const CRE_KINDS={human:{name:'人間ベース',key:'HUMAN_B64',color:0xc9b6a0,yup:true},zombie:{name:'ゾンビ（腹絞り）',key:'HUMAN_B64',color:0x7a9468,yup:true,shape:zombieShape,phys:100,mana:[50,100]},tallmummy:{name:'大きいミイラ（細長い）',key:'HUMAN_B64',proc:mummyTex,uv:mummyUV,yup:true,shape:tallZombieShape,phys:100,mana:[50,100],size:1.3,reachK:1.4,slam:true,hpK:2,atkK:2},tallzombie:{name:'大きいゾンビ（細長い）',key:'HUMAN_B64',color:0x7f9470,yup:true,shape:tallZombieShape,phys:100,mana:[50,100],size:1.3,reachK:1.4,slam:true,hpK:2,atkK:2},mummy:{name:'ミイラ（砂漠のゾンビ）',key:'HUMAN_B64',proc:mummyTex,uv:mummyUV,yup:true,shape:zombieShape,phys:100,mana:[50,100]},cav:{name:'西洋騎兵',key:'HUMAN_B64',procs:cavTexs,uv:westernUV,extra:cavExtra,yup:true,shape:cavShape,hideHead:.7},ghost:{name:'幽霊（下半身なし）',key:'HUMAN_B64',color:0xdce9ff,emissive:0x5a6f99,opacity:GHOST.OPA,ghost:true,yup:true,shape:ghostShape,phys:0,mana:[50,100]},human2:{name:'人間ベース2',key:'HUMAN2_B64',colors:[0xc9b6a0,0x4a5f8a],yup:true},human3:{name:'人間ベース3',key:'HUMAN3_B64',colors:[0xc9b6a0,0x8a3a3a],yup:true},human4:{name:'人間ベース4',key:'HUMAN4_B64',colors:[0xc9b6a0,0x4a6a4a],yup:true},cow:{name:'牛',key:'COW_B64',pack:true,colors:[0xffffff,0xe7cfe3,0x303030,0xfff5eb,0x022b2e,0x057d85],yup:true,size:1.2},sheep:{name:'羊',key:'SHEEP_B64',yup:true,size:.6,legs:SHEEP_LEG_NAMES},horse:{name:'馬',key:'HORSE_B64',colors:[0x4a2a14,0x140a05],yup:true,size:2.0,legs:HORSE_LEG_NAMES},human5:{name:'人間ベース5',key:'HUMAN5_B64',colors:[0xc9b6a0,0x8a3a3a],yup:true},desert:{name:'砂漠の人',key:'HUMAN4_B64',proc:desertTex,yup:true},western:{name:'西洋の人（中世）',key:'HUMAN2_B64',procs:westernTexs,uv:westernUV,yup:true},monk:{name:'修道士',key:'HUMAN3_B64',procs:monkTexs,uv:monkUV,yup:true},king:{name:'西洋の王',key:'HUMAN5_B64',procs:kingTexs,uv:king5UV,extra:kingExtra,yup:true},dcleric:{name:'砂漠の聖職者',key:'HUMAN5_B64',procs:clericTexs,uv:king5UV,extra:clericExtra,yup:true},dking:{name:'砂漠の王',key:'HUMAN5_B64',procs:dkingTexs,uv:king5UV,extra:dkingExtra,yup:true},tribal:{name:'部族の人',key:'HUMAN2_B64',procs:tribalTexs,uv:westernUV,extra:tribalExtra,yup:true},merc:{name:'西洋の傭兵',key:'HUMAN2_B64',procs:mercTexs,uv:westernUV,extra:mercExtra,yup:true},dmerchant:{name:'砂漠の商人',key:'HUMAN2_B64',procs:dmerchantTexs,uv:westernUV,extra:dmerchantExtra,yup:true},dmerc:{name:'砂漠の傭兵',key:'HUMAN2_B64',procs:dmercTexs,uv:westernUV,extra:dmercExtra,yup:true},rrobe:{name:'赤い尖り帽子の兵（敵）',key:'HUMAN2_B64',procs:rrobeTexs,uv:westernUV,extra:rrobeExtra,dropParts:[1],yup:true}};
 const CAV_ARMET_RATE=.5;   // 西洋騎兵がアーメットをかぶる確率(0〜1)。外れたらバシネット（豚面）
 CRE_KINDS.cav_a=Object.assign({},CRE_KINDS.cav,{name:'西洋騎兵（アーメット）',extra:()=>cavExtra(1),hidden:true});   // 騎兵のアーメット版の形。出す時に 'cav' からランダムに選ぶ（ふるまい・ドロップは 'cav' のまま）。デバッグのボタンには出さない   // 生き物の種類: 形と絵はそれぞれのGLBから。新しい種類はこことGLB埋め込みを足す
 // ---------- 砂漠の騎士（マムルーク）: 砂漠の傭兵と同じ体。先のとがった兜＋目だけ出して顔を鎖で覆う（鎖は肩まで）・鱗状の胴鎧と腰の草摺・肩当て・腿と膝と脛〜足首の板。馬に乗って槍を持つ。防御力 MAMLUK_DEF(%)。倒すと兜・胴鎧・足鎧・革の靴を、それぞれ確率で落とす（MAMLUK_DROP） ----------
@@ -9967,28 +9967,60 @@ function monkTex(o){                                                 // 修道�
 }
 // ---------- 赤い尖り帽子のローブの兵（敵）: 人間サイズ。ゲートキーパーの「尖った帽子＋ローブ」を参考にした見た目（赤）。プレイヤーと人間に敵対し続ける。性能は防御力0の傭兵と同じ（体力・剣か槍・魔力）。体と長いローブは修道士と同じ形（monkUV）に赤い絵を貼り、3Dの尖った帽子を足す ----------
 const RROBE={SIGHT:35};   // SIGHT=人間を見つけて襲いかかる距離(m。プレイヤーはどこにいても狙う。人間のほうが近ければ人間を先に襲う)
-const RROBE_OUTFITS=[{name:'赤',habit:'#a31f1c',wv:'70,0,0',cord:'#2a1a14',knot:'#1c100c',hair:'#2a1c12',fold:'40,0,0',hat:'#b8231f',band:'#3a0f0d'}];   // 色はここで変えられる（habit=ローブ・hat=帽子・band=帽子の根もとの帯）
+const RROBE_OUTFITS=[{name:'赤',habit:'#a31f1c',wv:'70,0,0',fold:'40,0,0',trim:'#1e0d0b',gold:'#c9a84a',hose:'#3a1a16',boot:'#2a1a14',hair:'#2a1c12',hat:'#b8231f',band:'#3a0f0d'}];   // 色はここで変えられる（habit=ローブ・袖 / trim=縁取りと帯 / gold=縁取りの金線 / hat=帽子 / band=帽子の根もとの帯）
 function rrobeTexs(){return RROBE_OUTFITS.map(rrobeTex)}
-function rrobeTex(o){                                                // 修道士の絵（赤いローブ）に、左上の空き 40x77 へ3D帽子の絵（赤い布・暗い帯）を描き足す
-  const t=monkTex(o),x=t.image.getContext('2d');
-  x.fillStyle=o.hat;x.fillRect(0,0,40,52);
-  for(let i=0;i<40;i+=4){x.fillStyle='rgba(0,0,0,.14)';x.fillRect(i,0,1,52);x.fillStyle='rgba(255,200,190,.07)';x.fillRect(i+2,0,1,52)}   // 布のひだ
-  x.fillStyle=o.band;x.fillRect(0,54,40,16);x.fillStyle='rgba(255,255,255,.08)';x.fillRect(0,54,40,2);
-  t.needsUpdate=true;return t;
+// 絵（512x512）: 左半分=体（人間ベース2と同じ貼り方 westernUV。ローブの下の胴・手・ズボン・長靴）。左上の空き（x0〜88・y0〜77）=3Dパーツの絵: 帽子の赤（0-40,0-52）・帽子の帯（0-40,54-70）・ローブと袖の布（44-84,0-38）・縁取り（44-84,40-54）
+function rrobeTex(o){
+  const S=512,cv=document.createElement('canvas');cv.width=cv.height=S;const x=cv.getContext('2d');
+  let seed=57;const rnd=()=>(seed=(seed*16807)%2147483647)/2147483647;
+  const bX=w=>(w+.4)/.8*256,bY=w=>(1-w)*256;
+  const rect=(x0,y0,x1,y1,c)=>{x.fillStyle=c;x.fillRect(bX(x0),bY(y1),bX(x1)-bX(x0),bY(y0)-bY(y1))};
+  const weave=(px,py,w,h,col)=>{x.save();x.beginPath();x.rect(px,py,w,h);x.clip();
+    for(let i=0;i<w;i+=2){x.fillStyle=`rgba(${col},${.05+rnd()*.1})`;x.fillRect(px+i,py,1,h)}
+    for(let j=0;j<h;j+=3){x.fillStyle=`rgba(255,250,235,${rnd()*.06})`;x.fillRect(px,py+j,w,1)}
+    x.restore()};
+  const SKIN='#c9a882';
+  x.fillStyle=SKIN;x.fillRect(0,0,256,S);                           // まず全部を肌色（頭・首・手）。顔は描かない
+  rect(-.4,-.07,.4,.64,o.habit);                                      // 胴と腕（腕は3Dの袖に隠れる）
+  x.fillStyle=SKIN;x.fillRect(bX(.25),bY(-.01),bX(.4)-bX(.25),bY(-.25)-bY(-.01));x.fillRect(bX(-.4),bY(-.01),bX(-.25)-bX(-.4),bY(-.25)-bY(-.01));   // 手は肌色
+  rect(-.25,-.9,.25,-.07,o.hose);rect(-.4,-1,.4,-.79,o.boot);        // ローブの下のズボンと長靴（長靴だけすそから見える）
+  rect(-.12,.6,.12,.66,o.trim);rect(-.2,.9,.2,1,o.hair);              // えりと髪
+  weave(0,bY(.64),256,bY(-.07)-bY(.64),o.wv);
+  x.fillStyle=o.habit;x.fillRect(256,0,256,S);
+  x.fillStyle=o.habit;x.fillRect(44,0,40,38);weave(44,0,40,38,o.wv);   // ローブ・袖の布（縦のひだ）
+  for(let i=0;i<40;i+=4){x.fillStyle=`rgba(${o.fold},.3)`;x.fillRect(44+i,0,1,38);x.fillStyle='rgba(255,210,200,.06)';x.fillRect(46+i,0,1,38)}
+  x.fillStyle=o.trim;x.fillRect(44,40,40,14);x.fillStyle=o.gold;x.fillRect(44,43,40,2);x.fillRect(44,50,40,1);   // 縁取り（すそ・袖口・帯）
+  x.fillStyle=o.hat;x.fillRect(0,0,40,52);                            // 帽子の布
+  for(let i=0;i<40;i+=4){x.fillStyle='rgba(0,0,0,.14)';x.fillRect(i,0,1,52);x.fillStyle='rgba(255,200,190,.07)';x.fillRect(i+2,0,1,52)}
+  x.fillStyle=o.band;x.fillRect(0,54,40,16);x.fillStyle=o.gold;x.fillRect(0,59,40,2);   // 帽子の根もとの帯（金線つき）
+  const t=new THREE.Texture(cv);t.flipY=false;t.needsUpdate=true;return t;
 }
-function rrobeExtra(){                                               // 尖った帽子（Y上のモデル座標。頭は x±0.10・y0.72〜1.0・z-0.06〜0.18）。頭をすっぽり覆う高い円錐（先へ向かって少しへこむ曲線）＋根もとの暗い帯。全部パーツ番号2
-  const P=[],N=[],U=[],I=[],Q=[],NS=24,NR=14,cx=0,cz=.06,y0=.84,H=.66,rx=.15,rz=.175;
-  const push=(p,n,u)=>{P.push(...p);N.push(...n);U.push(...u);Q.push(2)};
+// 3Dパーツ（Y上のモデル座標。頭は x±0.10・y0.72〜1.0・z-0.06〜0.18・左=+x）: ゲートキーパーの「ゆったり型ローブ」に合わせる
+//  ① 腰から地面近くまで裾が大きく広がる長いローブ（すそにゆるいうねりと縁取り。歩く時は裾が両足に引かれて少し振れる）
+//  ② 腰の帯  ③ 肩から手首へ向かってベル型に広がる袖（腕と一緒に振る。袖口に縁取り。手は袖口から出る）  ④ 尖った帽子
+function rrobeExtra(){
+  const P=[],N=[],U=[],I=[],Q=[],G=[],GW=[],NS=28,TAU=Math.PI*2;
   const norm=v=>{const l=Math.hypot(...v)||1;return v.map(c=>c/l)};
-  const prof=t=>Math.pow(1-t,1.25);                                  // 半径の変わり方（根もと=1 → 先=0）
-  for(let a=0;a<=NR;a++){const t=a/NR,r=prof(t),y=y0+H*t,dr=-1.25*Math.pow(1-t,.25)/H;   // dr=高さに対する半径の変化
-    for(let b=0;b<NS;b++){const th=b/NS*2*Math.PI,dx=Math.cos(th),dz=Math.sin(th);
-      push([cx+rx*r*dx,y,cz+rz*r*dz],norm([dx,-rx*dr,dz]),[20/512,(2+t*48)/512])}}
-  for(let a=0;a<NR;a++)for(let b=0;b<NS;b++){const i0=a*NS+b,i1=a*NS+(b+1)%NS,i2=(a+1)*NS+b,i3=(a+1)*NS+(b+1)%NS;I.push(i0,i2,i1,i1,i2,i3)}
-  {const b0=P.length/3;                                              // 根もとの帯（円錐より少し太い短い輪）
-    for(const yy of[y0-.02,y0+.035]){for(let b=0;b<NS;b++){const th=b/NS*2*Math.PI,dx=Math.cos(th),dz=Math.sin(th);push([cx+rx*1.04*dx,yy,cz+rz*1.04*dz],[dx,0,dz],[20/512,62/512])}}
-    for(let b=0;b<NS;b++){const i0=b0+b,i1=b0+(b+1)%NS,i2=b0+NS+b,i3=b0+NS+(b+1)%NS;I.push(i0,i2,i1,i1,i2,i3)}}
-  return{pos:Float32Array.from(P),nor:Float32Array.from(N),uv:Float32Array.from(U),idx:I,pi:Uint8Array.from(Q)};
+  const push=(p,n,u,g,w)=>{P.push(...p);N.push(...n);U.push(...u);Q.push(2);G.push(g===undefined?-1:g);GW.push(w||0)};
+  const cu=b=>(46+36*Math.abs(2*b/NS-1))/512;                       // 布の絵の横位置（左右対称に往復させて、つなぎ目を出さない）
+  const tube=rings=>{const b0=P.length/3;                            // rings=[{c:[x,y,z],rx,rz,v(絵の縦位置),ny(法線の上向き),rip(すそのうねり),g(足/腕の組),w(重み。足の組は横ほど重い)}]
+    for(const r of rings)for(let b=0;b<NS;b++){const th=b/NS*TAU,dx=Math.cos(th),dz=Math.sin(th),m=1+(r.rip||0)*Math.sin(th*7),px=r.c[0]+r.rx*m*dx,pz=r.c[2]+r.rz*m*dz;
+      let g=-1,w=0;if(r.leg){g=px>=0?0:1;w=r.leg*(.35+.65*Math.min(1,Math.abs(px)/.2))}else if(r.g!==undefined){g=r.g;w=1}
+      push([px,r.c[1],pz],norm([dx,r.ny||0,dz]),[cu(b),r.v/512],g,w)}
+    for(let a=0;a<rings.length-1;a++)for(let b=0;b<NS;b++){const i0=b0+a*NS+b,i1=b0+a*NS+(b+1)%NS,i2=b0+(a+1)*NS+b,i3=b0+(a+1)*NS+(b+1)%NS;I.push(i0,i2,i1,i1,i2,i3)}};
+  const R=(y,rx,rz,cz,v,o)=>Object.assign({c:[0,y,cz],rx,rz,v,ny:.3},o);
+  tube([R(.18,.215,.145,-.005,2),R(.07,.235,.165,-.035,6),R(-.1,.285,.21,-.05,10),R(-.3,.335,.26,-.05,16,{leg:.15}),R(-.55,.385,.31,-.05,22,{leg:.3}),   // ① ローブ（上は胴に沿い、下へ向かって広がる）
+    R(-.78,.425,.35,-.05,30,{leg:.45,rip:.025}),R(-.83,.43,.355,-.05,34,{leg:.47,rip:.028}),R(-.83,.43,.355,-.05,44,{leg:.47,rip:.028}),R(-.91,.44,.365,-.05,48,{leg:.5,rip:.032})]);   // すその縁取り（布と縁の境は同じ高さに2段重ねて、絵が混ざらないようにする）
+  tube([R(.13,.245,.172,-.03,44,{ny:0}),R(.02,.26,.185,-.04,50,{ny:0})]);   // ② 腰の帯
+  for(const s of[1,-1]){const S=(x,y,z,r,v,o)=>Object.assign({c:[s*x,y,z],rx:r,rz:r,v,ny:0,g:s>0?2:3},o);   // ③ 袖（左腕=組2・右腕=組3。腕の動きにそのまま付く）
+    tube([S(.215,.62,-.06,.095,2),S(.25,.45,-.08,.09,8),S(.285,.3,-.098,.09,14),S(.33,.15,-.06,.105,22,{ny:.15}),S(.365,.02,-.02,.15,32,{ny:.35}),S(.365,.02,-.02,.15,44,{ny:.35}),S(.37,-.04,-.015,.16,48,{ny:.35})])}
+  {const cx=0,cz=.06,y0=.84,H=.66,rx=.15,rz=.175,NR=14,prof=t=>Math.pow(1-t,1.25),b0=P.length/3;   // ④ 尖った帽子（頭をすっぽり覆う高い円錐。先へ向かって少しへこむ曲線）＋根もとの暗い帯
+    for(let a=0;a<=NR;a++){const t=a/NR,r=prof(t),y=y0+H*t,dr=-1.25*Math.pow(1-t,.25)/H;
+      for(let b=0;b<NS;b++){const th=b/NS*TAU,dx=Math.cos(th),dz=Math.sin(th);push([cx+rx*r*dx,y,cz+rz*r*dz],norm([dx,-rx*dr,dz]),[20/512,(2+t*48)/512])}}
+    for(let a=0;a<NR;a++)for(let b=0;b<NS;b++){const i0=b0+a*NS+b,i1=b0+a*NS+(b+1)%NS,i2=b0+(a+1)*NS+b,i3=b0+(a+1)*NS+(b+1)%NS;I.push(i0,i2,i1,i1,i2,i3)}
+    const c0=P.length/3;for(const yy of[y0-.02,y0+.035])for(let b=0;b<NS;b++){const th=b/NS*TAU,dx=Math.cos(th),dz=Math.sin(th);push([cx+rx*1.04*dx,yy,cz+rz*1.04*dz],[dx,0,dz],[20/512,62/512])}
+    for(let b=0;b<NS;b++){const i0=c0+b,i1=c0+(b+1)%NS,i2=c0+NS+b,i3=c0+NS+(b+1)%NS;I.push(i0,i2,i1,i1,i2,i3)}}
+  return{pos:Float32Array.from(P),nor:Float32Array.from(N),uv:Float32Array.from(U),idx:I,pi:Uint8Array.from(Q),grp:Int8Array.from(G),grw:Float32Array.from(GW)};
 }
 const WESTERN_OUTFITS=[                                              // 西洋の人の服の種類（出すたびにこの中からランダムに選ぶ）。色などはここで変えられる
   {name:'町人',tun:'#2f4a7a',wv:'20,30,60',hose:'#6a5640',boot:'#3a2a1e',bootCuff:'#5a432e',cuff:'#d8ceb0',collar:'#d8ceb0',hair:'#4a3322',belt:'#2e2218',buckle:'#c9a84a',hem1:'#d8ceb0',hem2:'#7a2a2a',fold:'10,20,45'},
@@ -10105,6 +10137,7 @@ function loadCreature(kind){                                         // 種類�
         if(K.hideHead){const pp=geo.attributes.position.array,oi2=geo.index.array,keep=[],hy=K.hideHead;   // 頭を消す（兜から頭がはみ出さないように）: 体の三角のうち、高さ hideHead(Y上のモデル座標)より上にかかるもの＝首の上〜頭を取り除く。足した別パーツ（兜・鎖）は残す
           for(let t=0;t<oi2.length;t+=3){const a=oi2[t],b=oi2[t+1],c=oi2[t+2];if(a<n0&&b<n0&&c<n0&&(pp[a*3+1]>=hy||pp[b*3+1]>=hy||pp[c*3+1]>=hy))continue;keep.push(a,b,c)}
           geo.setIndex(new THREE.BufferAttribute(new(N>65535?Uint32Array:Uint16Array)(keep),1))}
+        if(K.dropParts){const oi4=geo.index.array,keep2=[];for(let t=0;t<oi4.length;t+=3){if(oi4[t]<n0&&K.dropParts.includes(pidx[oi4[t]]))continue;keep2.push(oi4[t],oi4[t+1],oi4[t+2])}geo.setIndex(new THREE.BufferAttribute(new(N>65535?Uint32Array:Uint16Array)(keep2),1))}   // 元の別パーツを取り除く（赤い尖り帽子の兵: 人間ベース2のチュニックのすそ。かわりに3Dの長いローブを足す）
         pidx=cat(pidx,ex.pi,Uint8Array);exg=ex.grp||null;exw=ex.grw||null;exn0=n0;K.exg=exg;   // 別パーツが足の組(grp)を持つ時は、その足と一緒に振る（騎兵の腿の板）
         if(skin){skin.joints=cat(skin.joints,new Uint16Array(n1*4),Uint16Array);skin.weights=cat(skin.weights,new Float32Array(n1*4),Float32Array)}
       }
