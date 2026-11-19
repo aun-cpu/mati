@@ -10398,13 +10398,13 @@ function westernExtra(){
   const tube=rings=>{const b0=P.length/3;
     for(const r of rings){const sw=SW[r.sw],v=sw[1]+sw[2]*(r.t||0);
       for(let b=0;b<NS;b++){const th=b/NS*TAU,dx=Math.cos(th),dz=Math.sin(th);
-        push([r.c[0]+r.rx*dx,r.c[1],r.c[2]+r.rz*dz],norm([dx,r.ny||0,dz]),[(sw[0]+2+36*Math.abs(2*b/NS-1))/512,v/512],r.g,r.g===undefined?0:1)}}
+        push([r.c[0]+r.rx*dx,r.c[1],r.c[2]+r.rz*dz],norm([dx,r.ny||0,dz]),[(sw[0]+2+36*Math.abs(2*b/NS-1))/512,v/512],r.g,r.g===undefined?0:(r.w===undefined?1:r.w))}}
     for(let a=0;a<rings.length-1;a++)for(let b=0;b<NS;b++){const i0=b0+a*NS+b,i1=b0+a*NS+(b+1)%NS,i2=b0+(a+1)*NS+b,i3=b0+(a+1)*NS+(b+1)%NS;I.push(i0,i2,i1,i1,i2,i3)}};
   const R=(y,rx,rz,cz,sw,t,o)=>Object.assign({c:[0,y,cz],rx,rz,sw,t,ny:.1},o);
   tube([R(.78,.08,.095,.03,'D',0,{ny:0}),R(.75,.085,.1,.03,'D',1,{ny:0}),   // えり（首のまわりの立ち襟）
     R(.75,.085,.1,.03,'A',0),R(.72,.12,.12,.01,'A',.1),R(.66,.2,.15,-.005,'A',.25),R(.56,.225,.16,-.015,'A',.4),R(.4,.245,.17,-.025,'A',.6),R(.26,.238,.17,-.03,'A',.85),R(.2,.222,.165,-.035,'A',1)]);   // 上着: 肩から胸へ広がり、腰の帯のところで絞る（胸 ±0.245 は体より0.07ほどゆったり）
-  for(const s of[1,-1]){const S=(x,y,z,r,sw,t,o)=>Object.assign({c:[s*x,y,z],rx:r,rz:r,sw,t,ny:0,g:s>0?2:3},o);   // ふくらんだ袖（左腕=組2・右腕=組3。腕と一緒に動く。手首で絞って袖口）
-    tube([S(.205,.67,-.06,.02,'B',0),S(.21,.655,-.06,.07,'B',0),S(.215,.62,-.06,.1,'B',.05),S(.25,.45,-.08,.115,'B',.3),S(.285,.3,-.098,.12,'B',.55),S(.315,.14,-.05,.105,'B',.8),S(.335,.05,-.02,.078,'B',1),
+  for(const s of[1,-1]){const S=(x,y,z,r,sw,t,o)=>Object.assign({c:[s*x,y,z],rx:r,rz:r,sw,t,ny:0,g:s>0?2:3},o);   // ふくらんだ袖（左腕=組2・右腕=組3。腕と一緒に動く。手首で絞って袖口）。肩は丸く盛り上げず、上着の肩の傾き（首の横 y.72 → 肩先 y.66）をそのまま外へ斜めに下ろして腕へつなぐ。肩に近い輪ほど腕と一緒に動く割合 w を小さくして、腕を振っても上着から浮かない
+    tube([S(.17,.665,-.06,.03,'B',0,{w:0}),S(.18,.64,-.06,.07,'B',0,{w:.35}),S(.19,.6,-.06,.1,'B',.05,{w:.7}),S(.215,.55,-.065,.11,'B',.12,{w:.9}),S(.25,.45,-.08,.115,'B',.3),S(.285,.3,-.098,.12,'B',.55),S(.315,.14,-.05,.105,'B',.8),S(.335,.05,-.02,.078,'B',1),
       S(.335,.05,-.02,.078,'C',0),S(.34,.0,-.005,.08,'C',0)])}
   return{pos:Float32Array.from(P),nor:Float32Array.from(N),uv:Float32Array.from(U),idx:I,pi:Uint8Array.from(Q),grp:Int8Array.from(G),grw:Float32Array.from(GW)};
 }
