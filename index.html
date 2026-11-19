@@ -9956,18 +9956,18 @@ const MERC_OUTFITS=[                                                 // 西洋�
 function mercTexs(){return MERC_OUTFITS.map(mercTex)}
 // 味方の兵士の服: 白い陣羽織に青い縁と青い十字の紋章（体の胸・陣羽織のすそ・えりの帯）。敵の傭兵の服（赤・青・緑）とは絵そのものが違う
 const ALLY_COAT='#eee9dc',ALLY_TRIM='#2a63c8';
-function allyTex(o,base){
+function allyTex(o,base,skipSkirt){
   const t=(base||mercTex)(Object.assign({},o,{coat:ALLY_COAT,trim:ALLY_TRIM})),x=t.image.getContext('2d');
   const bX=w=>(w+.4)/.8*256,bY=w=>(1-w)*256,rect=(x0,y0,x1,y1,c)=>{x.fillStyle=c;x.fillRect(bX(x0),bY(y1),bX(x1)-bX(x0),bY(y0)-bY(y1))};
   rect(-.2,.5,.2,.62,ALLY_TRIM);                              // 胸の上に青い横帯
   rect(-.045,.2,.045,.56,ALLY_TRIM);rect(-.14,.36,.14,.44,ALLY_TRIM);   // 胸の大きな十字
   rect(-.2,-.07,.2,-.02,ALLY_TRIM);                           // 裾の青い縁
-  x.fillStyle=ALLY_TRIM;x.fillRect(256+64,150,128,28);x.fillStyle=ALLY_COAT;x.fillRect(256+120,150,16,28);   // 陣羽織のすそ: 大きな十字（縦は中央の縞、横は太い帯）
-  x.fillStyle=ALLY_TRIM;x.fillRect(256,57,256,14);x.fillRect(256,440,256,10);                                // 上下の縁
+  if(!skipSkirt){x.fillStyle=ALLY_TRIM;x.fillRect(256+64,150,128,28);x.fillStyle=ALLY_COAT;x.fillRect(256+120,150,16,28);   // 陣羽織のすそ: 大きな十字（縦は中央の縞、横は太い帯）
+  x.fillStyle=ALLY_TRIM;x.fillRect(256,57,256,14);x.fillRect(256,440,256,10)}                                // 上下の縁
   t.needsUpdate=true;return t;
 }
 function allyMercTexs(){return [allyTex(MERC_OUTFITS[1],mercTex2)]}
-function allyCavTexs(){return [allyTex(CAV_OUTFITS[0],knightTex)]}                // 服の種類ぶんの絵を作る（1つずつ別の材質になる）
+function allyCavTexs(){return [allyTex(CAV_OUTFITS[0],knightTex,true)]}                // 服の種類ぶんの絵を作る（1つずつ別の材質になる）
 function mercTex(o){                                                 // 西洋の傭兵の絵（512x512をその場で描く）。貼り方は西洋の人と同じ（westernUV）: 左半分=体（肌・鎖かたびらの長袖・陣羽織・革の帯・ズボン・長靴・革の籠手）、右半分=陣羽織のすそ（革の帯・中央の縞・縁）。左上の空き40x77=3Dの鉄兜（鉄・暗い鉄・真ちゅう）
   const S=512,cv=document.createElement('canvas');cv.width=cv.height=S;const x=cv.getContext('2d');
   let seed=83;const rnd=()=>(seed=(seed*16807)%2147483647)/2147483647;
@@ -10074,7 +10074,7 @@ function knightUV(x,y,pi){
   return ST;
 }
 function knightTexs(){return CAV_OUTFITS.map(knightTex)}
-function knightTex(o){                                               // 西洋の騎士（無題.glb）の絵（512x512をその場で描く）。左半分=体（鎖かたびらの袖・腿・革の籠手・長靴）と胴の箱（鋼の胴鎧）、右半分=すその箱（陣羽織のすそ）。左上の空き40x77=板・兜の色（鉄=o.plate・暗い鉄・真ちゅう）
+function knightTex(o){                                               // 西洋の騎士（無題.glb）の絵（512x512をその場で描く）。左半分=体（鎖かたびらの袖・腿・革の籠手・長靴）と胴の箱（傭兵と同じ色つきの陣羽織）、右半分=すその箱（鎧と同じ色の鋼の草摺）。左上の空き40x77=板・兜の色（鉄=o.plate・暗い鉄・真ちゅう）
   const S=512,cv=document.createElement('canvas');cv.width=cv.height=S;const x=cv.getContext('2d');
   let seed=83;const rnd=()=>(seed=(seed*16807)%2147483647)/2147483647;
   const bX=w=>(w+.4)/.8*256,bY=w=>(1-w)*256;
@@ -10096,19 +10096,21 @@ function knightTex(o){                                               // 西洋�
   x.fillStyle=SKIN;x.fillRect(bX(.25),bY(-.01),bX(.4)-bX(.25),bY(-.25)-bY(-.01));x.fillRect(bX(-.4),bY(-.01),bX(-.25)-bX(-.4),bY(-.25)-bY(-.01));   // 手は肌色
   rect(.25,-.25,.4,-.03,o.leather);rect(-.4,-.25,-.25,-.03,o.leather);   // 革の籠手（前腕）
   for(const [a,b] of[[.25,.4],[-.4,-.25]]){rect(a,-.17,b,-.15,'rgba(0,0,0,.35)');rect(a,-.09,b,-.07,'rgba(0,0,0,.35)')}   // 籠手の革ひも
-  path([[-WT,TOP],[WT,TOP],[WB,BOT],[-WB,BOT]]);x.fillStyle=o.plate;x.fill();   // 胴の箱（台形）: 鋼の胴鎧
-  rect(-.012,BOT+.05,.012,.66,'rgba(255,255,255,.4)');                // 中央の稜線
-  rect(-.13,.26,-.1,.56,'rgba(255,255,255,.22)');rect(.1,.26,.13,.56,'rgba(0,0,0,.12)');   // つやと影
-  rect(-WT,.66,WT,TOP,'rgba(255,255,255,.16)');rect(-WB,BOT,WB,BOT+.05,'rgba(0,0,0,.35)');   // 上の縁の照り・下の縁の影
-  path([[-WT,TOP],[WT,TOP],[WB,BOT],[-WB,BOT]]);x.strokeStyle='rgba(0,0,0,.4)';x.lineWidth=3;x.stroke();   // 縁取り（箱の横の面もこの色になる）
+  const ED=.014;                                                       // 胴の箱（台形）: 傭兵と同じ色つきの布（陣羽織）。ED=縁の太さ
+  path([[-WT,TOP],[WT,TOP],[WB,BOT],[-WB,BOT]]);x.fillStyle=o.trim;x.fill();   // 外側の縁（箱の横の面もこの縁の色になる）
+  path([[-WT+ED,TOP],[WT-ED,TOP],[WB-ED,BOT],[-WB+ED,BOT]]);x.fillStyle=o.coat;x.fill();   // 陣羽織
+  x.save();path([[-WT+ED,TOP],[WT-ED,TOP],[WB-ED,BOT],[-WB+ED,BOT]]);x.clip();weave(bX(-WT),bY(TOP),bX(WT)-bX(-WT),bY(BOT)-bY(TOP),'40,30,20');x.restore();
+  rect(-.035,BOT,.035,TOP,o.trim);rect(-.02,.3,.02,.5,o.coat);rect(-.1,.38,.1,.42,o.coat);rect(-.1,.38,.1,.39,o.trim);   // 中央の縞と胸の十字
+  rect(-WT,.66,WT,TOP,o.leather);rect(-.03,.67,.03,.69,'#b8a050');   // えりの革（上の縁）と留め金
+  rect(-.165,BOT,.165,.1,o.leather);rect(-.04,BOT+.005,.04,.095,'#b8a050');rect(-.025,BOT+.015,.025,.085,o.leather);   // 腰の革の帯と留め金（胴の箱の下の縁）
   x.fillStyle=o.plate;x.fillRect(0,0,40,30);for(let j=0;j<30;j+=3){x.fillStyle=j%6?'rgba(255,255,255,.12)':'rgba(0,0,0,.14)';x.fillRect(0,j,40,1)}   // 板・兜の絵（体の絵の左上の空き 40x77）: 鉄（0-30）・暗い鉄（32-47）・真ちゅう（56-72）
   x.fillStyle='#55585e';x.fillRect(0,32,40,16);for(let j=32;j<48;j+=3){x.fillStyle='rgba(0,0,0,.18)';x.fillRect(0,j,40,1)}
   x.fillStyle='#b89a48';x.fillRect(0,56,40,16);x.fillStyle='rgba(255,240,170,.3)';x.fillRect(0,58,40,2);
-  x.fillStyle=o.coat;x.fillRect(256,0,256,S);weave(256,0,256,S,'40,30,20');   // すその箱（右半分）: 陣羽織のすそ（全体が y.14〜-.09 に貼られる）
-  for(let i=0;i<9;i++){x.fillStyle='rgba(0,0,0,.14)';x.fillRect(256+14+i*28,50,3,S-50)}   // ひだ
-  x.fillStyle=o.leather;x.fillRect(256,0,256,44);x.fillStyle='#b8a050';x.fillRect(256+120,10,16,24);x.fillStyle=o.leather;x.fillRect(256+124,15,8,14);   // 革の帯と留め金（上の端）
-  x.fillStyle=o.trim;x.fillRect(256+114,44,28,S-44);                  // 中央の縞
-  x.fillStyle=o.trim;x.fillRect(256,456,256,14);x.fillStyle='rgba(0,0,0,.3)';x.fillRect(256,470,256,42);   // すその縁
+  x.fillStyle=o.plate;x.fillRect(256,0,256,S);                         // すその箱（右半分）: 鎧と同じ色の鋼の草摺（全体が y.14〜-.09 に貼られる）
+  for(let i=0;i<9;i++){x.fillStyle='rgba(0,0,0,.18)';x.fillRect(256+14+i*28,0,3,S)}   // 板の継ぎ目
+  for(let j=0;j<4;j++){x.fillStyle='rgba(0,0,0,.22)';x.fillRect(256,120+j*110,256,4);x.fillStyle='rgba(255,255,255,.14)';x.fillRect(256,124+j*110,256,6)}   // 横の段（段の下に照り）
+  x.fillStyle='rgba(255,255,255,.12)';x.fillRect(256+110,0,14,S);      // 中央のつや
+  x.fillStyle='rgba(0,0,0,.35)';x.fillRect(256,486,256,26);            // すその縁の影
   const t=new THREE.Texture(cv);t.flipY=false;t.needsUpdate=true;return t;
 }
 function mercExtra(){                                                // 西洋の傭兵の3D鉄兜（Y上のモデル座標。頭は x±0.10・y0.72〜1.0・z-0.06〜0.18）。丸いドーム＋つば＋鼻あて＋後ろの首あて＋真ちゅうの帯。全部パーツ番号2
