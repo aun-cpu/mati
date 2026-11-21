@@ -13594,7 +13594,8 @@ function updateTarget(dt){                                          // 画面の
 // モーション: base=道具を振る（剣の通常の振りも）/ slash=剣・短剣の長押しの横なぎ / spear=槍。振りの進み具合 p(0〜1) を、当たり判定の時刻（p=.45付近）がモーションの振り抜きに合うように、モーションの時間へ割り当てる。
 // 道具の持ち方の調整: ARM.fit.pos=手首の骨からの握りの位置 / ARM.fit.rot=道具の向きの追加の回転（度。X,Y,Z）/ ARM.fit.spear=槍だけの追加の回転。例: ARM.fit.rot=[0,0,20]
 const ARM=(()=>{
-  const A={ready:false,root:null,fit:{pos:[.035,.07,-.005],rot:[0,0,0],spear:[0,0,0]}},
+  const A={ready:false,root:null,size:1.4,shift:[.28,-.06],fit:{pos:[.035,.07,-.005],rot:[0,0,0],spear:[0,0,0]}},   // size=腕の大きさ（1=元の大きさ）/ shift=画面の中央寄り（右端からの割合）・下へのずれ
+    
     W0=[-.1561,1.0433,.5093],WT=[.03,-.165,-.637],   // W0=モーションの最初の手首（腕のモデル座標）/ WT=その手首を置く、手持ちカメラの中の位置（x=基準からのずれ）
     KD={base:{c:0,te:.2333,pe:.5},slash:{c:1,te:.3,pe:.53},spear:{c:2,te:.3333,pe:.5}};   // c=モーション番号 / te=振り終わりのモーションの時刻(秒) / pe=そこに着く振りの進み具合。そのあとは構えへ戻る
   let nodes,clips,hand;
@@ -13640,7 +13641,7 @@ const ARM=(()=>{
     if(!A.ready||!on){if(A.root)A.root.visible=false;return false}
     const k=KD[kind],idle=kind==='spear'?2:0;
     if(p<0)pose(idle,0);else if(p<k.pe)pose(k.c,k.te*p/k.pe);else{const q=Math.min(1,(p-k.pe)/(1-k.pe));pose(k.c,k.te,idle,0,q*q*(3-2*q))}   // 振り抜いたあとは構えへなめらかに戻る
-    A.root.position.set(x+WT[0]+W0[0],y+WT[1]-W0[1],z+WT[2]+W0[2]);A.root.visible=true;A.root.updateMatrixWorld(true);
+    const S=A.size;A.root.scale.setScalar(S);A.root.position.set(x*(1-A.shift[0])+WT[0]+S*W0[0],y+A.shift[1]+WT[1]-S*W0[1],z+WT[2]+S*W0[2]);A.root.visible=true;A.root.updateMatrixWorld(true);
     const f=A.fit,r=kind==='spear'?f.spear:f.rot,D=Math.PI/180;
     gq.setFromEuler(ge.set(r[0]*D,r[1]*D,r[2]*D));gm.copy(BASE).multiply(hm.makeRotationFromQuaternion(gq));gm.setPosition(f.pos[0],f.pos[1],f.pos[2]);
     hm.multiplyMatrices(hand.matrixWorld,gm).decompose(held.position,held.quaternion,held.scale);held.scale.setScalar(1);   // 道具は手首の骨についていく
