@@ -12869,7 +12869,7 @@ function makeStone(cols,off){ cols=cols||[0x8d8a84,0x9c998f,0x777470];off=off||0
   return g;
 }
 // ---------- 弓: 長押しで引き、離すと矢が飛ぶ（引いた長さで矢の速さ＝飛距離と威力が決まる）。矢は重力で放物線を描いて飛び、生き物・地形・建物に当たると止まる。矢は消費しない ----------
-const BOW={on:false,t:0,p:0,k:0,rel:0,FULL:1.1,MIN:.12,V0:13,V1:62,G:13,COST:1,ATK0:45,ATK1:130,STUCK_MAX:40,STUCK_T:12,model:null,arrows:[],trails:[]};   // on=引いている / t=引き始めからの秒 / p=引き具合(0〜1) / k=構えの姿勢への寄せ具合 / rel=離した直後の反動(1→0) / FULL=最大まで引く秒 / MIN=これ未満の引き具合なら射たずにやめる / V0・V1=矢の速さ(m/s。引き0〜最大) / G=矢の重力(m/s²) / COST=体力の消費(通常の振りの倍率) / ATK0・ATK1=矢の攻撃力(物理ダメージ。引き0〜最大) / STUCK_*=刺さった矢の最大数・残る秒数
+const BOW={on:false,shT:99,t:0,p:0,k:0,rel:0,FULL:1.1,MIN:.12,V0:13,V1:62,G:13,COST:1,ATK0:45,ATK1:130,STUCK_MAX:40,STUCK_T:12,model:null,arrows:[],trails:[]};   // on=引いている / t=引き始めからの秒 / p=引き具合(0〜1) / k=構えの姿勢への寄せ具合 / rel=離した直後の反動(1→0) / FULL=最大まで引く秒 / MIN=これ未満の引き具合なら射たずにやめる / V0・V1=矢の速さ(m/s。引き0〜最大) / G=矢の重力(m/s²) / COST=体力の消費(通常の振りの倍率) / ATK0・ATK1=矢の攻撃力(物理ダメージ。引き0〜最大) / STUCK_*=刺さった矢の最大数・残る秒数
 let _arrowParts=null;
 function arrowParts(){return _arrowParts||(_arrowParts={shaft:new THREE.CylinderGeometry(.011,.011,.82,6).rotateX(Math.PI/2).translate(0,0,-.41),head:new THREE.ConeGeometry(.032,.11,6).rotateX(-Math.PI/2).translate(0,0,-.875),fl:new THREE.BoxGeometry(.075,.003,.14).translate(0,0,-.07),
   mShaft:new THREE.MeshLambertMaterial({color:0xc9a46a,flatShading:true}),mHead:new THREE.MeshLambertMaterial({color:0xa8b0b8,flatShading:true}),mFl:new THREE.MeshLambertMaterial({color:0xe9e1d0,flatShading:true,side:THREE.DoubleSide}),mFl2:new THREE.MeshLambertMaterial({color:0xb02a24,flatShading:true,side:THREE.DoubleSide})})}
@@ -12930,7 +12930,7 @@ function updateTrails(dt){
 function bowStart(){                                               // 長押しで呼ばれる(PCは押した瞬間): 弓を持っていれば引き始める。体力を少し使う
   const c=INV.current;if(!c||c.id!=='bow'||BOW.on||MINI.big||STAT.dead||performance.now()<INV.noSwingUntil||player.stunT>0||sw.t>=0||SWP.t>=0||EAT.t>=0)return false;
   const cost=STAT.swingCost*BOW.COST;if(STAT.sta<cost)return false;
-  if(!(STAT.staFreeT>0))STAT.sta-=cost;STAT.idle=0;BOW.on=true;BOW.t=0;BOW.p=0;AIM.x=null;return true;   // 狙いは画面の中央
+  if(!(STAT.staFreeT>0))STAT.sta-=cost;STAT.idle=0;BOW.on=true;BOW.t=0;BOW.p=0;BOW.shT=99;AIM.x=null;return true;   // 狙いは画面の中央
 }
 function bowCancel(){BOW.on=false}
 function bowRelease(){                                             // 指を離す: 引き具合が足りなければ何もしない。十分なら矢を放つ
@@ -12939,7 +12939,7 @@ function bowRelease(){                                             // 指を離�
   const p=Math.min(1,BOW.t/BOW.FULL);if(p<BOW.MIN)return;
   const e=p*p*(3-2*p),v=BOW.V0+(BOW.V1-BOW.V0)*e,atk=BOW.ATK0+(BOW.ATK1-BOW.ATK0)*e,A=aimDir(),m=makeArrowMesh();
   const a={g:m,x:camera.position.x+A[0]*.8,y:camera.position.y+A[1]*.8-.12,z:camera.position.z+A[2]*.8,vx:A[0]*v,vy:A[1]*v,vz:A[2]*v,atk,age:0,stuck:-1};
-  a.tr=trailNew(a.x,a.y,a.z);m.position.set(a.x,a.y,a.z);scene.add(m);BOW.arrows.push(a);BOW.rel=1;
+  a.tr=trailNew(a.x,a.y,a.z);m.position.set(a.x,a.y,a.z);scene.add(m);BOW.arrows.push(a);BOW.rel=1;BOW.shT=0;
   swingSound(c,.0,true);
 }
 const _arD=new THREE.Vector3(),_arQ=new THREE.Quaternion(),_arZ=new THREE.Vector3(0,0,1);
@@ -13662,11 +13662,11 @@ const ARM=(()=>{
 addEventListener('load',()=>setTimeout(()=>ARM.load(),0));   // 腕の読み込み（model_arm.js が読めたあと）
 
 // ===== 手・手に持った物の2D表示（3Dをやめて、ドット絵のコマを画面の右下に重ねる） =====
-// 絵は sprite_○○.js（HAND_SPRITES.fist / .sword / .axe / .pickaxe / .spear / .magic）。何も持っていない=fist、剣・シミター=sword、石・鉄の斧=axe、石・鉄のツルハシ=pickaxe、石・鉄の槍=spear、魔法の杖=magic（開いた手）。絵がない物は今まで通り3Dで出す（HAND2D.only=true にすると3Dは一切出さない）。
+// 絵は sprite_○○.js（HAND_SPRITES.fist / .sword / .axe / .pickaxe / .spear / .magic / .bow）。何も持っていない=fist、剣・シミター=sword、石・鉄の斧=axe、石・鉄のツルハシ=pickaxe、石・鉄の槍=spear、魔法の杖=magic（開いた手）、弓=bow（引き具合・射ったあとの経過時間でコマが進む）。絵がない物は今まで通り3Dで出す（HAND2D.only=true にすると3Dは一切出さない）。
 // 手の大きさは HAND2D.size（1=絵の縦が画面いっぱい。大きいほど手が大きく、右下の角を中心に広がる）
 // 構えている間: 最初のコマを、呼吸・歩き・ジャンプ・振り向きでやや動かしてループ / 振った時: gifのコマを順に再生（当たる瞬間のコマを、ゲームの当たり判定のタイミングに合わせる）
 const HAND2D=(()=>{
-  const H={on:false,only:false,depth:1,aimX:.5,aimY:.52,size:1.4,map:{sword:'sword',scimitar:'sword',axe:'axe',iron_axe:'axe',pickaxe:'pickaxe',iron_pickaxe:'pickaxe',spear:'spear',iron_spear:'spear',wand:'magic'},empty:'fist',skip3D:false},
+  const H={on:false,only:false,depth:1,aimX:.5,aimY:.52,size:1.4,map:{sword:'sword',scimitar:'sword',axe:'axe',iron_axe:'axe',pickaxe:'pickaxe',iron_pickaxe:'pickaxe',spear:'spear',iron_spear:'spear',wand:'magic',bow:'bow'},empty:'fist',skip3D:false},
     cv=document.createElement('canvas'),cx=cv.getContext('2d'),S={bob:1,ph:0,amp:0,sway:0,air:0,lx:null,lz:null,ly:0};
   cv.style.cssText='position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;image-rendering:pixelated;z-index:0;display:none';
   document.body.appendChild(cv);
@@ -13685,8 +13685,13 @@ const HAND2D=(()=>{
     S.air+=((player.air?(player.vy>0?1:-1):0)-S.air)*Math.min(1,dt*9);
     let p=-1,hp=.45;   // 振っている最中の進み具合
     if(SWP.t>=0&&sw.t<0){p=Math.min(.999,SWP.t/SWP.D);hp=.4}else if(sw.t>=0)p=Math.min(.999,sw.t/.42);
-    S.bob+=((p<0?1:0)-S.bob)*Math.min(1,dt*12);   // 振る時は構えのゆれを消す
-    const t=performance.now()/1000,fi=p<0?sp.idle:Math.floor(frameAt(sp,p,hp)),fr=sp.frames[Math.max(0,Math.min(sp.frames.length-1,fi))];
+    // 弓: 振らずに、引き具合(BOW.p)と射ってからの時間(BOW.shT)でコマ番号を直接決める。引いている=0〜drawN / 射った直後=rel0〜relN / それ以外=構え
+    let bf=-1;
+    if(sp.bow){p=-1;BOW.shT+=dt;const rf=BOW.shT*sp.relFps;
+      if(BOW.on)bf=Math.min(1,BOW.p)*sp.drawN;else if(rf<sp.relN-sp.rel0+1)bf=sp.rel0+rf;else if(BOW.p>.03)bf=BOW.p*sp.drawN;else bf=sp.idle}
+    S.bob+=(((p<0&&!(bf>sp.idle+.5))?1:0)-S.bob)*Math.min(1,dt*12);   // 振る時・弓を引く時は構えのゆれを消す
+    const t=performance.now()/1000,fi=sp.bow?Math.floor(bf):(p<0?sp.idle:Math.floor(frameAt(sp,p,hp))),fr=sp.frames[Math.max(0,Math.min(sp.frames.length-1,fi))];
+    if(sp.bow){if(S.bf!=null&&S.bfr&&Math.abs(bf-S.bf)>9){S.fadeFr=S.bfr;S.fade=1}S.bf=bf;S.bfr=fr}else{S.bf=null;S.fade=0}   // 弓のコマが大きく飛ぶ時（射ったあと→構え、など）は、前の姿をすっと消す
     const W=cv.clientWidth,Hh=cv.clientHeight;cv.style.display='block';
     if(!W||!Hh)return;
     const dpr=Math.min(2,window.devicePixelRatio||1),cw=Math.round(W*dpr),ch=Math.round(Hh*dpr);
@@ -13694,7 +13699,7 @@ const HAND2D=(()=>{
     cx.setTransform(1,0,0,1,0,0);cx.clearRect(0,0,cw,ch);cx.imageSmoothingEnabled=false;
     if(!fr)return;
     const k=S.bob,bx=(Math.cos(S.ph)*3*S.amp*run+Math.cos(t*.9)*1.2+S.sway*40)*k,by=(Math.abs(Math.sin(S.ph))*5*S.amp*run+Math.sin(t*1.6)*2.2-S.air*6)*k,rot=(Math.sin(t*1.1)*.006+S.sway*.05)*k;
-    const sc=Math.min(Hh/sp.h,W/(sp.w*.6))*dpr*H.size;   // 絵の縦が画面いっぱい。縦持ちなど細い画面では右の6割ほどが入る
+    const sc=Math.min(Hh/sp.h,W/(sp.w*(sp.fw||.6)))*dpr*H.size*(sp.k||1);   // 絵の縦が画面いっぱい。縦持ちなど細い画面では右の6割ほどが入る
     // 奥行き: 振る間、手を「手前(大きく)→奥(小さく)→戻る」と動かす。z=-1:引いて手前 / +1:突き出して一番奥 / 0:構え（右下の角を中心に拡大縮小するので、絵の縁は画面の端に付いたまま）
     // H.depth で強さを変えられる（0=奥行きなし / 1=標準 / 大きいほど強い）
     const sm01=x=>{x=Math.max(0,Math.min(1,x));return x*x*(3-2*x)};
@@ -13711,6 +13716,7 @@ const HAND2D=(()=>{
       cx.globalAlpha=a;cx.setTransform(1,0,0,1,cw,ch);cx.rotate(rot+zz*.04+(sp.aim?aimR*w:0));cx.scale(s,s*(1-.08*zz));   // 縦だけ少し縮めて、奥へ倒れる感じ
       cx.drawImage(sp.im,f[0],f[1],f[2],f[3],-sp.w+f[4]+bx,-sp.h+f[5]+by,f[2],f[3])};
     if(p>=0&&p<hp+.12)for(const g of [[.07,.28],[.14,.14]]){const q=p-g[0];if(q<0)continue;if(ZD(p)-ZD(q)>.05)draw(FR(q),q,g[1])}   // 突き出す速い間だけ、少し前の姿を薄く残す（奥へ飛ぶ軌跡）
+    if(S.fade>0&&S.fadeFr){draw(S.fadeFr,-1,S.fade);S.fade=Math.max(0,S.fade-dt*8)}
     draw(fr,p,1);cx.globalAlpha=1;
   };
   return H})();
