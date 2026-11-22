@@ -13595,7 +13595,7 @@ function updateTarget(dt){                                          // 画面の
 // 手の大きさ・位置: ARM.size（大きさ）/ WT・WT2（手首の置き場所）。槍と短剣以外の道具の大きさ・傾き: ARM.tool（下で説明）。
 // 道具の持ち方の調整: ARM.fit.pos=手首の骨からの握りの位置 / ARM.fit.rot=道具の向きの追加の回転（度。X,Y,Z）/ ARM.fit.spear=槍だけの追加の回転。例: ARM.fit.rot=[0,0,20]
 const ARM=(()=>{
-  const A={ready:false,root:null,size:1.9,shift:[.28,-.06],fit:{pos:[.035,.07,-.005],rot:[0,0,0],spear:[0,0,0]},   // size=腕の大きさ（1=元の大きさ。大きいほど手が大きく写る）/ shift=画面の中央寄り（右端からの割合）・下へのずれ
+  const A={ready:false,root:null,show:false,size:1.9,shift:[.28,-.06],fit:{pos:[.035,.07,-.005],rot:[0,0,0],spear:[0,0,0]},   // size=腕の大きさ（1=元の大きさ。大きいほど手が大きく写る）/ shift=画面の中央寄り（右端からの割合）・下へのずれ
     tool:{   // 道具の手持ち（短剣以外。剣・斧・杖などは握りを下の端の近くにして立て、槍は真ん中あたりを握って画面の上まで届かせる。plain:1=槍の構えの手の位置のまま）: len=道具の長さ(m) / grip=握る位置（下の端から長さの何割か） / pitch=腕ごと手前へ起こす角度(度) / roll=腕ごと左へ傾ける角度(度。大きいほど先が左へ倒れる)。例: ARM.tool.sword.len=.8
       sword:{len:.7,grip:.1,pitch:33,roll:22},scimitar:{len:.7,grip:.1,pitch:33,roll:22},
       axe:{len:.7,grip:.1,pitch:33,roll:22},iron_axe:{len:.7,grip:.1,pitch:33,roll:22},pickaxe:{len:.7,grip:.1,pitch:33,roll:22},iron_pickaxe:{len:.7,grip:.1,pitch:33,roll:22},
@@ -13652,7 +13652,7 @@ const ARM=(()=>{
     const e2=T&&T.plain?0:e;
     A.root.scale.setScalar(S);A.root.rotation.set(T?T.pitch*Math.PI/180*e:0,Math.PI,T?T.roll*Math.PI/180*e:0);   // 腕ごと手前へ起こして左へ傾ける（手首が軸。道具も手についてくる）
     mv.set(W0[0],W0[1],W0[2]).multiplyScalar(S).applyQuaternion(A.root.quaternion);   // 手首（モーションの最初）を、狙った位置にぴったり置く
-    A.root.position.set(x*(1-A.shift[0])+WT[0]+(WT2[0]-WT[0])*e2,y+A.shift[1]+WT[1]+(WT2[1]-WT[1])*e2,z+WT[2]).sub(mv);A.root.visible=true;A.root.updateMatrixWorld(true);
+    A.root.position.set(x*(1-A.shift[0])+WT[0]+(WT2[0]-WT[0])*e2,y+A.shift[1]+WT[1]+(WT2[1]-WT[1])*e2,z+WT[2]).sub(mv);A.root.visible=A.show;A.root.updateMatrixWorld(true);
     const f=A.fit,r=kind==='spear'?f.spear:f.rot,D=Math.PI/180;
     gq.setFromEuler(ge.set(r[0]*D,r[1]*D,r[2]*D));gm.copy(BASE).multiply(hm.makeRotationFromQuaternion(gq));gm.setPosition(f.pos[0],f.pos[1],f.pos[2]);
     hm.multiplyMatrices(hand.matrixWorld,gm).decompose(held.position,held.quaternion,held.scale);held.scale.setScalar(1);   // 道具は手首の骨についていく
@@ -13660,8 +13660,47 @@ const ARM=(()=>{
     return true};
   return A})();
 addEventListener('load',()=>setTimeout(()=>ARM.load(),0));   // 腕の読み込み（model_arm.js が読めたあと）
+
+// ===== 手・手に持った物の2D表示（3Dをやめて、ドット絵のコマを画面の右下に重ねる） =====
+// 絵は sprite_○○.js（HAND_SPRITES.fist / .sword）。何も持っていない=fist、剣・シミター=sword。絵がない物は今まで通り3Dで出す（HAND2D.only=true にすると3Dは一切出さない）。
+// 構えている間: 最初のコマを、呼吸・歩き・ジャンプ・振り向きでやや動かしてループ / 振った時: gifのコマを順に再生（当たる瞬間のコマを、ゲームの当たり判定のタイミングに合わせる）
+const HAND2D=(()=>{
+  const H={on:false,only:false,map:{sword:'sword',scimitar:'sword'},empty:'fist',skip3D:false},
+    cv=document.createElement('canvas'),cx=cv.getContext('2d'),S={bob:1,ph:0,amp:0,sway:0,air:0,lx:null,lz:null,ly:0};
+  cv.style.cssText='position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;image-rendering:pixelated;z-index:0;display:none';
+  document.body.appendChild(cv);
+  const get=k=>{const sp=window.HAND_SPRITES&&HAND_SPRITES[k];if(!sp)return null;if(!sp.im){sp.im=new Image();sp.im.src=sp.png}return sp.im.complete&&sp.im.naturalWidth?sp:null};
+  const frameAt=(sp,p,hp)=>p<hp?sp.from+(sp.hit-sp.from)*p/hp:sp.hit+(sp.to-sp.hit)*(p-hp)/(1-hp);   // 進み具合p(0〜1)→コマ番号。当たる瞬間(hp)でsp.hitのコマになる
+  H.tick=(dt,cur,cid)=>{
+    const key=MINI.big?null:(cur?H.map[cid]:H.empty),sp=key?get(key):null;
+    H.on=!!sp;H.skip3D=H.on||H.only;
+    if(!sp){cv.style.display='none';return}
+    if(S.lx===null){S.lx=player.x;S.lz=player.z;S.ly=player.yaw}
+    const spd=dt>0?Math.min(30,Math.hypot(player.x-S.lx,player.z-S.lz)/dt):0;S.lx=player.x;S.lz=player.z;
+    let dy=player.yaw-S.ly;S.ly=player.yaw;dy=Math.atan2(Math.sin(dy),Math.cos(dy));
+    const inAir=!!(PLANE.p||(window.JET&&JET.on)),mv=(player.air||inAir)?0:Math.min(1,spd/7),run=(spd>10&&!inAir)?1.4:1;
+    S.amp+=(mv-S.amp)*Math.min(1,dt*8);S.ph+=spd*dt*.8;
+    S.sway+=(Math.max(-.3,Math.min(.3,-dy*5))-S.sway)*Math.min(1,dt*10);
+    S.air+=((player.air?(player.vy>0?1:-1):0)-S.air)*Math.min(1,dt*9);
+    let p=-1,hp=.45;   // 振っている最中の進み具合
+    if(SWP.t>=0&&sw.t<0){p=Math.min(.999,SWP.t/SWP.D);hp=.4}else if(sw.t>=0)p=Math.min(.999,sw.t/.42);
+    S.bob+=((p<0?1:0)-S.bob)*Math.min(1,dt*12);   // 振る時は構えのゆれを消す
+    const t=performance.now()/1000,fi=p<0?sp.idle:Math.floor(frameAt(sp,p,hp)),fr=sp.frames[Math.max(0,Math.min(sp.frames.length-1,fi))];
+    const W=cv.clientWidth,Hh=cv.clientHeight;cv.style.display='block';
+    if(!W||!Hh)return;
+    const dpr=Math.min(2,window.devicePixelRatio||1),cw=Math.round(W*dpr),ch=Math.round(Hh*dpr);
+    if(cv.width!==cw||cv.height!==ch){cv.width=cw;cv.height=ch}
+    cx.setTransform(1,0,0,1,0,0);cx.clearRect(0,0,cw,ch);cx.imageSmoothingEnabled=false;
+    if(!fr)return;
+    const k=S.bob,bx=(Math.cos(S.ph)*3*S.amp*run+Math.cos(t*.9)*1.2+S.sway*40)*k,by=(Math.abs(Math.sin(S.ph))*5*S.amp*run+Math.sin(t*1.6)*2.2-S.air*6)*k,rot=(Math.sin(t*1.1)*.006+S.sway*.05)*k;
+    const sc=Math.min(Hh/sp.h,W/(sp.w*.6))*dpr;   // 絵の縦が画面いっぱい。縦持ちなど細い画面では右の6割ほどが入る
+    cx.setTransform(1,0,0,1,cw,ch);cx.rotate(rot);cx.scale(sc,sc);   // 右下の角を中心に、ほんの少し傾ける
+    cx.drawImage(sp.im,fr[0],fr[1],fr[2],fr[3],-sp.w+fr[4]+bx,-sp.h+fr[5]+by,fr[2],fr[3]);
+  };
+  return H})();
 function updateHeld(dt){
   const cur=INV.current,cid=cur?cur.id:'';heldOn=!MINI.big&&!!cur;   // 何も持っていない時は手持ち表示なし
+  HAND2D.tick(dt,cur,cid);   // 2Dの手・道具（絵がある物は、3Dの代わりにこれで出す）
   if(EAT.t>=0){                                                    // 食べている最中: 2秒たったら消費して回復 / 持ち物を変えた・地図を開いた・振った・満腹なら中断
     if(!FOOD_HUN[cid]||MINI.big||sw.t>=0||STAT.hp>=PLAYER_BASE.hp)EAT.t=-1;
     else{EAT.t+=dt;if(EAT.t>=EAT_DUR){EAT.t=-1;eatDone(cid)}}
@@ -13750,7 +13789,7 @@ function updateHeld(dt){
   }
   {let kind=isSpear?'spear':'base',p=-1;   // 腕: 道具を持っている間は、振りの進み具合に合わせて腕を動かし、道具を手に持たせる（上の振りの位置・向きは腕の動きで置き換わる）
     if(SWP.t>=0&&(isSword||isDagger)){kind='slash';p=Math.min(.999,SWP.t/SWP.D)}else if(sw.t>=0)p=Math.min(.999,sw.t/.42);
-    ARM.update(isTool&&!MINI.big,kind,p,acx,acy+.3,acz+.55,cid)}
+    ARM.update(isTool&&!MINI.big&&!HAND2D.skip3D,kind,p,acx,acy+.3,acz+.55,cid)}
 }
 const AIM={x:null,y:null},aimV=new THREE.Vector3();               // AIM=タップした画面の位置（null=画面の中央。PCのマウスは中央）
 function aimDir(){                                                  // 当たり判定の向き: タップした画面の位置を、今のカメラの向きで世界の向きにする
@@ -15337,7 +15376,7 @@ document.getElementById('regen').onclick=()=>{SEED=Math.floor(Math.random()*1e9)
 addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();fitRes()});
 resetWorld();
 let last=performance.now(),frame=0;
-const drawFrame=()=>{renderer.clear();renderer.render(scene,camera);if(heldOn){renderer.clearDepth();renderer.render(heldScene,heldCam)}};   // 地形→手に持った物の順に描く
+const drawFrame=()=>{renderer.clear();renderer.render(scene,camera);if(heldOn&&!HAND2D.skip3D){renderer.clearDepth();renderer.render(heldScene,heldCam)}};   // 地形→手に持った物の順に描く
 function safeRender(){
   try{drawFrame()}catch(err){EU_ERR='描画エラー: '+(err&&err.message);info.textContent=EU_ERR}
 }
@@ -15641,6 +15680,7 @@ window.HUMAN2_B64="Z2xURgIAAADgIAEAzB4AAEpTT057ImFzc2V0Ijp7ImdlbmVyYXRvciI6Iktoc
 </script>
 <script src="model_knight_merc.js"></script>
 <script src="model_arm.js"></script>
+<script src="sprite_hand.js"></script>
 <script src="model_cow.js"></script>
 <script src="model_sheep.js"></script>
 <script src="model_horse.js"></script>
