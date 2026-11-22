@@ -13663,9 +13663,10 @@ addEventListener('load',()=>setTimeout(()=>ARM.load(),0));   // 腕の読み込�
 
 // ===== 手・手に持った物の2D表示（3Dをやめて、ドット絵のコマを画面の右下に重ねる） =====
 // 絵は sprite_○○.js（HAND_SPRITES.fist / .sword）。何も持っていない=fist、剣・シミター=sword。絵がない物は今まで通り3Dで出す（HAND2D.only=true にすると3Dは一切出さない）。
+// 手の大きさは HAND2D.size（1=絵の縦が画面いっぱい。大きいほど手が大きく、右下の角を中心に広がる）
 // 構えている間: 最初のコマを、呼吸・歩き・ジャンプ・振り向きでやや動かしてループ / 振った時: gifのコマを順に再生（当たる瞬間のコマを、ゲームの当たり判定のタイミングに合わせる）
 const HAND2D=(()=>{
-  const H={on:false,only:false,map:{sword:'sword',scimitar:'sword'},empty:'fist',skip3D:false},
+  const H={on:false,only:false,size:1.4,map:{sword:'sword',scimitar:'sword'},empty:'fist',skip3D:false},
     cv=document.createElement('canvas'),cx=cv.getContext('2d'),S={bob:1,ph:0,amp:0,sway:0,air:0,lx:null,lz:null,ly:0};
   cv.style.cssText='position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;image-rendering:pixelated;z-index:0;display:none';
   document.body.appendChild(cv);
@@ -13693,7 +13694,7 @@ const HAND2D=(()=>{
     cx.setTransform(1,0,0,1,0,0);cx.clearRect(0,0,cw,ch);cx.imageSmoothingEnabled=false;
     if(!fr)return;
     const k=S.bob,bx=(Math.cos(S.ph)*3*S.amp*run+Math.cos(t*.9)*1.2+S.sway*40)*k,by=(Math.abs(Math.sin(S.ph))*5*S.amp*run+Math.sin(t*1.6)*2.2-S.air*6)*k,rot=(Math.sin(t*1.1)*.006+S.sway*.05)*k;
-    const sc=Math.min(Hh/sp.h,W/(sp.w*.6))*dpr;   // 絵の縦が画面いっぱい。縦持ちなど細い画面では右の6割ほどが入る
+    const sc=Math.min(Hh/sp.h,W/(sp.w*.6))*dpr*H.size;   // 絵の縦が画面いっぱい。縦持ちなど細い画面では右の6割ほどが入る
     cx.setTransform(1,0,0,1,cw,ch);cx.rotate(rot);cx.scale(sc,sc);   // 右下の角を中心に、ほんの少し傾ける
     cx.drawImage(sp.im,fr[0],fr[1],fr[2],fr[3],-sp.w+fr[4]+bx,-sp.h+fr[5]+by,fr[2],fr[3]);
   };
