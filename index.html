@@ -13662,11 +13662,11 @@ const ARM=(()=>{
 addEventListener('load',()=>setTimeout(()=>ARM.load(),0));   // 腕の読み込み（model_arm.js が読めたあと）
 
 // ===== 手・手に持った物の2D表示（3Dをやめて、ドット絵のコマを画面の右下に重ねる） =====
-// 絵は sprite_○○.js（HAND_SPRITES.fist / .sword）。何も持っていない=fist、剣・シミター=sword。絵がない物は今まで通り3Dで出す（HAND2D.only=true にすると3Dは一切出さない）。
+// 絵は sprite_○○.js（HAND_SPRITES.fist / .sword / .axe / .pickaxe）。何も持っていない=fist、剣・シミター=sword、石・鉄の斧=axe、石・鉄のツルハシ=pickaxe。絵がない物は今まで通り3Dで出す（HAND2D.only=true にすると3Dは一切出さない）。
 // 手の大きさは HAND2D.size（1=絵の縦が画面いっぱい。大きいほど手が大きく、右下の角を中心に広がる）
 // 構えている間: 最初のコマを、呼吸・歩き・ジャンプ・振り向きでやや動かしてループ / 振った時: gifのコマを順に再生（当たる瞬間のコマを、ゲームの当たり判定のタイミングに合わせる）
 const HAND2D=(()=>{
-  const H={on:false,only:false,depth:1,size:1.4,map:{sword:'sword',scimitar:'sword'},empty:'fist',skip3D:false},
+  const H={on:false,only:false,depth:1,size:1.4,map:{sword:'sword',scimitar:'sword',axe:'axe',iron_axe:'axe',pickaxe:'pickaxe',iron_pickaxe:'pickaxe'},empty:'fist',skip3D:false},
     cv=document.createElement('canvas'),cx=cv.getContext('2d'),S={bob:1,ph:0,amp:0,sway:0,air:0,lx:null,lz:null,ly:0};
   cv.style.cssText='position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;image-rendering:pixelated;z-index:0;display:none';
   document.body.appendChild(cv);
