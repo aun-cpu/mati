@@ -13688,7 +13688,8 @@ const HAND2D=(()=>{
     // 弓: 振らずに、引き具合(BOW.p)と射ってからの時間(BOW.shT)でコマ番号を直接決める。引いている=0〜drawN / 射った直後=rel0〜relN / それ以外=構え
     let bf=-1;
     if(sp.bow){p=-1;BOW.shT+=dt;const rf=BOW.shT*sp.relFps;
-      if(BOW.on)bf=Math.min(1,BOW.p)*sp.drawN;else if(rf<sp.relN-sp.rel0+1)bf=sp.rel0+rf;else if(BOW.p>.03)bf=BOW.p*sp.drawN;else bf=sp.idle}
+      if(BOW.on)S.bq=Math.min(1,BOW.t/BOW.FULL);else S.bq+=(0-(S.bq||0))*Math.min(1,dt*14);   // 引き具合（絵用）: 引き始めからすぐ動くよう直線
+      if(BOW.on)bf=S.bq*sp.drawN;else if(rf<sp.relN-sp.rel0+1)bf=sp.rel0+rf;else if(S.bq>.03)bf=S.bq*sp.drawN;else bf=sp.idle}
     S.bob+=(((p<0&&!(bf>sp.idle+.5))?1:0)-S.bob)*Math.min(1,dt*12);   // 振る時・弓を引く時は構えのゆれを消す
     const t=performance.now()/1000,fi=sp.bow?Math.floor(bf):(p<0?sp.idle:Math.floor(frameAt(sp,p,hp))),fr=sp.frames[Math.max(0,Math.min(sp.frames.length-1,fi))];
     if(sp.bow){if(S.bf!=null&&S.bfr&&Math.abs(bf-S.bf)>9){S.fadeFr=S.bfr;S.fade=1}S.bf=bf;S.bfr=fr}else{S.bf=null;S.fade=0}   // 弓のコマが大きく飛ぶ時（射ったあと→構え、など）は、前の姿をすっと消す
@@ -13720,9 +13721,17 @@ const HAND2D=(()=>{
     draw(fr,p,1);cx.globalAlpha=1;
   };
   return H})();
+// 画面中央の基準（小さなドットの十字・半透明）。弓の狙いは画面の中央。CROSS.on=false で消せる
+const CROSS=(()=>{
+  const e=document.createElement('div'),c='rgba(255,255,255,.5)',sp=[6,12].flatMap(d=>[[d,0],[-d,0],[0,d],[0,-d]]).map(([x,y])=>x+'px '+y+'px 0 '+c).join(',');
+  e.id='cross';e.style.cssText='position:fixed;left:50%;top:50%;width:2px;height:2px;margin:-1px 0 0 -1px;background:'+c+';box-shadow:'+sp+';filter:drop-shadow(0 0 1px rgba(0,0,0,.55));pointer-events:none;z-index:1';
+  document.body.appendChild(e);
+  const C={on:true,vis:true};
+  C.tick=()=>{const v=C.on&&!MINI.big&&!STAT.dead;if(v!==C.vis){C.vis=v;e.style.display=v?'block':'none'}};
+  return C})();
 function updateHeld(dt){
   const cur=INV.current,cid=cur?cur.id:'';heldOn=!MINI.big&&!!cur;   // 何も持っていない時は手持ち表示なし
-  HAND2D.tick(dt,cur,cid);   // 2Dの手・道具（絵がある物は、3Dの代わりにこれで出す）
+  HAND2D.tick(dt,cur,cid);CROSS.tick();   // 2Dの手・道具（絵がある物は、3Dの代わりにこれで出す）
   if(EAT.t>=0){                                                    // 食べている最中: 2秒たったら消費して回復 / 持ち物を変えた・地図を開いた・振った・満腹なら中断
     if(!FOOD_HUN[cid]||MINI.big||sw.t>=0||STAT.hp>=PLAYER_BASE.hp)EAT.t=-1;
     else{EAT.t+=dt;if(EAT.t>=EAT_DUR){EAT.t=-1;eatDone(cid)}}
@@ -14324,7 +14333,7 @@ function updateShakes(dt){
 // 画面を押す(スマホ: 短いタップ / PC: ポインタ固定中のクリック)と振る。ドラッグでの視点移動・スティック移動では振らない
 // 食べ物を持った状態で、画面を動かさずに長押しすると食べ始める（手元の物が口元に寄ってもぐもぐ）。2秒続けると1個消費してHPが回復する。
 // 2秒たつ前に指を離す・動かす・持ち物を変える・振ると中断して、何も消費しない（HPが満タンの時は食べ始めない）
-const FOOD_HUN={raw_meat:20,apple:20,bread:20},EAT_START_MS=300,EAT_DUR=2,EAT={t:-1,k:0};   // 食べ物のid: HPの回復量 / 長押しで食べ始めるまで / 食べ終わるまでの秒数 / t=食べている経過秒(-1=食べていない)
+const FOOD_HUN={raw_meat:20,apple:20,bread:20},EAT_START_MS=300,BOW_START_MS=110,EAT_DUR=2,EAT={t:-1,k:0};   // 食べ物のid: HPの回復量 / 長押しで食べ始めるまで / 食べ終わるまでの秒数 / t=食べている経過秒(-1=食べていない)
 function eatStart(){
   const c=INV.current;if(!c||!FOOD_HUN[c.id]||MINI.big||STAT.hp>=PLAYER_BASE.hp||sw.t>=0)return false;
   EAT.t=0;return true;
@@ -14341,7 +14350,7 @@ function eatDone(id){
     if(MINI.big||(e.target.closest&&e.target.closest('button,#inv,#mini,#dbgItems,#dbgCre')))return;
     for(const t of e.changedTouches){
       const o={x:t.clientX,y:t.clientY,t:performance.now(),moved:false,timer:0,eating:false};
-      o.timer=setTimeout(()=>{if(taps.get(t.identifier)===o&&!o.moved){if(bowStart()){o.bow=true;return}if(sweepStart())return;if(rideTap(o.x,o.y)||planeTap(o.x,o.y)||(window.JET&&JET.tap(o.x,o.y))){o.rode=true;return}o.eating=eatStart();if(!o.eating){if(!fireNovaStart()){o.aiming=launchAimStart();if(!o.aiming&&interactEnd())o.rode=true}}}},EAT_START_MS);   // 長押し: 食べ物なら食べる / 剣・短剣なら横なぎ   // 動かさずに長押ししたら食べ始める
+      const slow=()=>{if(taps.get(t.identifier)===o&&!o.moved){if(bowStart()){o.bow=true;return}if(sweepStart())return;if(rideTap(o.x,o.y)||planeTap(o.x,o.y)||(window.JET&&JET.tap(o.x,o.y))){o.rode=true;return}o.eating=eatStart();if(!o.eating){if(!fireNovaStart()){o.aiming=launchAimStart();if(!o.aiming&&interactEnd())o.rode=true}}}};const bowNow=!!(INV.current&&INV.current.id==='bow');o.timer=setTimeout(bowNow?()=>{if(taps.get(t.identifier)===o&&!o.moved&&bowStart()){o.bow=true;return}o.timer=setTimeout(slow,Math.max(0,EAT_START_MS-BOW_START_MS))}:slow,bowNow?BOW_START_MS:EAT_START_MS);   // 弓を持っている時だけ、引き始めを早くする（弓が使えない時は元の長押しの動きにつなぐ）   // 長押し: 食べ物なら食べる / 剣・短剣なら横なぎ   // 動かさずに長押ししたら食べ始める
       taps.set(t.identifier,o);
     }
   },{passive:true});
