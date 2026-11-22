@@ -13666,7 +13666,7 @@ addEventListener('load',()=>setTimeout(()=>ARM.load(),0));   // 腕の読み込�
 // 手の大きさは HAND2D.size（1=絵の縦が画面いっぱい。大きいほど手が大きく、右下の角を中心に広がる）
 // 構えている間: 最初のコマを、呼吸・歩き・ジャンプ・振り向きでやや動かしてループ / 振った時: gifのコマを順に再生（当たる瞬間のコマを、ゲームの当たり判定のタイミングに合わせる）
 const HAND2D=(()=>{
-  const H={on:false,only:false,depth:1,size:1.4,map:{sword:'sword',scimitar:'sword',axe:'axe',iron_axe:'axe',pickaxe:'pickaxe',iron_pickaxe:'pickaxe',spear:'spear',iron_spear:'spear',wand:'magic'},empty:'fist',skip3D:false},
+  const H={on:false,only:false,depth:1,aimX:.5,aimY:.52,size:1.4,map:{sword:'sword',scimitar:'sword',axe:'axe',iron_axe:'axe',pickaxe:'pickaxe',iron_pickaxe:'pickaxe',spear:'spear',iron_spear:'spear',wand:'magic'},empty:'fist',skip3D:false},
     cv=document.createElement('canvas'),cx=cv.getContext('2d'),S={bob:1,ph:0,amp:0,sway:0,air:0,lx:null,lz:null,ly:0};
   cv.style.cssText='position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;image-rendering:pixelated;z-index:0;display:none';
   document.body.appendChild(cv);
@@ -13695,18 +13695,23 @@ const HAND2D=(()=>{
     if(!fr)return;
     const k=S.bob,bx=(Math.cos(S.ph)*3*S.amp*run+Math.cos(t*.9)*1.2+S.sway*40)*k,by=(Math.abs(Math.sin(S.ph))*5*S.amp*run+Math.sin(t*1.6)*2.2-S.air*6)*k,rot=(Math.sin(t*1.1)*.006+S.sway*.05)*k;
     const sc=Math.min(Hh/sp.h,W/(sp.w*.6))*dpr*H.size;   // 絵の縦が画面いっぱい。縦持ちなど細い画面では右の6割ほどが入る
-    // 奥行き: 振る間、手を「手前(大きく・右下の角)→奥(小さく・画面の中心寄り)→戻る」と動かす。z=-1:引いて手前 / +1:突き出して一番奥 / 0:構え
+    // 奥行き: 振る間、手を「手前(大きく)→奥(小さく)→戻る」と動かす。z=-1:引いて手前 / +1:突き出して一番奥 / 0:構え（右下の角を中心に拡大縮小するので、絵の縁は画面の端に付いたまま）
     // H.depth で強さを変えられる（0=奥行きなし / 1=標準 / 大きいほど強い）
+    const sm01=x=>{x=Math.max(0,Math.min(1,x));return x*x*(3-2*x)};
     const ZD=q=>{if(q<0)return 0;const a=hp*.5,sm=x=>x*x*(3-2*x);return q<a?-sm(q/a):q<hp?-1+2*sm((q-a)/(hp-a)):1-sm((q-hp)/(1-hp))};
     const FR=q=>sp.frames[Math.max(0,Math.min(sp.frames.length-1,Math.floor(frameAt(sp,q,hp))))];
-    const draw=(f,z,a)=>{
-      if(!f)return;z*=H.depth;
-      const s=sc*(1-.16*z),ox=(cw*.6-cw)*.3*z,oy=(ch*.55-ch)*.3*z;   // 奥へ行くほど小さくなり、画面の中心(消失点)へ寄る
-      cx.globalAlpha=a;cx.setTransform(1,0,0,1,cw,ch);cx.translate(ox,oy);cx.rotate(rot+z*.04);cx.scale(s,s*(1-.08*z));   // 縦だけ少し縮めて、奥へ倒れる感じ
+    // 狙い: 絵に aim=[x,y,最初の突き出しコマ,最後の突き出しコマ] がある物（斧・ツルハシ・槍）は、突き出している間、道具の先が画面の中心(H.aimX,H.aimY)へ来るように、右下の角を中心に回して大きさを変える
+    const AIMW=q=>{const a=sp.aim;if(!a||q<0)return 0;const fx=frameAt(sp,q,hp);return Math.min(sm01((fx-(a[2]-3))/3),1-sm01((fx-(a[3]-2))/3))};
+    let aimS=1,aimR=0;
+    if(sp.aim){const vx=(sp.aim[0]-sp.w)*sc,vy=(sp.aim[1]-sp.h)*sc,ux=cw*(H.aimX-1),uy=ch*(H.aimY-1);   // v=今の先の位置・u=行きたい位置（どちらも右下の角から見て）
+      aimS=Math.max(.4,Math.min(1.2,Math.hypot(ux,uy)/Math.hypot(vx,vy)));aimR=Math.max(-.2,Math.min(.95,Math.atan2(uy,ux)-Math.atan2(vy,vx)))}
+    const draw=(f,q,a)=>{
+      if(!f)return;const w=AIMW(q),z=ZD(q)*H.depth,zz=sp.aim?z*(1-w):z;   // 狙いの動きが効いている間は、奥行きの拡大縮小はその中に含まれる
+      const s=sc*(1-.16*zz)*(sp.aim?1+(aimS-1)*w:1);
+      cx.globalAlpha=a;cx.setTransform(1,0,0,1,cw,ch);cx.rotate(rot+zz*.04+(sp.aim?aimR*w:0));cx.scale(s,s*(1-.08*zz));   // 縦だけ少し縮めて、奥へ倒れる感じ
       cx.drawImage(sp.im,f[0],f[1],f[2],f[3],-sp.w+f[4]+bx,-sp.h+f[5]+by,f[2],f[3])};
-    const z0=p<0?0:ZD(p);
-    if(p>=0&&p<hp+.12)for(const g of [[.07,.28],[.14,.14]]){const q=p-g[0];if(q<0)continue;const zq=ZD(q);if(z0-zq>.05)draw(FR(q),zq,g[1])}   // 突き出す速い間だけ、少し前の姿を薄く残す（奥へ飛ぶ軌跡）
-    draw(fr,z0,1);cx.globalAlpha=1;
+    if(p>=0&&p<hp+.12)for(const g of [[.07,.28],[.14,.14]]){const q=p-g[0];if(q<0)continue;if(ZD(p)-ZD(q)>.05)draw(FR(q),q,g[1])}   // 突き出す速い間だけ、少し前の姿を薄く残す（奥へ飛ぶ軌跡）
+    draw(fr,p,1);cx.globalAlpha=1;
   };
   return H})();
 function updateHeld(dt){
